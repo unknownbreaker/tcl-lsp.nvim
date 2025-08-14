@@ -98,25 +98,35 @@ function M.setup(opts)
 		print("Current file: " .. (current_file ~= "" and current_file or "No file"))
 		print("tclsh command: " .. cfg.tclsh_cmd)
 
-		-- Test 1: Check if tclsh is available
+		-- Test 1: Check if tclsh is available using file-based test
 		local tclsh_ok, tclsh_error = utils.check_tclsh(cfg.tclsh_cmd)
 		print("tclsh available: " .. (tclsh_ok and "YES" or "NO"))
 		if not tclsh_ok then
 			print("tclsh error: " .. tclsh_error)
 		end
 
-		-- Test 2: Test simple tclsh command
-		local simple_test = vim.fn.system(cfg.tclsh_cmd .. ' -c "puts {Hello from TCL}" 2>&1')
-		print("Simple tclsh test: " .. simple_test:gsub("\n", " "))
+		-- Test 2: Test simple tclsh with temporary file
+		local temp_file = vim.fn.tempname() .. ".tcl"
+		local test_file = io.open(temp_file, "w")
+		if test_file then
+			test_file:write('puts "Hello from TCL test"\nexit 0')
+			test_file:close()
 
-		-- Test 3: Check file if available
+			local simple_test = vim.fn.system(cfg.tclsh_cmd .. " " .. vim.fn.shellescape(temp_file) .. " 2>&1")
+			print("Simple tclsh test: " .. simple_test:gsub("\n", " "))
+			vim.fn.delete(temp_file)
+		else
+			print("Simple tclsh test: FAILED - cannot create temp file")
+		end
+
+		-- Test 3: Check current file if available
 		if current_file ~= "" then
 			print("File exists: " .. (vim.fn.filereadable(current_file) == 1 and "YES" or "NO"))
 			print("File size: " .. vim.fn.getfsize(current_file) .. " bytes")
 
 			-- Test direct tclsh on current file
 			local file_test =
-				vim.fn.system(string.format('%s -c "source %s" 2>&1', cfg.tclsh_cmd, vim.fn.shellescape(current_file)))
+				vim.fn.system(string.format("%s %s 2>&1", cfg.tclsh_cmd, vim.fn.shellescape(current_file)))
 			print("Direct file test result:")
 			print(file_test)
 		end

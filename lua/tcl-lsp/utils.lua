@@ -86,18 +86,39 @@ end
 -- Check if tclsh is available
 function M.check_tclsh(tclsh_cmd)
 	tclsh_cmd = tclsh_cmd or "tclsh"
-	local handle = io.popen(tclsh_cmd .. ' -c "puts {OK}" 2>&1')
+
+	-- Create a simple test script
+	local temp_file = vim.fn.tempname() .. ".tcl"
+	local test_script = 'puts "TCL_TEST_OK"\nexit 0'
+
+	-- Write the test script
+	local file = io.open(temp_file, "w")
+	if not file then
+		return false, "Cannot create temporary test file"
+	end
+
+	file:write(test_script)
+	file:close()
+
+	-- Run tclsh with the test script
+	local cmd = string.format("%s %s 2>&1", vim.fn.shellescape(tclsh_cmd), vim.fn.shellescape(temp_file))
+
+	local handle = io.popen(cmd)
 	if not handle then
+		vim.fn.delete(temp_file)
 		return false, "Cannot execute " .. tclsh_cmd
 	end
 
 	local result = handle:read("*a")
 	local success = handle:close()
 
-	if success and result:match("OK") then
+	-- Clean up
+	vim.fn.delete(temp_file)
+
+	if success and result:match("TCL_TEST_OK") then
 		return true, nil
 	else
-		return false, "tclsh check failed: " .. (result or "unknown error")
+		return false, "tclsh test failed: " .. (result or "unknown error")
 	end
 end
 
