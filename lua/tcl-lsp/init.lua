@@ -1,96 +1,6 @@
 local M = {}
 
-local config = require("tcl-lsp.config")
-local server = require("tcl-lsp.server")
-
 -- Default configuration
-M.config = {
-	-- Server settings
-	server = {
-		cmd = nil, -- Will be auto-detected
-		settings = {
-			tcl = {
-				-- Future: TCL-specific settings
-			},
-		},
-	},
-
-	-- LSP client settings
-	on_attach = nil, -- User can override
-	capabilities = nil, -- Will use defaults
-
-	-- Auto-install dependencies
-	auto_install = {
-		tcl = true, -- Check for tclsh
-		tcllib = true, -- Check for JSON package
-	},
-
-	-- Logging
-	log_level = vim.log.levels.WARN,
-}
-
--- Setup function called by users
-function M.setup(user_config)
-	config = vim.tbl_deep_extend("force", default_config, user_config or {})
-
-	-- Auto-detect the best tclsh if set to "auto" or not specified
-	if config.tclsh_cmd == "auto" or config.tclsh_cmd == "tclsh" then
-		local best_tclsh, version_or_error = find_best_tclsh()
-		if best_tclsh then
-			config.tclsh_cmd = best_tclsh
-			vim.notify("✅ TCL LSP: Found " .. best_tclsh .. " with JSON " .. version_or_error, vim.log.levels.INFO)
-		else
-			vim.notify("❌ TCL LSP: No suitable Tcl installation found: " .. version_or_error, vim.log.levels.ERROR)
-			vim.notify("💡 Try installing: brew install tcl-tk && install tcllib", vim.log.levels.INFO)
-			return
-		end
-	else
-		-- Verify user-specified tclsh
-		local has_tcllib, version_or_error = check_tcllib_availability(config.tclsh_cmd)
-		if not has_tcllib then
-			vim.notify("❌ TCL LSP: Specified tclsh doesn't have tcllib: " .. version_or_error, vim.log.levels.ERROR)
-			return
-		else
-			vim.notify(
-				"✅ TCL LSP: Using " .. config.tclsh_cmd .. " with JSON " .. version_or_error,
-				vim.log.levels.INFO
-			)
-		end
-	end
-
-	-- Configure diagnostics globally
-	vim.diagnostic.config(config.diagnostic_config)
-
-	-- Auto-setup everything if enabled (default: true)
-	if config.auto_setup_filetypes then
-		setup_filetype_detection()
-	end
-
-	if config.auto_setup_commands then
-		setup_user_commands()
-	end
-
-	if config.auto_setup_autocmds then
-		setup_buffer_autocmds()
-	end
-
-	-- Show success message with quick start info
-	local success_msg = string.format([[
-🎉 TCL LSP ready! Quick commands:
-  :TclCheck - Check syntax
-  :TclInfo - System info  
-  :TclJsonTest - Test JSON
-  <leader>tc - Syntax check
-  K - Hover docs (in .tcl files)
-]])
-
-	vim.notify(success_msg, vim.log.levels.INFO)
-end -- lua/tcl-lsp/init.lua
--- Updated TCL LSP plugin to use script files instead of -c flag
-
-local M = {}
-
--- Default configuration - everything enabled and configured for best experience
 local default_config = {
 	hover = true,
 	diagnostics = true,
@@ -143,7 +53,6 @@ local default_config = {
 local config = {}
 
 -- Helper function to execute Tcl scripts using temporary files
--- This replaces all uses of `tclsh -c` with proper script files
 local function execute_tcl_script(script_content, tclsh_cmd)
 	tclsh_cmd = tclsh_cmd or config.tclsh_cmd or "tclsh"
 
@@ -525,7 +434,6 @@ local function setup_buffer_autocmds()
 			pattern = "*.tcl",
 			group = tcl_group,
 			callback = function()
-				-- Small delay to ensure file is written
 				vim.defer_fn(function()
 					M.syntax_check()
 				end, 100)
@@ -539,13 +447,70 @@ local function setup_buffer_autocmds()
 			pattern = "*.tcl",
 			group = tcl_group,
 			callback = function()
-				-- Debounced syntax check
 				vim.defer_fn(function()
 					M.syntax_check()
 				end, 500)
 			end,
 		})
 	end
+end
+
+-- Setup function - handles everything automatically
+function M.setup(user_config)
+	config = vim.tbl_deep_extend("force", default_config, user_config or {})
+
+	-- Auto-detect the best tclsh if set to "auto" or not specified
+	if config.tclsh_cmd == "auto" or config.tclsh_cmd == "tclsh" then
+		local best_tclsh, version_or_error = find_best_tclsh()
+		if best_tclsh then
+			config.tclsh_cmd = best_tclsh
+			vim.notify("✅ TCL LSP: Found " .. best_tclsh .. " with JSON " .. version_or_error, vim.log.levels.INFO)
+		else
+			vim.notify("❌ TCL LSP: No suitable Tcl installation found: " .. version_or_error, vim.log.levels.ERROR)
+			vim.notify("💡 Try installing: brew install tcl-tk && install tcllib", vim.log.levels.INFO)
+			return
+		end
+	else
+		-- Verify user-specified tclsh
+		local has_tcllib, version_or_error = check_tcllib_availability(config.tclsh_cmd)
+		if not has_tcllib then
+			vim.notify("❌ TCL LSP: Specified tclsh doesn't have tcllib: " .. version_or_error, vim.log.levels.ERROR)
+			return
+		else
+			vim.notify(
+				"✅ TCL LSP: Using " .. config.tclsh_cmd .. " with JSON " .. version_or_error,
+				vim.log.levels.INFO
+			)
+		end
+	end
+
+	-- Configure diagnostics globally
+	vim.diagnostic.config(config.diagnostic_config)
+
+	-- Auto-setup everything if enabled (default: true)
+	if config.auto_setup_filetypes then
+		setup_filetype_detection()
+	end
+
+	if config.auto_setup_commands then
+		setup_user_commands()
+	end
+
+	if config.auto_setup_autocmds then
+		setup_buffer_autocmds()
+	end
+
+	-- Show success message with quick start info
+	local success_msg = string.format([[
+🎉 TCL LSP ready! Quick commands:
+  :TclCheck - Check syntax
+  :TclInfo - System info  
+  :TclJsonTest - Test JSON
+  <leader>tc - Syntax check
+  K - Hover docs (in .tcl files)
+]])
+
+	vim.notify(success_msg, vim.log.levels.INFO)
 end
 
 -- Public functions
@@ -600,5 +565,5 @@ function M.test_json()
 	end
 end
 
--- Export the module
+-- Export the module (CRITICAL!)
 return M
