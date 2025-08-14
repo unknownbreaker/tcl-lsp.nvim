@@ -19,48 +19,49 @@ end
 
 -- Get word at cursor position (helper for LSP methods)
 function M.get_word_at_position(line, character)
-	print("=== WORD EXTRACTION DEBUG ===")
-	print("Line:", '"' .. (line or "nil") .. '"')
-	print("Character position:", character)
-
 	if not line or character < 0 or character > #line then
-		print("ERROR: Invalid line or character position")
 		return nil
 	end
 
-	-- Find word boundaries (TCL identifiers can contain :, _, letters, numbers)
-	local before = line:sub(1, character + 1)
-	local after = line:sub(character + 1)
-
-	print("Before cursor:", '"' .. before .. '"')
-	print("After cursor:", '"' .. after .. '"')
-
-	-- Extract word part before cursor
-	local word_start = before:match(".*[^%w_:]([%w_:]*)$")
-	if not word_start then
-		word_start = before:match("^([%w_:]*)$") or ""
+	-- Find the start of the word (go backwards from cursor)
+	local start_pos = character
+	while start_pos > 0 do
+		local char = line:sub(start_pos, start_pos)
+		if not char:match("[%w_:]") then
+			start_pos = start_pos + 1
+			break
+		end
+		start_pos = start_pos - 1
 	end
 
-	-- Extract word part after cursor
-	local word_end = after:match("^([%w_:]*)")
-	if not word_end then
-		word_end = ""
+	-- If we went all the way to the beginning, start at position 1
+	if start_pos <= 0 then
+		start_pos = 1
 	end
 
-	print("Word start:", '"' .. word_start .. '"')
-	print("Word end:", '"' .. word_end .. '"')
-
-	local full_word = word_start .. word_end
-	print("Full word:", '"' .. full_word .. '"')
-	print("Word length:", #full_word)
-
-	if full_word == "" then
-		print("ERROR: Empty word extracted")
-		return nil
+	-- Find the end of the word (go forwards from cursor)
+	local end_pos = character + 1
+	while end_pos <= #line do
+		local char = line:sub(end_pos, end_pos)
+		if not char:match("[%w_:]") then
+			end_pos = end_pos - 1
+			break
+		end
+		end_pos = end_pos + 1
 	end
 
-	print("SUCCESS: Returning word:", '"' .. full_word .. '"')
-	return full_word
+	-- If we went past the end, use the line length
+	if end_pos > #line then
+		end_pos = #line
+	end
+
+	-- Extract the word
+	if start_pos <= end_pos then
+		local word = line:sub(start_pos, end_pos)
+		return word ~= "" and word or nil
+	end
+
+	return nil
 end
 
 -- Convert file path to LSP URI
