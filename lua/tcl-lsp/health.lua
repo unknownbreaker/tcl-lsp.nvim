@@ -1,217 +1,184 @@
+local health = vim.health or require("health")
+
 local M = {}
 
-local health = vim.health
+-- Execute Tcl script using temporary file (same as main module)
+local function execute_tcl_script(script_content, tclsh_cmd)
+	tclsh_cmd = tclsh_cmd or "tclsh"
 
--- Check if a command is available
-local function check_command(cmd, name)
-	if vim.fn.executable(cmd) == 1 then
-		health.ok(name .. " is installed: " .. vim.fn.exepath(cmd))
-		return true
-	else
-		health.error(name .. " is not installed or not in PATH")
-		return false
+	local temp_file = os.tmpname() .. ".tcl"
+	local file = io.open(temp_file, "w")
+	if not file then
+		return nil, false
 	end
+
+	file:write(script_content)
+	file:close()
+
+	local cmd = tclsh_cmd .. " " .. vim.fn.shellescape(temp_file) .. " 2>&1"
+	local handle = io.popen(cmd)
+	local result = handle:read("*a")
+	local success = handle:close()
+
+	os.remove(temp_file)
+	return result, success
 end
 
--- Check TCL JSON package
-local function check_tcl_json()
-	local result = vim.fn.system('tclsh -c "package require json; puts OK" 2>&1')
-	if result:match("OK") then
-		health.ok("TCL JSON package is available")
-		return true
-	else
-		health.error("TCL JSON package is not available")
-		health.info("Install with: brew install tcllib (macOS) or sudo apt-get install tcllib (Ubuntu)")
-		return false
+-- Check if a tclsh command works
+local function check_tclsh(tclsh_cmd)
+	local test_script = [[
+puts "VERSION:[info patchlevel]"
+puts "EXECUTABLE:[info nameofexecutable]"
+]]
+
+	local result, success = execute_tcl_script(test_script, tclsh_cmd)
+	if result and success then
+		local version = result:match("VERSION:([^\n]+)")
+		local executable = result:match("EXECUTABLE:([^\n]+)")
+		return true, version, executable
 	end
+	return false, result
 end
 
--- Check server script
-local function check_server_script()
-	local server = require("tcl-lsp.server")
-	local server_path = server.get_server_path()
+-- Check tcllib availability
+local function check_tcllib(tclsh_cmd)
+	local test_script = [[
+if {[catch {package require json} err]} {
+    puts "ERROR:$err"
+    exit 1
+} else {
+    puts "SUCCESS"
+    puts "VERSION:[package provide json]"
+}
+]]
 
-	if server_path then
-		if vim.fn.filereadable(server_path) == 1 then
-			health.ok("TCL LSP server script found: " .. server_path)
-
-			if vim.fn.executable(server_path) == 1 then
-				health.ok("Server script is executable")
-				return true
-			else
-				health.warn("Server script is not executable. Run: chmod +x " .. server_path)
-				return false
-			end
-		else
-			health.error("Server script is not readable: " .. server_path)
-			return false
-		end
+	local result, success = execute_tcl_script(test_script, tclsh_cmd)
+	if result and success and result:match("SUCCESS") then
+		local version = result:match("VERSION:([^\n]+)")
+		return true, version
 	else
-		health.error("TCL LSP server script not found")
-		health.info("Expected locations:")
-		health.info("  - Plugin bin/tcl-lsp-server.tcl")
-		health.info("  - ~/.config/nvim/tcl-lsp-server.tcl")
-		return false
-	end
-end
-
--- Check LSP configuration
-local function check_lsp_config()
-	local has_lspconfig, _ = pcall(require, "lspconfig")
-	if has_lspconfig then
-		health.ok("nvim-lspconfig is available")
-
-		local configs = require("lspconfig.configs")
-		if configs.tcl_lsp then
-			health.ok("TCL LSP server is registered with lspconfig")
-		else
-			health.warn("TCL LSP server is not yet registered (will register on first TCL file)")
-		end
-
-		return true
-	else
-		health.error("nvim-lspconfig is not available")
-		health.info("Install with your plugin manager")
-		return false
-	end
-end
-
--- Check if server is running
-local function check_server_status()
-	local server = require("tcl-lsp.server")
-	local status = server.get_status()
-
-	if status.running then
-		health.ok("TCL LSP server is running (client ID: " .. status.client_id .. ")")
-		health.info("Attached to " .. #vim.tbl_keys(status.attached_buffers) .. " buffer(s)")
-	else
-		health.info("TCL LSP server is not currently running")
-		health.info("It will start automatically when you open a TCL file")
+		local error = result and result:match("ERROR:([^\n]+)") or "Unknown error"
+		return false, error
 	end
 end
 
 -- Main health check function
 function M.check()
-	health.start("TCL LSP Dependencies")
+	health.start("TCL LSP Health Check")
 
-	local tcl_ok = check_command("tclsh", "tclsh")
-	local json_ok = tcl_ok and check_tcl_json()
-	local server_ok = check_server_script()
-	local lsp_ok = check_lsp_config()
-
-	health.start("TCL LSP Server Status")
-	check_server_status()
-
-	health.start("Installation Guide")
-
-	if not tcl_ok then
-		health.info("To install TCL:")
-		health.info("  macOS:   brew install tcl-tk")
-		health.info("  Ubuntu:  sudo apt-get install tcl")
-		health.info("  CentOS:  sudo yum install tcl")
-	end
-
-	if not json_ok then
-		health.info("To install TCL JSON package:")
-		health.info("  macOS:   brew install tcllib")
-		health.info("  Ubuntu:  sudo apt-get install tcllib")
-		health.info("  CentOS:  sudo yum install tcllib")
-	end
-
-	if not server_ok then
-		health.info("The server script should be included with the plugin.")
-		health.info("If missing, check your plugin installation.")
-	end
-
-	if not lsp_ok then
-		health.info("Install nvim-lspconfig with your plugin manager:")
-		health.info("  { 'neovim/nvim-lspconfig' }")
-	end
-
-	local all_ok = tcl_ok and json_ok and server_ok and lsp_ok
-
-	if all_ok then
-		health.start("✅ All Good!")
-		health.ok("TCL LSP is ready to use")
-		health.info("Open a .tcl file to start the language server")
-	else
-		health.start("❌ Issues Found")
-		health.error("Some dependencies are missing")
-		health.info("Run :TclLspInstall to try automatic installation")
-	end
-end
-
--- Silent check for internal use
-function M.check_silent()
-	local tcl_ok = vim.fn.executable("tclsh") == 1
-	local json_ok = false
-	local server_ok = false
-	local lsp_ok = false
-
-	if tcl_ok then
-		local result = vim.fn.system('tclsh -c "package require json; puts OK" 2>&1')
-		json_ok = result:match("OK") ~= nil
-	end
-
-	local server = require("tcl-lsp.server")
-	local server_path = server.get_server_path()
-	server_ok = server_path and vim.fn.filereadable(server_path) == 1
-
-	lsp_ok = pcall(require, "lspconfig")
-
-	return {
-		tcl = tcl_ok,
-		tcllib = json_ok,
-		server = server_ok,
-		lspconfig = lsp_ok,
-		all_ok = tcl_ok and json_ok and server_ok and lsp_ok,
+	-- List of Tcl commands to check
+	local tclsh_candidates = {
+		"tclsh",
+		"tclsh8.6",
+		"tclsh8.5",
+		"/opt/homebrew/bin/tclsh8.6",
+		"/opt/homebrew/Cellar/tcl-tk@8/8.6.16/bin/tclsh8.6",
+		"/opt/local/bin/tclsh",
+		"/usr/local/bin/tclsh",
+		"/usr/bin/tclsh",
 	}
-end
 
--- Attempt to install dependencies
-function M.install_dependencies()
-	vim.notify("Attempting to install TCL LSP dependencies...", vim.log.levels.INFO)
+	local working_tclsh = {}
+	local best_tclsh = nil
 
-	local function run_command(cmd, description)
-		vim.notify("Running: " .. description, vim.log.levels.INFO)
-		local result = vim.fn.system(cmd)
-		local success = vim.v.shell_error == 0
+	-- Test each Tcl installation
+	for _, tclsh_cmd in ipairs(tclsh_candidates) do
+		-- Check if command exists
+		local exists = os.execute("command -v " .. tclsh_cmd .. " >/dev/null 2>&1") == 0
 
-		if success then
-			vim.notify("✅ " .. description .. " completed", vim.log.levels.INFO)
-		else
-			vim.notify("❌ " .. description .. " failed: " .. result, vim.log.levels.ERROR)
+		if exists then
+			local works, version, executable = check_tclsh(tclsh_cmd)
+
+			if works then
+				health.ok(string.format("%s found (version: %s)", tclsh_cmd, version or "unknown"))
+
+				-- Check tcllib for this installation
+				local has_tcllib, tcllib_info = check_tcllib(tclsh_cmd)
+
+				if has_tcllib then
+					health.ok(string.format("  ✅ tcllib JSON package available (version: %s)", tcllib_info))
+					table.insert(working_tclsh, {
+						cmd = tclsh_cmd,
+						version = version,
+						tcllib_version = tcllib_info,
+						executable = executable,
+					})
+					if not best_tclsh then
+						best_tclsh = working_tclsh[#working_tclsh]
+					end
+				else
+					health.warn(string.format("  ❌ tcllib not available: %s", tcllib_info))
+				end
+			else
+				health.error(string.format("%s exists but doesn't work: %s", tclsh_cmd, version or "unknown error"))
+			end
 		end
-
-		return success
 	end
 
-	-- Detect OS and try to install
-	local os_type = vim.fn.has("mac") == 1 and "mac" or "linux"
+	-- Summary
+	if #working_tclsh == 0 then
+		health.error("No working Tcl installation with tcllib found", {
+			"Install Tcl: brew install tcl-tk",
+			"Install tcllib: see installation instructions",
+		})
+	else
+		health.ok(string.format("Found %d working Tcl installation(s) with tcllib", #working_tclsh))
 
-	if os_type == "mac" then
-		if vim.fn.executable("brew") == 1 then
-			run_command("brew install tcl-tk tcllib", "Installing TCL and tcllib via Homebrew")
+		if best_tclsh then
+			health.info(
+				string.format(
+					"Recommended: %s (Tcl %s, JSON %s)",
+					best_tclsh.cmd,
+					best_tclsh.version,
+					best_tclsh.tcllib_version
+				)
+			)
+		end
+	end
+
+	-- Check current file type
+	if vim.bo.filetype == "tcl" then
+		health.ok("Current file detected as TCL")
+
+		-- Check if LSP is attached
+		local clients = vim.lsp.get_clients({ bufnr = 0 })
+		local tcl_clients = {}
+
+		for _, client in ipairs(clients) do
+			if client.name and (client.name:lower():match("tcl") or client.name:lower():match("lsp")) then
+				table.insert(tcl_clients, client.name)
+			end
+		end
+
+		if #tcl_clients > 0 then
+			health.ok("LSP clients attached: " .. table.concat(tcl_clients, ", "))
 		else
-			vim.notify("Homebrew not found. Please install TCL manually.", vim.log.levels.WARN)
+			health.warn("No TCL LSP clients attached to current buffer")
 		end
 	else
-		-- Try different Linux package managers
-		if vim.fn.executable("apt-get") == 1 then
-			run_command("sudo apt-get update && sudo apt-get install -y tcl tcllib", "Installing TCL via apt")
-		elseif vim.fn.executable("yum") == 1 then
-			run_command("sudo yum install -y tcl tcllib", "Installing TCL via yum")
-		elseif vim.fn.executable("dnf") == 1 then
-			run_command("sudo dnf install -y tcl tcllib", "Installing TCL via dnf")
-		else
-			vim.notify("No supported package manager found. Please install TCL manually.", vim.log.levels.WARN)
-		end
+		health.info("Open a .tcl file to test LSP attachment")
 	end
 
-	-- Re-run health check
-	vim.defer_fn(function()
-		vim.cmd("checkhealth tcl-lsp")
-	end, 2000)
+	-- Test JSON functionality with best Tcl
+	if best_tclsh then
+		local json_test_script = [[
+set test_data {{"test": "health_check", "status": "working"}}
+if {[catch {set result [json::json2dict $test_data]} err]} {
+    puts "JSON_ERROR:$err"
+} else {
+    puts "JSON_SUCCESS:$result"
+}
+]]
+
+		local result, success = execute_tcl_script(json_test_script, best_tclsh.cmd)
+
+		if result and success and result:match("JSON_SUCCESS") then
+			health.ok("JSON functionality test passed")
+		else
+			local error = result and result:match("JSON_ERROR:([^\n]+)") or "Unknown error"
+			health.warn("JSON functionality test failed: " .. error)
+		end
+	end
 end
 
 return M
