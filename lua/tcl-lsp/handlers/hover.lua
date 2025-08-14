@@ -19,33 +19,15 @@ local tcl_docs = {
 		description = "Create a new Tcl procedure with the given name, argument list, and body.",
 		examples = { "proc square {x} { return [expr $x * $x] }" },
 	},
-	["if"] = { -- Note: 'if' is a reserved word in Lua, so we need to quote it
-		signature = "if expr1 ?then? body1 ?elseif expr2 ?then? body2 ...? ?else? ?bodyN?",
-		description = "Execute body1 if expr1 is true, otherwise try elseif conditions, or execute else body.",
-		examples = {
-			'if {$x > 0} { puts "positive" }',
-			'if {$x > 0} then { puts "positive" } else { puts "not positive" }',
-		},
+	expr = {
+		signature = "expr arg ?arg ...?",
+		description = "Evaluate mathematical expressions.",
+		examples = { "expr $x + 5", "expr {$a * $b}" },
 	},
-	["for"] = { -- Quote reserved words
-		signature = "for start test next body",
-		description = "Execute start, then repeatedly test condition and execute body followed by next.",
-		examples = { "for {set i 0} {$i < 10} {incr i} { puts $i }" },
-	},
-	["while"] = {
-		signature = "while test body",
-		description = "Repeatedly test condition and execute body while test is true.",
-		examples = { "while {$i < 10} { puts $i; incr i }" },
-	},
-	foreach = {
-		signature = "foreach varname list body",
-		description = "Execute body for each element in list, with varname set to the current element.",
-		examples = { "foreach item {a b c} { puts $item }" },
-	},
-	["return"] = {
-		signature = "return ?-code code? ?-errorinfo info? ?-errorcode code? ?value?",
-		description = "Return from a procedure with the given value (empty string by default).",
-		examples = { "return $result", 'return -code error "Something went wrong"' },
+	incr = {
+		signature = "incr varName ?increment?",
+		description = "Increment the value of varName by increment (default 1).",
+		examples = { "incr counter", "incr total $amount" },
 	},
 
 	-- String and list operations
@@ -135,6 +117,40 @@ local tcl_docs = {
 		description = "Replace matches of regular expression in string.",
 		examples = { "regsub -all { +} $text { } result" },
 	},
+}
+
+-- Add the reserved words separately to avoid Lua conflicts
+tcl_docs["if"] = {
+	signature = "if expr1 ?then? body1 ?elseif expr2 ?then? body2 ...? ?else? ?bodyN?",
+	description = "Execute body1 if expr1 is true, otherwise try elseif conditions, or execute else body.",
+	examples = {
+		'if {$x > 0} { puts "positive" }',
+		'if {$x > 0} then { puts "positive" } else { puts "not positive" }',
+	},
+}
+
+tcl_docs["for"] = {
+	signature = "for start test next body",
+	description = "Execute start, then repeatedly test condition and execute body followed by next.",
+	examples = { "for {set i 0} {$i < 10} {incr i} { puts $i }" },
+}
+
+tcl_docs["while"] = {
+	signature = "while test body",
+	description = "Repeatedly test condition and execute body while test is true.",
+	examples = { "while {$i < 10} { puts $i; incr i }" },
+}
+
+tcl_docs["return"] = {
+	signature = "return ?-code code? ?-errorinfo info? ?-errorcode code? ?value?",
+	description = "Return from a procedure with the given value (empty string by default).",
+	examples = { "return $result", 'return -code error "Something went wrong"' },
+}
+
+tcl_docs["foreach"] = {
+	signature = "foreach varname list body",
+	description = "Execute body for each element in list, with varname set to the current element.",
+	examples = { "foreach item {a b c} { puts $item }" },
 }
 
 function M.handle(params)
