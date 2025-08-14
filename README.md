@@ -21,7 +21,7 @@ A Language Server Protocol (LSP) implementation for TCL/Tk in Neovim, written in
 
 ```lua
 {
-  "YOUR_USERNAME/tcl-lsp.nvim",
+  "unknownbreaker/tcl-lsp.nvim",
   ft = "tcl",
   dependencies = { "neovim/nvim-lspconfig" },
   config = function()
@@ -34,7 +34,7 @@ A Language Server Protocol (LSP) implementation for TCL/Tk in Neovim, written in
 
 ```lua
 use {
-  'YOUR_USERNAME/tcl-lsp.nvim',
+  'unknownbreaker/tcl-lsp.nvim',
   ft = 'tcl',
   requires = { 'neovim/nvim-lspconfig' },
   config = function()
@@ -46,7 +46,7 @@ use {
 ### With [vim-plug](https://github.com/junegunn/vim-plug)
 
 ```vim
-Plug 'YOUR_USERNAME/tcl-lsp.nvim'
+Plug 'unknownbreaker/tcl-lsp.nvim'
 Plug 'neovim/nvim-lspconfig'
 ```
 
