@@ -3,7 +3,7 @@
 local M = {}
 local utils = require("tcl-lsp.utils")
 
--- List of built-in TCL commands that should NOT jump to variable definitions
+-- List of built-in TCL commands
 local builtin_commands = {
 	-- Core commands
 	"puts",
@@ -79,7 +79,6 @@ local builtin_commands = {
 	"close",
 	"read",
 	"gets",
-	"puts",
 	"seek",
 	"tell",
 	"eof",
@@ -104,7 +103,6 @@ local builtin_commands = {
 
 	-- Math
 	"clock",
-	"expr",
 
 	-- Tk commands (if applicable)
 	"wm",
@@ -169,8 +167,20 @@ function M.is_command_usage(line, word_start_pos)
 		return true
 	end
 
-	-- If it's after 'if', 'while', 'for', etc., might be a command
-	if trimmed_before:match("%s(if|while|for|foreach)%s+.*$") then
+	-- Special case: if it's after another command word + space, it's likely a subcommand
+	-- Examples: "dict set", "string length", "info exists"
+	local words_before = trimmed_before:match("(%S+)%s*$")
+	if words_before and builtin_set[words_before] then
+		return true
+	end
+
+	-- If it's after control flow keywords, might be a command
+	if
+		trimmed_before:match("if%s+")
+		or trimmed_before:match("while%s+")
+		or trimmed_before:match("for%s+")
+		or trimmed_before:match("foreach%s+")
+	then
 		return true
 	end
 
@@ -222,6 +232,13 @@ function M.handle(params)
 
 	local definition_ok, definition = pcall(workspace.find_definition, word, filepath)
 	if not definition_ok or not definition then
+		-- If no definition found and it's a built-in command, show the documentation message
+		if builtin_set[word] then
+			vim.notify(
+				string.format("'%s' is a built-in TCL command. Press K for documentation.", word),
+				vim.log.levels.INFO
+			)
+		end
 		return nil
 	end
 
