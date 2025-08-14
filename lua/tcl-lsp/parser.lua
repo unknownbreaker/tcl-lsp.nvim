@@ -394,10 +394,12 @@ end
 
 -- Parse symbols from file content (same as before)
 function M.parse_symbols(content, filepath, symbols)
+	local lines = vim.split(content, "\n")
 	local line_num = 0
 
-	for line in content:gmatch("[^\r\n]+") do
+	for _, line in ipairs(lines) do
 		line_num = line_num + 1
+		local original_line = line
 		local trimmed = line:match("^%s*(.-)%s*$")
 
 		-- Skip empty lines and comments
@@ -405,74 +407,110 @@ function M.parse_symbols(content, filepath, symbols)
 			goto continue
 		end
 
-		-- Parse procedure definitions
-		local proc_name = trimmed:match("^proc%s+([%w_:]+)")
+		-- Parse procedure definitions with more precision
+		-- Look for: proc name {args} {body} or proc name args body
+		local proc_pattern = "^%s*proc%s+([%w_:]+)"
+		local proc_name = trimmed:match(proc_pattern)
+
 		if proc_name then
-			local col = line:find(proc_name, 1, true)
+			-- Find the exact column where 'proc' starts
+			local proc_start_col = original_line:find("proc")
+			-- Find where the procedure name starts
+			local name_start_col = original_line:find(proc_name, proc_start_col)
+
 			table.insert(symbols.procedures, {
 				name = proc_name,
 				line = line_num,
-				col = col or 1,
+				col = name_start_col or proc_start_col or 1,
 				file = filepath,
 				type = "procedure",
-				range = utils.get_lsp_range(line_num - 1, (col or 1) - 1, line_num - 1, (col or 1) + #proc_name - 1),
+				range = utils.get_lsp_range(
+					line_num - 1,
+					(name_start_col or proc_start_col or 1) - 1,
+					line_num - 1,
+					(name_start_col or proc_start_col or 1) + #proc_name - 1
+				),
 			})
 		end
 
-		-- Parse variable assignments
-		local patterns = {
-			"^set%s+([%w_:]+)",
-			"^variable%s+([%w_:]+)",
-			"^global%s+([%w_:]+)",
+		-- Parse variable assignments with better precision
+		local var_patterns = {
+			{ pattern = "^%s*set%s+([%w_:]+)", command = "set" },
+			{ pattern = "^%s*variable%s+([%w_:]+)", command = "variable" },
+			{ pattern = "^%s*global%s+([%w_:]+)", command = "global" },
 		}
 
-		for _, pattern in ipairs(patterns) do
-			local var_name = trimmed:match(pattern)
+		for _, var_pattern in ipairs(var_patterns) do
+			local var_name = trimmed:match(var_pattern.pattern)
 			if var_name then
-				local col = line:find(var_name, 1, true)
+				-- Find the exact position of the variable name
+				local cmd_start = original_line:find(var_pattern.command)
+				local var_start_col = original_line:find(var_name, cmd_start)
+
 				table.insert(symbols.variables, {
 					name = var_name,
 					line = line_num,
-					col = col or 1,
+					col = var_start_col or cmd_start or 1,
 					file = filepath,
 					type = "variable",
-					range = utils.get_lsp_range(line_num - 1, (col or 1) - 1, line_num - 1, (col or 1) + #var_name - 1),
+					range = utils.get_lsp_range(
+						line_num - 1,
+						(var_start_col or cmd_start or 1) - 1,
+						line_num - 1,
+						(var_start_col or cmd_start or 1) + #var_name - 1
+					),
 				})
-				break
+				break -- Only match the first pattern
 			end
 		end
 
-		-- Parse namespace definitions
-		local ns_name = trimmed:match("^namespace%s+eval%s+([%w_:]+)")
+		-- Parse namespace definitions with precision
+		local ns_pattern = "^%s*namespace%s+eval%s+([%w_:]+)"
+		local ns_name = trimmed:match(ns_pattern)
 		if ns_name then
-			local col = line:find(ns_name, 1, true)
+			local ns_cmd_start = original_line:find("namespace")
+			local ns_name_start = original_line:find(ns_name, ns_cmd_start)
+
 			table.insert(symbols.namespaces, {
 				name = ns_name,
 				line = line_num,
-				col = col or 1,
+				col = ns_name_start or ns_cmd_start or 1,
 				file = filepath,
 				type = "namespace",
-				range = utils.get_lsp_range(line_num - 1, (col or 1) - 1, line_num - 1, (col or 1) + #ns_name - 1),
+				range = utils.get_lsp_range(
+					line_num - 1,
+					(ns_name_start or ns_cmd_start or 1) - 1,
+					line_num - 1,
+					(ns_name_start or ns_cmd_start or 1) + #ns_name - 1
+				),
 			})
 		end
 
-		-- Parse package requirements and provides
+		-- Parse package requirements and provides with precision
 		local pkg_patterns = {
-			"^package%s+require%s+([%w_:]+)",
-			"^package%s+provide%s+([%w_:]+)",
+			{ pattern = "^%s*package%s+require%s+([%w_:]+)", type = "require" },
+			{ pattern = "^%s*package%s+provide%s+([%w_:]+)", type = "provide" },
 		}
 
-		for _, pattern in ipairs(pkg_patterns) do
-			local pkg_name = trimmed:match(pattern)
+		for _, pkg_pattern in ipairs(pkg_patterns) do
+			local pkg_name = trimmed:match(pkg_pattern.pattern)
 			if pkg_name then
-				local col = line:find(pkg_name, 1, true)
+				local pkg_cmd_start = original_line:find("package")
+				local pkg_name_start = original_line:find(pkg_name, pkg_cmd_start)
+
 				table.insert(symbols.packages, {
 					name = pkg_name,
 					line = line_num,
-					col = col or 1,
+					col = pkg_name_start or pkg_cmd_start or 1,
 					file = filepath,
 					type = "package",
-					range = utils.get_lsp_range(line_num - 1, (col or 1) - 1, line_num - 1, (col or 1) + #pkg_name - 1),
+					subtype = pkg_pattern.type,
+					range = utils.get_lsp_range(
+						line_num - 1,
+						(pkg_name_start or pkg_cmd_start or 1) - 1,
+						line_num - 1,
+						(pkg_name_start or pkg_cmd_start or 1) + #pkg_name - 1
+					),
 				})
 				break
 			end
@@ -480,6 +518,41 @@ function M.parse_symbols(content, filepath, symbols)
 
 		::continue::
 	end
+end
+
+-- Also add a helper function to find the exact definition line
+-- This ensures we jump to the actual 'proc' line, not a comment above it
+function M.find_exact_definition_line(filepath, symbol_name, approximate_line)
+	local file = io.open(filepath, "r")
+	if not file then
+		return approximate_line
+	end
+
+	local lines = {}
+	for line in file:lines() do
+		table.insert(lines, line)
+	end
+	file:close()
+
+	-- Search around the approximate line for the actual definition
+	local search_start = math.max(1, approximate_line - 5)
+	local search_end = math.min(#lines, approximate_line + 5)
+
+	for i = search_start, search_end do
+		local line = lines[i]
+		local trimmed = line:match("^%s*(.-)%s*$")
+
+		-- Skip comments and empty lines
+		if not trimmed:match("^#") and trimmed ~= "" then
+			-- Check if this line contains the procedure definition
+			if trimmed:match("^proc%s+" .. vim.patternescape(symbol_name) .. "%s") then
+				return i
+			end
+		end
+	end
+
+	-- If we can't find the exact line, return the approximate one
+	return approximate_line
 end
 
 -- Main syntax checking function

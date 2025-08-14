@@ -268,10 +268,28 @@ function M.goto_definition()
 	if result then
 		local filepath = utils.uri_to_path(result.uri)
 		local line = result.range.start.line + 1
-		local col = result.range.start.character
 
-		vim.cmd(string.format("edit +%d %s", line, filepath))
-		vim.api.nvim_win_set_cursor(0, { line, col })
+		-- Open the file
+		vim.cmd(string.format("edit %s", vim.fn.fnameescape(filepath)))
+
+		-- Jump to the line
+		vim.api.nvim_win_set_cursor(0, { line, 0 })
+
+		-- Center the line on screen
+		vim.cmd("normal! zz")
+
+		-- Try to position cursor on the actual procedure name
+		local current_line = vim.api.nvim_get_current_line()
+		local proc_start = current_line:find("proc%s+")
+		if proc_start then
+			-- Find the procedure name after 'proc'
+			local after_proc = current_line:sub(proc_start + 4) -- Skip 'proc'
+			local name_start = after_proc:match("^%s*")
+			if name_start then
+				local col = proc_start + 4 + #name_start - 1
+				vim.api.nvim_win_set_cursor(0, { line, col })
+			end
+		end
 	else
 		vim.notify("Definition not found", vim.log.levels.INFO)
 	end
