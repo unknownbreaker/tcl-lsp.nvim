@@ -1,6 +1,3 @@
--- lua/tcl-lsp/tcl.lua
--- TCL execution and introspection functions
-
 local utils = require("tcl-lsp.utils")
 local M = {}
 
@@ -105,6 +102,7 @@ if {[catch {
 # Split into lines for line number tracking
 set lines [split $content "\n"]
 set line_num 0
+set current_namespace ""
 
 # Parse each line to find symbols
 foreach line $lines {
@@ -116,19 +114,36 @@ foreach line $lines {
         continue
     }
     
-    # Find procedure definitions
-    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{(.*)$} $line match proc_name args]} {
-        puts "SYMBOL:procedure:$proc_name:$line_num:$line"
-    }
-    
-    # Find variable assignments (set commands)
-    if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
-        puts "SYMBOL:variable:$var_name:$line_num:$line"
-    }
-    
-    # Find namespace definitions
+    # Track current namespace context
     if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
+        set current_namespace $ns_name
         puts "SYMBOL:namespace:$ns_name:$line_num:$line"
+    }
+    
+    # Find procedure definitions with full namespace qualification
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{(.*)$} $line match proc_name args]} {
+        # If proc name doesn't contain ::, prepend current namespace
+        if {![string match "*::*" $proc_name] && $current_namespace ne ""} {
+            set full_proc_name "$current_namespace\::$proc_name"
+            puts "SYMBOL:procedure:$full_proc_name:$line_num:$line"
+            # Also add the short name for local references
+            puts "SYMBOL:procedure_local:$proc_name:$line_num:$line"
+        } else {
+            puts "SYMBOL:procedure:$proc_name:$line_num:$line"
+        }
+    }
+    
+    # Find variable assignments (set commands) with namespace context
+    if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
+        # If var name doesn't contain ::, prepend current namespace for qualified name
+        if {![string match "*::*" $var_name] && $current_namespace ne ""} {
+            set full_var_name "$current_namespace\::$var_name"
+            puts "SYMBOL:variable:$full_var_name:$line_num:$line"
+            # Also add the short name for local references
+            puts "SYMBOL:variable_local:$var_name:$line_num:$line"
+        } else {
+            puts "SYMBOL:variable:$var_name:$line_num:$line"
+        }
     }
     
     # Find global variable declarations
@@ -145,11 +160,24 @@ foreach line $lines {
         puts "SYMBOL:package:$pkg_name:$line_num:$line"
     }
     
+    # Find package provide statements
+    if {[regexp {^\s*package\s+provide\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match pkg_name]} {
+        puts "SYMBOL:package_provide:$pkg_name:$line_num:$line"
+    }
+    
     # Find source commands
     if {[regexp {^\s*source\s+(.+)$} $line match source_file]} {
         # Clean up the filename (remove quotes, etc.)
         set clean_file [string trim $source_file "\"'\{\}"]
         puts "SYMBOL:source:$clean_file:$line_num:$line"
+    }
+    
+    # Reset namespace context when leaving namespace block
+    # This is a simple heuristic - proper parsing would track brace nesting
+    if {[regexp {^\s*\}\s*$} $line] && $current_namespace ne ""} {
+        # Check if this might be the end of the namespace
+        # In practice, this is tricky without full parsing, but we'll try
+        set current_namespace ""
     }
 }
 
@@ -202,11 +230,20 @@ if {[catch {
 set lines [split $content "\n"]
 set line_num 0
 
+# Check if target_word contains namespace qualifier
+set is_qualified [string match "*::*" $target_word]
+if {$is_qualified} {
+    # Extract the unqualified part for additional matching
+    set parts [split $target_word "::"]
+    set unqualified [lindex $parts end]
+} else {
+    set unqualified $target_word
+}
+
 foreach line $lines {
     incr line_num
     
-    # Check if line contains the target word
-    # Use word boundaries to avoid partial matches
+    # Check if line contains the target word (exact match)
     if {[regexp "\\y$target_word\\y" $line]} {
         # Determine the context/type of reference
         set context "usage"
@@ -220,6 +257,21 @@ foreach line $lines {
             set context "variable_usage"
         } elseif {[regexp "$target_word\\s*\\(" $line]} {
             set context "procedure_call"
+        }
+        
+        puts "REFERENCE:$context:$line_num:$line"
+    } elseif {$is_qualified && [regexp "\\y$unqualified\\y" $line]} {
+        # If searching for qualified name, also look for unqualified references
+        # But mark them as potential matches
+        set context "usage_unqualified"
+        if {[regexp "^\\s*proc\\s+$unqualified\\s" $line]} {
+            set context "definition:procedure_local"
+        } elseif {[regexp "^\\s*set\\s+$unqualified\\s" $line]} {
+            set context "definition:variable_local"
+        } elseif {[regexp "\\$unqualified\\y" $line]} {
+            set context "variable_usage_local"
+        } elseif {[regexp "$unqualified\\s*\\(" $line]} {
+            set context "procedure_call_local"
         }
         
         puts "REFERENCE:$context:$line_num:$line"
@@ -382,7 +434,7 @@ function M.get_command_documentation(command)
 		["json::dict2json"] = "json::dict2json dict\nConvert Tcl dict to JSON string",
 		-- Control flow
 		["break"] = "break\nExit from loop prematurely",
-		["continue"] = "continue\nSkip to next iteration of loop",
+		continue = "continue\nSkip to next iteration of loop",
 		["else"] = "else body\nExecute body if previous if/elseif was false",
 		["elseif"] = "elseif expr ?then? body\nConditional execution alternative",
 		["then"] = "then\nOptional keyword in if statements",

@@ -87,7 +87,7 @@ function M.search_workspace_symbols(query)
 		local symbols = tcl.analyze_tcl_file(file, tclsh_cmd)
 		if symbols then
 			for _, symbol in ipairs(symbols) do
-				if symbol.name:find(query, 1, true) then -- Plain text search
+				if utils.symbols_match(symbol.name, query) then
 					table.insert(matches, {
 						file = file,
 						symbol = symbol,
@@ -99,16 +99,51 @@ function M.search_workspace_symbols(query)
 
 	if #matches > 0 then
 		local qflist = {}
+
+		-- Sort matches: exact matches first, then qualified matches, then local matches
+		table.sort(matches, function(a, b)
+			local a_exact = (a.symbol.name == query)
+			local b_exact = (b.symbol.name == query)
+
+			if a_exact and not b_exact then
+				return true
+			end
+			if not a_exact and b_exact then
+				return false
+			end
+
+			-- Both exact or both partial, sort by type priority
+			local type_priority = {
+				procedure = 1,
+				namespace = 2,
+				variable = 3,
+				global = 4,
+				package = 5,
+				package_provide = 6,
+				source = 7,
+			}
+
+			local a_priority = type_priority[a.symbol.type] or 99
+			local b_priority = type_priority[b.symbol.type] or 99
+
+			if a_priority ~= b_priority then
+				return a_priority < b_priority
+			end
+
+			-- Same type, sort by file name
+			return a.file < b.file
+		end)
+
 		for _, match in ipairs(matches) do
+			local symbol_desc = match.symbol.name
+			if match.symbol.name ~= query then
+				symbol_desc = symbol_desc .. " (matches " .. query .. ")"
+			end
+
 			table.insert(qflist, {
 				filename = match.file,
 				lnum = match.symbol.line,
-				text = string.format(
-					"[%s] %s: %s",
-					match.symbol.type,
-					match.symbol.name,
-					utils.trim(match.symbol.text)
-				),
+				text = string.format("[%s] %s: %s", match.symbol.type, symbol_desc, utils.trim(match.symbol.text)),
 			})
 		end
 

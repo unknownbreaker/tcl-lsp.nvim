@@ -1,3 +1,6 @@
+-- lua/tcl-lsp/utils.lua
+-- Helper functions for TCL LSP
+
 local M = {}
 
 -- Helper function to execute Tcl scripts using temporary files
@@ -121,6 +124,48 @@ function M.get_word_under_cursor()
 		return nil, "No word under cursor"
 	end
 	return word, nil
+end
+
+-- Get word under cursor including namespace qualifiers
+function M.get_qualified_word_under_cursor()
+	-- Get the current line and cursor position
+	local line = vim.api.nvim_get_current_line()
+	local col = vim.api.nvim_win_get_cursor(0)[2] + 1 -- Convert to 1-based indexing
+
+	-- Find the boundaries of the qualified symbol (including ::)
+	local start_pos = col
+	local end_pos = col
+
+	-- Move backwards to find the start
+	while start_pos > 1 do
+		local char = line:sub(start_pos - 1, start_pos - 1)
+		if char:match("[a-zA-Z0-9_:]") then
+			start_pos = start_pos - 1
+		else
+			break
+		end
+	end
+
+	-- Move forwards to find the end
+	while end_pos <= #line do
+		local char = line:sub(end_pos, end_pos)
+		if char:match("[a-zA-Z0-9_:]") then
+			end_pos = end_pos + 1
+		else
+			break
+		end
+	end
+
+	local qualified_word = line:sub(start_pos, end_pos - 1)
+
+	-- Clean up the word (remove leading/trailing colons)
+	qualified_word = qualified_word:gsub("^:+", ""):gsub(":+$", "")
+
+	if not qualified_word or qualified_word == "" then
+		return nil, "No qualified word under cursor"
+	end
+
+	return qualified_word, nil
 end
 
 -- Create quickfix list from results
@@ -280,11 +325,76 @@ function M.split(str, delimiter)
 	delimiter = delimiter or "%s+"
 	local result = {}
 
-	for match in str:gmatch("([^" .. delimiter .. "]+)") do
-		table.insert(result, match)
+	-- Handle special case for :: delimiter
+	if delimiter == "::" then
+		for part in str:gmatch("([^:]+)") do
+			if part ~= "" then
+				table.insert(result, part)
+			end
+		end
+	else
+		for match in str:gmatch("([^" .. delimiter .. "]+)") do
+			table.insert(result, match)
+		end
 	end
 
 	return result
+end
+
+-- Parse namespaced symbol name
+function M.parse_symbol_name(symbol_name)
+	if not symbol_name then
+		return nil
+	end
+
+	local parts = M.split(symbol_name, "::")
+	if #parts > 1 then
+		return {
+			full_name = symbol_name,
+			namespace = table.concat(parts, "::", 1, #parts - 1),
+			unqualified = parts[#parts],
+			is_qualified = true,
+		}
+	else
+		return {
+			full_name = symbol_name,
+			namespace = "",
+			unqualified = symbol_name,
+			is_qualified = false,
+		}
+	end
+end
+
+-- Check if two symbol names could refer to the same symbol
+function M.symbols_match(symbol1, symbol2)
+	if not symbol1 or not symbol2 then
+		return false
+	end
+
+	-- Exact match
+	if symbol1 == symbol2 then
+		return true
+	end
+
+	local parsed1 = M.parse_symbol_name(symbol1)
+	local parsed2 = M.parse_symbol_name(symbol2)
+
+	-- If both are qualified, they must match exactly
+	if parsed1.is_qualified and parsed2.is_qualified then
+		return parsed1.full_name == parsed2.full_name
+	end
+
+	-- If one is qualified and one isn't, check if unqualified parts match
+	if parsed1.is_qualified and not parsed2.is_qualified then
+		return parsed1.unqualified == parsed2.unqualified
+	end
+
+	if not parsed1.is_qualified and parsed2.is_qualified then
+		return parsed1.unqualified == parsed2.unqualified
+	end
+
+	-- Both unqualified
+	return parsed1.unqualified == parsed2.unqualified
 end
 
 return M

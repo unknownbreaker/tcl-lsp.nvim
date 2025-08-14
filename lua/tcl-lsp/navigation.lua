@@ -5,10 +5,14 @@ local M = {}
 
 -- Smart TCL go-to-definition using tclsh analysis
 function M.goto_definition()
-	local word, err = utils.get_word_under_cursor()
+	-- Try to get qualified word first, fall back to regular word
+	local word, err = utils.get_qualified_word_under_cursor()
 	if not word then
-		utils.notify(err, vim.log.levels.WARN)
-		return
+		word, err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify(err, vim.log.levels.WARN)
+			return
+		end
 	end
 
 	local file_path, file_err = utils.get_current_file_path()
@@ -26,12 +30,35 @@ function M.goto_definition()
 	end
 
 	-- Look for matching symbol in current file
+	-- Try exact match first, then partial matches
+	local exact_match = nil
+	local partial_matches = {}
+
 	for _, symbol in ipairs(symbols) do
 		if symbol.name == word then
-			vim.api.nvim_win_set_cursor(0, { symbol.line, 0 })
-			utils.notify(string.format("Found %s '%s' at line %d", symbol.type, word, symbol.line), vim.log.levels.INFO)
-			return
+			exact_match = symbol
+			break
+		elseif M.symbol_matches_query(symbol.name, word) then
+			table.insert(partial_matches, symbol)
 		end
+	end
+
+	if exact_match then
+		vim.api.nvim_win_set_cursor(0, { exact_match.line, 0 })
+		utils.notify(
+			string.format("Found %s '%s' at line %d", exact_match.type, word, exact_match.line),
+			vim.log.levels.INFO
+		)
+		return
+	elseif #partial_matches == 1 then
+		local match = partial_matches[1]
+		vim.api.nvim_win_set_cursor(0, { match.line, 0 })
+		utils.notify(string.format("Found %s '%s' at line %d", match.type, match.name, match.line), vim.log.levels.INFO)
+		return
+	elseif #partial_matches > 1 then
+		-- Multiple matches, let user choose
+		M.show_symbol_choices(partial_matches, word)
+		return
 	end
 
 	-- If not found in current file, search workspace
@@ -40,38 +67,129 @@ function M.goto_definition()
 	M.search_workspace_for_definition(word, file_path, tclsh_cmd)
 end
 
--- Search workspace for symbol definition
+-- Check if a symbol name matches a query (handles namespace syntax)
+function M.symbol_matches_query(symbol_name, query)
+	return utils.symbols_match(symbol_name, query)
+end
+
+-- Show multiple symbol choices to user
+function M.show_symbol_choices(symbols, query)
+	local choices = {}
+	for i, symbol in ipairs(symbols) do
+		table.insert(choices, string.format("%d. %s [%s] at line %d", i, symbol.name, symbol.type, symbol.line))
+	end
+
+	vim.ui.select(choices, {
+		prompt = "Multiple definitions found for '" .. query .. "':",
+	}, function(choice, idx)
+		if idx then
+			local selected_symbol = symbols[idx]
+			vim.api.nvim_win_set_cursor(0, { selected_symbol.line, 0 })
+			utils.notify(
+				string.format(
+					"Jumped to %s '%s' at line %d",
+					selected_symbol.type,
+					selected_symbol.name,
+					selected_symbol.line
+				),
+				vim.log.levels.INFO
+			)
+		end
+	end)
+end
+
+-- Search workspace for symbol definition with improved matching
 function M.search_workspace_for_definition(symbol_name, current_file, tclsh_cmd)
 	-- Search in all TCL files in current directory and subdirectories
 	local files = vim.fn.glob("**/*.tcl", false, true)
+	local matches = {}
 
 	for _, file in ipairs(files) do
 		if file ~= current_file then -- Skip current file
 			local file_symbols = tcl.analyze_tcl_file(file, tclsh_cmd)
 			if file_symbols then
 				for _, symbol in ipairs(file_symbols) do
-					if symbol.name == symbol_name then
-						vim.cmd("edit " .. file)
-						vim.api.nvim_win_set_cursor(0, { symbol.line, 0 })
-						utils.notify(
-							string.format("Found %s '%s' in %s at line %d", symbol.type, symbol_name, file, symbol.line),
-							vim.log.levels.INFO
-						)
-						return
+					if M.symbol_matches_query(symbol.name, symbol_name) then
+						table.insert(matches, {
+							symbol = symbol,
+							file = file,
+						})
 					end
 				end
 			end
 		end
 	end
 
-	utils.notify("Definition of '" .. symbol_name .. "' not found", vim.log.levels.WARN)
+	if #matches == 0 then
+		utils.notify("Definition of '" .. symbol_name .. "' not found", vim.log.levels.WARN)
+	elseif #matches == 1 then
+		local match = matches[1]
+		vim.cmd("edit " .. match.file)
+		vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
+		utils.notify(
+			string.format(
+				"Found %s '%s' in %s at line %d",
+				match.symbol.type,
+				match.symbol.name,
+				match.file,
+				match.symbol.line
+			),
+			vim.log.levels.INFO
+		)
+	else
+		-- Multiple matches across files
+		M.show_workspace_symbol_choices(matches, symbol_name)
+	end
+end
+
+-- Show multiple workspace symbol choices
+function M.show_workspace_symbol_choices(matches, query)
+	local choices = {}
+	for i, match in ipairs(matches) do
+		local file_short = vim.fn.fnamemodify(match.file, ":t")
+		table.insert(
+			choices,
+			string.format(
+				"%d. %s [%s] in %s at line %d",
+				i,
+				match.symbol.name,
+				match.symbol.type,
+				file_short,
+				match.symbol.line
+			)
+		)
+	end
+
+	vim.ui.select(choices, {
+		prompt = "Multiple definitions found for '" .. query .. "':",
+	}, function(choice, idx)
+		if idx then
+			local selected_match = matches[idx]
+			vim.cmd("edit " .. selected_match.file)
+			vim.api.nvim_win_set_cursor(0, { selected_match.symbol.line, 0 })
+			utils.notify(
+				string.format(
+					"Jumped to %s '%s' in %s at line %d",
+					selected_match.symbol.type,
+					selected_match.symbol.name,
+					vim.fn.fnamemodify(selected_match.file, ":t"),
+					selected_match.symbol.line
+				),
+				vim.log.levels.INFO
+			)
+		end
+	end)
 end
 
 -- TCL-powered hover using introspection
 function M.hover()
-	local word, err = utils.get_word_under_cursor()
+	-- Try to get qualified word first, fall back to regular word
+	local word, err = utils.get_qualified_word_under_cursor()
 	if not word then
-		return
+		word, err = utils.get_word_under_cursor()
+		if not word then
+			return
+		end
 	end
 
 	local tclsh_cmd = config.get_tclsh_cmd()
@@ -96,9 +214,9 @@ function M.hover()
 		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
 		if symbols then
 			for _, symbol in ipairs(symbols) do
-				if symbol.name == word then
+				if utils.symbols_match(symbol.name, word) then
 					utils.notify(
-						string.format("User-defined %s: %s\nDefined at line %d", symbol.type, word, symbol.line),
+						string.format("User-defined %s: %s\nDefined at line %d", symbol.type, symbol.name, symbol.line),
 						vim.log.levels.INFO
 					)
 					return
@@ -113,10 +231,14 @@ end
 
 -- Smart find references using TCL analysis
 function M.find_references()
-	local word, err = utils.get_word_under_cursor()
+	-- Try to get qualified word first, fall back to regular word
+	local word, err = utils.get_qualified_word_under_cursor()
 	if not word then
-		utils.notify(err, vim.log.levels.WARN)
-		return
+		word, err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify(err, vim.log.levels.WARN)
+			return
+		end
 	end
 
 	local file_path, file_err = utils.get_current_file_path()
@@ -152,10 +274,14 @@ end
 
 -- Find references across the entire workspace
 function M.find_workspace_references()
-	local word, err = utils.get_word_under_cursor()
+	-- Try to get qualified word first, fall back to regular word
+	local word, err = utils.get_qualified_word_under_cursor()
 	if not word then
-		utils.notify(err, vim.log.levels.WARN)
-		return
+		word, err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify(err, vim.log.levels.WARN)
+			return
+		end
 	end
 
 	local tclsh_cmd = config.get_tclsh_cmd()
