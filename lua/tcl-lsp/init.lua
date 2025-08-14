@@ -380,17 +380,15 @@ function M.check_syntax(bufnr)
 
 	local parser = require("tcl-lsp.parser")
 	local cfg = config.get()
-	local errors = parser.check_syntax_with_tclsh(filepath, cfg.tclsh_cmd)
+	local errors = parser.check_syntax(filepath, cfg.tclsh_cmd, cfg.syntax_check_mode)
 
 	if #errors == 0 then
 		vim.notify("TCL syntax OK", vim.log.levels.INFO)
-		-- Clear any existing diagnostics
 		vim.diagnostic.set(namespace_id, bufnr, {})
 	else
 		vim.notify("TCL syntax errors found", vim.log.levels.ERROR)
 		M.set_diagnostics(bufnr, errors)
 
-		-- Jump to first error
 		if errors[1] then
 			vim.api.nvim_win_set_cursor(0, { errors[1].line, errors[1].col - 1 })
 		end

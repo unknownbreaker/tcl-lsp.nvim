@@ -6,6 +6,9 @@ M.defaults = {
 	syntax_check_on_save = true,
 	syntax_check_on_change = false,
 
+	-- Syntax checking mode
+	syntax_check_mode = "package_aware", -- Options: "package_aware", "parse_only", "full", "disabled"
+
 	-- Feature toggles
 	hover = true,
 	diagnostics = true,

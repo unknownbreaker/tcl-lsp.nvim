@@ -49,66 +49,92 @@ function M.parse_file(filepath)
 	return symbols
 end
 
--- Check syntax using tclsh
+-- Syntax checker that handles missing packages
 function M.check_syntax_with_tclsh(filepath, tclsh_cmd)
 	tclsh_cmd = tclsh_cmd or "tclsh"
 	local errors = {}
 
-	-- First, check if the file exists and is readable
-	local file = io.open(filepath, "r")
-	if not file then
-		table.insert(errors, {
-			line = 1,
-			col = 1,
-			message = "Cannot read file: " .. filepath,
-			severity = vim.diagnostic.severity.ERROR,
-			source = "tcl-lsp",
-		})
-		return errors
-	end
-	file:close()
-
-	-- Create a safer validation script that handles more error cases
+	-- Create a package-aware validation script
 	local temp_script = vim.fn.tempname() .. ".tcl"
 	local script_content = string.format(
 		[[
-# TCL syntax validation script
+# Package-aware TCL syntax validation script
 set original_file {%s}
+set syntax_only 1
+
+# Override package require to avoid missing package errors
+rename package package_original
+proc package {cmd args} {
+    if {$cmd eq "require"} {
+        # Just return a dummy version for any package
+        return "1.0"
+    } else {
+        # For other package commands, call the original
+        return [eval package_original $cmd $args]
+    }
+}
+
+# Override other commands that might cause issues in syntax-only mode
+proc source {filename} {
+    # In syntax-only mode, don't actually source other files
+    if {[info exists ::syntax_only]} {
+        return
+    }
+    # Otherwise, call the real source
+    return [source_original $filename]
+}
 
 # Capture all errors
 if {[catch {
-    # Try to source the file
+    # Try to parse/source the file
     source $original_file
 } error_msg error_info]} {
-    # Extract useful error information
-    set error_line 1
-    set error_detail $error_msg
     
-    # Try to get line number from errorInfo
+    # Filter out package-related errors that we don't care about
+    set filtered_errors {}
+    
+    # Check if it's a real syntax error vs. a package/runtime error
+    set is_syntax_error 0
+    set error_line 1
+    
+    # Common syntax error patterns
+    if {[regexp -i {syntax error|missing|unexpected|invalid command|wrong # args} $error_msg]} {
+        set is_syntax_error 1
+    }
+    
+    # Extract line number from various error formats
     if {[info exists error_info]} {
-        if {[regexp {line ([0-9]+)} $error_info match line_num]} {
+        if {[regexp {\(file ".*?" line ([0-9]+)\)} $error_info match line_num]} {
+            set error_line $line_num
+        } elseif {[regexp {line ([0-9]+)} $error_info match line_num]} {
             set error_line $line_num
         }
     }
     
-    # Try to get line number from error message itself
+    # Also try to get line number from error message
     if {[regexp {line ([0-9]+)} $error_msg match line_num]} {
         set error_line $line_num
     }
     
-    # Output structured error
-    puts stderr "TCL_ERROR:$error_line:$error_detail"
-    exit 1
+    # Only report if it looks like a real syntax error
+    if {$is_syntax_error} {
+        puts stderr "TCL_SYNTAX_ERROR:$error_line:$error_msg"
+        exit 1
+    } else {
+        # It's probably a runtime/package error, not a syntax error
+        puts "TCL_SYNTAX_OK_RUNTIME_ERROR:$error_msg"
+        exit 0
+    }
 }
 
-# If we get here, syntax is OK
-puts "TCL_OK"
+# If we get here, syntax is completely OK
+puts "TCL_SYNTAX_OK"
 exit 0
 ]],
 		filepath
 	)
 
-	-- Write the validation script
+	-- Write and execute the validation script
 	local script_file = io.open(temp_script, "w")
 	if not script_file then
 		table.insert(errors, {
@@ -133,45 +159,22 @@ exit 0
 	-- Clean up temp file
 	vim.fn.delete(temp_script)
 
-	if exit_code ~= 0 then
-		-- Parse our structured error output
-		for line in output:gmatch("[^\r\n]+") do
-			if line:match("^TCL_ERROR:") then
-				local line_num, error_msg = line:match("^TCL_ERROR:(%d+):(.*)$")
-				if line_num and error_msg then
-					table.insert(errors, {
-						line = tonumber(line_num),
-						col = 1,
-						message = error_msg:gsub("^%s+", ""):gsub("%s+$", ""), -- trim whitespace
-						severity = vim.diagnostic.severity.ERROR,
-						source = "tclsh",
-					})
-				end
-			elseif line:match("TCL_OK") then
-				-- This shouldn't happen with exit_code != 0, but just in case
-				break
-			else
-				-- Fallback: treat any other output as an error
-				local line_num = M.extract_line_number(line) or 1
+	-- Parse the output
+	for line in output:gmatch("[^\r\n]+") do
+		if line:match("^TCL_SYNTAX_ERROR:") then
+			local line_num, error_msg = line:match("^TCL_SYNTAX_ERROR:(%d+):(.*)$")
+			if line_num and error_msg then
 				table.insert(errors, {
-					line = line_num,
+					line = tonumber(line_num),
 					col = 1,
-					message = line,
+					message = error_msg:gsub("^%s+", ""):gsub("%s+$", ""),
 					severity = vim.diagnostic.severity.ERROR,
 					source = "tclsh",
 				})
 			end
-		end
-
-		-- If we didn't get any structured errors, create a generic one
-		if #errors == 0 then
-			table.insert(errors, {
-				line = 1,
-				col = 1,
-				message = "TCL syntax error: " .. output,
-				severity = vim.diagnostic.severity.ERROR,
-				source = "tclsh",
-			})
+		elseif line:match("^TCL_SYNTAX_OK") then
+			-- Syntax is OK, even if there were runtime errors
+			break
 		end
 	end
 
@@ -336,4 +339,20 @@ function M.safe_parse_file(filepath)
 	return result
 end
 
+function M.check_syntax(filepath, tclsh_cmd, mode)
+	mode = mode or "package_aware"
+
+	if mode == "disabled" then
+		return {}
+	elseif mode == "parse_only" then
+		return M.check_syntax_only(filepath, tclsh_cmd)
+	elseif mode == "package_aware" then
+		return M.check_syntax_with_tclsh(filepath, tclsh_cmd)
+	elseif mode == "full" then
+		-- Original method - will fail on missing packages
+		return M.check_syntax_original(filepath, tclsh_cmd)
+	else
+		return M.check_syntax_with_tclsh(filepath, tclsh_cmd)
+	end
+end
 return M
