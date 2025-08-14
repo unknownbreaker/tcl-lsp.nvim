@@ -1,29 +1,26 @@
-# tcl-lsp.nvim
+# TCL LSP for Neovim
 
-A Language Server Protocol (LSP) implementation for TCL/Tk in Neovim, featuring a real TCL-based LSP server that leverages `tclsh`'s native introspection capabilities.
+A Language Server Protocol (LSP) implementation for TCL/Tk in Neovim. Works out of the box with **any** Tcl installation!
 
 ## ✨ Features
 
-- 🚀 **Real LSP Server** - Proper background LSP server written in TCL
-- 🔍 **Native TCL Introspection** - Uses `tclsh`'s built-in capabilities for accurate parsing
+- 🔍 **Hover Documentation** - Built-in help for 25+ TCL commands
 - 🎯 **Go to Definition** - Jump to procedure and variable definitions
 - 🔗 **Find References** - Find all usages of symbols across workspace
 - 📋 **Document Symbols** - Outline view of procedures, variables, and namespaces
 - 🔎 **Workspace Symbols** - Search symbols across all TCL files
-- 🐛 **Hover Documentation** - Built-in help for 25+ TCL commands
-- ⚡ **Performance** - Background processing with persistent symbol database
-- 🔧 **Easy Setup** - Works out of the box with LazyVim and nvim-lspconfig
-- 🎯 **TCL/Rivet Focused** - Designed specifically for TCL/Tk and Apache Rivet development
-- 🏥 **Health Check** - Built-in dependency verification and installation
+- 🐛 **Syntax Checking** - Real-time error detection
+- ⚡ **Auto-Detection** - Automatically finds your Tcl installation
+- 🔧 **Zero Config** - Works immediately with sensible defaults
 
-## 📦 Installation
+## 🚀 Installation
 
-### With [lazy.nvim](https://github.com/folke/lazy.nvim) (Recommended)
+### LazyVim (Recommended)
 
 ```lua
 {
   "unknownbreaker/tcl-lsp.nvim",
-  ft = { "tcl" },
+  ft = "tcl",
   dependencies = { "neovim/nvim-lspconfig" },
   config = function()
     require("tcl-lsp").setup()
@@ -31,12 +28,12 @@ A Language Server Protocol (LSP) implementation for TCL/Tk in Neovim, featuring 
 }
 ```
 
-### With [packer.nvim](https://github.com/wbthomason/packer.nvim)
+### Packer
 
 ```lua
 use {
   'unknownbreaker/tcl-lsp.nvim',
-  ft = { 'tcl' },
+  ft = 'tcl',
   requires = { 'neovim/nvim-lspconfig' },
   config = function()
     require('tcl-lsp').setup()
@@ -44,226 +41,112 @@ use {
 }
 ```
 
-## 🔧 Dependencies
+### vim-plug
 
-The plugin automatically checks and can install dependencies:
+```vim
+Plug 'unknownbreaker/tcl-lsp.nvim'
+Plug 'neovim/nvim-lspconfig'
 
-- **tclsh** - TCL interpreter (required)
-- **tcllib** - TCL standard library for JSON support (required)
-- **nvim-lspconfig** - Neovim LSP configuration (required)
-
-### Installation Commands
-
-```bash
-# macOS
-brew install tcl-tk tcllib
-
-# Ubuntu/Debian
-sudo apt-get install tcl tcllib
-
-# CentOS/RHEL/Fedora
-sudo yum install tcl tcllib
-# or
-sudo dnf install tcl tcllib
+lua require('tcl-lsp').setup()
 ```
 
-Or run `:TclLspInstall` for automatic installation.
+## 🎯 That's It!
 
-## ⚙️ Configuration
+The plugin automatically:
 
-### Basic Setup
+- ✅ Finds your Tcl installation (system, Homebrew, MacPorts, custom)
+- ✅ Detects tcllib and JSON package support
+- ✅ Sets up all keymaps and commands
+- ✅ Configures beautiful diagnostics
+- ✅ Enables syntax checking on save
+- ✅ Supports `.tcl`, `.tk`, `.itcl`, `.rvt` files
 
-```lua
-require("tcl-lsp").setup()
-```
+## 📋 Commands & Keymaps
 
-### Advanced Configuration
+| Command         | Keymap       | Description                     |
+| --------------- | ------------ | ------------------------------- |
+| `:TclCheck`     | `<leader>tc` | Check syntax of current file    |
+| `:TclInfo`      | `<leader>ti` | Show Tcl system information     |
+| `:TclJsonTest`  | `<leader>tj` | Test JSON package functionality |
+| `:TclLspStatus` | -            | Show LSP status                 |
+| -               | `K`          | Hover documentation             |
+| -               | `gd`         | Go to definition                |
+| -               | `gr`         | Find references                 |
+| -               | `gO`         | Document symbols                |
+
+## 🔧 Requirements
+
+- **Neovim 0.8+**
+- **Tcl with tcllib** (any installation method):
+  - System: `sudo apt install tcl tcllib` (Ubuntu/Debian)
+  - Homebrew: `brew install tcl-tk` + install tcllib
+  - MacPorts: `sudo port install tcllib`
+  - Manual: Download from tcllib.sourceforge.net
+
+## ⚡ Health Check
+
+Run `:checkhealth tcl-lsp` to verify your setup and see all detected Tcl installations.
+
+## 🎛️ Configuration (Optional)
+
+The plugin works perfectly with zero configuration, but you can customize:
 
 ```lua
 require("tcl-lsp").setup({
-  -- Server configuration
-  server = {
-    settings = {
-      tcl = {
-        -- Future: TCL-specific settings
-      }
-    }
+  -- Tcl detection (default: "auto")
+  tclsh_cmd = "auto",  -- or "/path/to/specific/tclsh"
+
+  -- Features (all default: true)
+  hover = true,
+  diagnostics = true,
+  symbol_navigation = true,
+
+  -- Syntax checking
+  syntax_check_on_save = true,
+  syntax_check_on_change = false,
+
+  -- Keymaps (set to false to disable)
+  keymaps = {
+    hover = "K",
+    syntax_check = "<leader>tc",
+    goto_definition = "gd",
+    find_references = "gr",
+    document_symbols = "gO",
   },
 
-  -- Custom on_attach function
-  on_attach = function(client, bufnr)
-    -- Your custom keymaps or configurations
-    vim.keymap.set('n', '<leader>tc', function()
-      vim.lsp.buf.hover()
-    end, { buffer = bufnr, desc = 'TCL hover' })
-  end,
-
-  -- LSP capabilities (optional)
-  capabilities = vim.lsp.protocol.make_client_capabilities(),
-
-  -- Auto-install dependencies
-  auto_install = {
-    tcl = true,     -- Check for tclsh
-    tcllib = true,  -- Check for JSON package
-  },
-
-  -- Logging level
-  log_level = vim.log.levels.INFO,
+  -- Auto-setup (default: true for all)
+  auto_setup_filetypes = true,  -- .tcl, .tk, .rvt detection
+  auto_setup_commands = true,   -- :TclCheck, :TclInfo commands
+  auto_setup_autocmds = true,   -- Syntax check on save, keymaps
 })
 ```
-
-## 🎮 Usage
-
-### Default Keymaps
-
-When the LSP attaches to a TCL buffer, these keymaps are automatically set:
-
-| Key          | Action               | Description                                |
-| ------------ | -------------------- | ------------------------------------------ |
-| `K`          | Hover                | Show documentation for symbol under cursor |
-| `gd`         | Go to Definition     | Jump to symbol definition                  |
-| `gD`         | Go to Declaration    | Jump to symbol declaration                 |
-| `gr`         | Find References      | Find all references to symbol              |
-| `gi`         | Go to Implementation | Jump to implementation                     |
-| `gt`         | Type Definition      | Jump to type definition                    |
-| `<leader>rn` | Rename               | Rename symbol                              |
-| `<leader>ca` | Code Actions         | Show available code actions                |
-| `gO`         | Document Symbols     | Show document outline                      |
-| `<leader>ws` | Workspace Symbols    | Search workspace symbols                   |
-| `<leader>tc` | TCL Check            | Manual syntax check                        |
-
-### Commands
-
-| Command                | Description                            |
-| ---------------------- | -------------------------------------- |
-| `:TclLspInfo`          | Show LSP server status and information |
-| `:TclLspStart`         | Start the TCL LSP server               |
-| `:TclLspStop`          | Stop the TCL LSP server                |
-| `:TclLspRestart`       | Restart the TCL LSP server             |
-| `:TclLspLog`           | View LSP logs                          |
-| `:TclLspInstall`       | Install missing dependencies           |
-| `:checkhealth tcl-lsp` | Run health check                       |
-
-### File Types Supported
-
-- `.tcl` - TCL script files
-- `.tk` - Tk GUI scripts
-- `.rvt` - Apache Rivet template files
-- `.rvt.in` - Rivet template input files
-- `.itcl` - Incr TCL object-oriented extension
-- `.itk` - Incr Tk widget extension
-
-## 🏥 Health Check
-
-Run `:checkhealth tcl-lsp` to verify your installation:
-
-```vim
-:checkhealth tcl-lsp
-```
-
-This will check:
-
-- ✅ tclsh installation
-- ✅ TCL JSON package availability
-- ✅ LSP server script
-- ✅ nvim-lspconfig integration
-- ✅ Server status
 
 ## 🐛 Troubleshooting
 
-### Common Issues
+1. **"No suitable Tcl installation found"**
+   - Install Tcl: `brew install tcl-tk` (macOS) or `sudo apt install tcl` (Linux)
+   - Install tcllib: See installation instructions above
 
-1. **"tclsh not found"**
+2. **"JSON package not available"**
+   - Install tcllib package: `sudo port install tcllib` or manual installation
+   - Run `:TclJsonTest` to verify
 
-   ```bash
-   # Install TCL
-   brew install tcl-tk  # macOS
-   sudo apt-get install tcl  # Ubuntu
-   ```
+3. **LSP not working**
+   - Run `:checkhealth tcl-lsp` for detailed diagnosis
+   - Check `:TclLspStatus` for current configuration
 
-2. **"TCL JSON package not available"**
+## 🎨 Supported File Types
 
-   ```bash
-   # Install tcllib
-   brew install tcllib  # macOS
-   sudo apt-get install tcllib  # Ubuntu
-   ```
-
-3. **"Server script not found"**
-   - Verify plugin installation
-   - Check if `bin/tcl-lsp-server.tcl` exists in plugin directory
-   - Run `:TclLspInfo` for diagnostics
-
-4. **Server won't start**
-   - Run `:checkhealth tcl-lsp`
-   - Check `:TclLspLog` for errors
-   - Verify file permissions: `chmod +x path/to/tcl-lsp-server.tcl`
-
-### Debug Mode
-
-Enable debug logging:
-
-```lua
-require("tcl-lsp").setup({
-  log_level = vim.log.levels.DEBUG,
-})
-```
-
-Then check logs with `:TclLspLog` or `:LspLog`.
-
-## 🚀 Performance
-
-This plugin uses a real LSP server architecture for optimal performance:
-
-- **Background Processing** - Server runs independently of Neovim
-- **Persistent Symbol Database** - Symbols cached across sessions
-- **Incremental Updates** - Only re-parses changed files
-- **Native TCL Parsing** - Leverages `tclsh`'s introspection capabilities
-- **Efficient Protocol** - Standard LSP JSON-RPC communication
+- `.tcl` - TCL script files
+- `.tk` - Tk GUI scripts
+- `.itcl` - Incr TCL object-oriented extension
+- `.rvt` - Rivet template files (TCL embedded in HTML)
+- `.tclshrc`, `.wishrc` - TCL startup files
 
 ## 🤝 Contributing
 
-Contributions are welcome! Here are some ways to help:
+Contributions welcome! The plugin is designed to be robust and work across different systems and Tcl installations.
 
-1. **Report Issues** - Bug reports and feature requests
-2. **Add TCL Commands** - Expand the built-in documentation
-3. **Improve Parsing** - Enhance symbol detection
-4. **Add Tests** - Help improve reliability
-5. **Documentation** - Improve docs and examples
+## 📜 License
 
-### Development Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/your-username/tcl-lsp.nvim.git
-cd tcl-lsp.nvim
-
-# Test locally
-ln -s $(pwd) ~/.local/share/nvim/lazy/tcl-lsp.nvim
-
-# Make server script executable
-chmod +x bin/tcl-lsp-server.tcl
-
-# Test the server
-tclsh bin/tcl-lsp-server.tcl --test
-```
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- Inspired by the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
-- Built for the [Neovim](https://neovim.io/) and [TCL/Tk](https://www.tcl.tk/) communities
-- Uses [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig) for LSP integration
-
-## 📚 Related Projects
-
-- [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig) - LSP configurations for Neovim
-- [LazyVim](https://github.com/LazyVim/LazyVim) - Neovim setup powered by lazy.nvim
-- [TCL/Tk Documentation](https://www.tcl.tk/doc/) - Official TCL documentation
-
----
-
-Made with ❤️ for the TCL and Neovim communities
+MIT License - see LICENSE file for details.
