@@ -1,0 +1,108 @@
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Windows
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.netrwhist
+tags
+.tags
+
+# Vim/Neovim specific
+*.tmp
+*.bak
+*.orig
+Session.vim
+.exrc
+
+# Lua specific
+luac.out
+*.lua~
+.luacompleterc
+
+# Testing and development
+/test_files/
+/examples/
+/scratch/
+/debug/
+*.test.lua
+test_*.lua
+
+# Documentation build artifacts
+/doc/tags
+/doc/*.txt.bak
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+/logs/
+
+# Plugin development
+.lazy/
+.local/
+node_modules/
+package-lock.json
+yarn.lock
+
+# CI/CD artifacts
+.github/secrets/
+.env
+.env.local
+
+# TCL specific test files (for testing the LSP)
+*.tcl.test
+test_*.tcl
+example_*.tcl
+/tcl_test_files/
+
+# Plugin installation testing
+/lazy-lock.json
+/plugin/packer_compiled.lua
+
+# Benchmark and profiling
+*.prof
+/benchmarks/
+/performance/
+
+# IDE and editor specific
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+*.code-workspace
+
+# Backup files
+*.backup
+*.old
+*~
+
+# Runtime files that shouldn't be committed
+/runtime/
+/.nvim/
+/share/
