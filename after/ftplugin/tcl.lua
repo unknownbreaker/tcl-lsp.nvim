@@ -9,11 +9,7 @@ vim.opt_local.softtabstop = 4
 -- Set comment string for commenting plugins
 vim.opt_local.commentstring = "# %s"
 
--- Set up folding for procedures
-vim.opt_local.foldmethod = "expr"
-vim.opt_local.foldexpr = "v:lua.tcl_fold_expr(v:lnum)"
-
--- TCL folding function
+-- Define the folding function FIRST, before using it
 function _G.tcl_fold_expr(lnum)
 	local line = vim.fn.getline(lnum)
 
@@ -31,35 +27,46 @@ function _G.tcl_fold_expr(lnum)
 	return "="
 end
 
--- TCL-specific text objects (optional)
--- This would require additional setup for custom text objects
+-- NOW set up folding (after the function is defined)
+vim.opt_local.foldmethod = "expr"
+vim.opt_local.foldexpr = "v:lua.tcl_fold_expr(v:lnum)"
 
--- Auto-pairs for TCL
-local pairs = {
-	["{"] = "}",
-	["["] = "]",
-	["("] = ")",
-	['"'] = '"',
-}
+-- Set up basic auto-pairs only if no autopairs plugin is present
+local function setup_basic_pairs()
+	local has_autopairs = pcall(require, "nvim-autopairs")
+		or pcall(require, "mini.pairs")
+		or vim.g.loaded_delimitMate
+		or vim.g.loaded_lexima
 
--- Set up some basic auto-pairs if not using a plugin
-for open, close in pairs(pairs) do
-	vim.keymap.set("i", open, open .. close .. "<left>", { buffer = true, silent = true })
+	if not has_autopairs then
+		local pairs = {
+			["{"] = "}",
+			["["] = "]",
+			["("] = ")",
+		}
+
+		for open, close in pairs(pairs) do
+			vim.keymap.set("i", open, open .. close .. "<left>", {
+				buffer = true,
+				silent = true,
+				desc = "TCL auto-pair " .. open .. close,
+			})
+		end
+	end
 end
 
--- Helpful abbreviations for common TCL patterns
-vim.cmd([[
-  iabbrev <buffer> proc proc<space><space>{}<space>{<cr>}<up><end><left><left><left><left>
-  iabbrev <buffer> if if<space>{}<space>{<cr>}<up><end><left><left><left>
-  iabbrev <buffer> for for<space>{}<space>{}<space>{}<space>{<cr>}<up><end><left><left><left>
-  iabbrev <buffer> while while<space>{}<space>{<cr>}<up><end><left><left><left>
-  iabbrev <buffer> foreach foreach<space><space>{}<space>{<cr>}<up><end><left><left><left><left><left><left><left>
-]])
+-- Apply the auto-pairs
+setup_basic_pairs()
 
--- Enhanced syntax highlighting (if needed)
-vim.cmd([[
-  syntax keyword tclBuiltin dict array string list file glob regexp regsub
-  syntax keyword tclBuiltin namespace package source load auto_load
-  syntax keyword tclBuiltin info rename eval expr clock
-  highlight link tclBuiltin Function
-]])
+-- Optional: Set up some TCL-specific abbreviations
+-- Only if the user hasn't disabled them
+if vim.g.tcl_abbreviations ~= false then
+	-- Use 't' prefix to avoid conflicts with existing abbreviations
+	vim.cmd([[
+    iabbrev <buffer> tproc proc<space><space>{}<space>{<cr>}<up><end><left><left><left><left>
+    iabbrev <buffer> tif if<space>{}<space>{<cr>}<up><end><left><left><left>
+    iabbrev <buffer> tfor for<space>{}<space>{}<space>{}<space>{<cr>}<up><end><left><left><left>
+    iabbrev <buffer> twhile while<space>{}<space>{<cr>}<up><end><left><left><left>
+    iabbrev <buffer> tforeach foreach<space><space>{}<space>{<cr>}<up><end><left><left><left><left><left><left><left>
+  ]])
+end
