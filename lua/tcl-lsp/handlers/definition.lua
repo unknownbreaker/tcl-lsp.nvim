@@ -230,7 +230,7 @@ function M.handle(params)
 		return nil
 	end
 
-	local definition_ok, definition = pcall(workspace.find_definition, word, filepath, position.line + 1)
+	local definition_ok, definition = pcall(workspace.find_definition, word, filepath)
 	if not definition_ok or not definition then
 		-- If no definition found and it's a built-in command, show the documentation message
 		if builtin_set[word] then
@@ -249,17 +249,12 @@ function M.handle(params)
 		local is_command = M.is_command_usage(line, word_start or position.character)
 
 		if is_command then
-			local scope_info = definition.scope
-					and definition.scope ~= "global"
-					and string.format(" (from %s scope)", definition.scope)
-				or ""
 			vim.notify(
 				string.format(
-					"'%s' appears to be used as a command here, not the variable defined at %s:%d%s",
+					"'%s' appears to be used as a command here, not the variable defined at %s:%d",
 					word,
 					definition.file,
-					definition.line,
-					scope_info
+					definition.line
 				),
 				vim.log.levels.INFO
 			)

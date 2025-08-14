@@ -396,9 +396,6 @@ end
 function M.parse_symbols(content, filepath, symbols)
 	local lines = vim.split(content, "\n")
 	local line_num = 0
-	local scope_stack = {} -- Track nested scopes
-	local current_proc = nil
-	local brace_depth = 0
 
 	for _, line in ipairs(lines) do
 		line_num = line_num + 1
@@ -410,48 +407,16 @@ function M.parse_symbols(content, filepath, symbols)
 			goto continue
 		end
 
-		-- Track brace depth for scope detection
-		local line_brace_count = 0
-		for i = 1, #original_line do
-			local char = original_line:sub(i, i)
-			if char == "{" then
-				line_brace_count = line_brace_count + 1
-			elseif char == "}" then
-				line_brace_count = line_brace_count - 1
-			end
-		end
-		brace_depth = brace_depth + line_brace_count
-
-		-- Parse procedure definitions with argument tracking
-		local proc_pattern = "^%s*proc%s+([%w_:]+)%s+{([^}]*)}%s*{"
-		local proc_name, proc_args = trimmed:match(proc_pattern)
+		-- Parse procedure definitions with more precision
+		-- Look for: proc name {args} {body} or proc name args body
+		local proc_pattern = "^%s*proc%s+([%w_:]+)"
+		local proc_name = trimmed:match(proc_pattern)
 
 		if proc_name then
 			-- Find the exact column where 'proc' starts
 			local proc_start_col = original_line:find("proc")
+			-- Find where the procedure name starts
 			local name_start_col = original_line:find(proc_name, proc_start_col)
-
-			current_proc = {
-				name = proc_name,
-				line = line_num,
-				args = {},
-				local_vars = {},
-			}
-
-			-- Parse procedure arguments
-			if proc_args then
-				for arg in proc_args:gmatch("([%w_:]+)") do
-					table.insert(current_proc.args, {
-						name = arg,
-						line = line_num,
-						col = name_start_col or proc_start_col or 1,
-						file = filepath,
-						type = "parameter",
-						scope = proc_name,
-						range = utils.get_lsp_range(line_num - 1, 0, line_num - 1, #original_line),
-					})
-				end
-			end
 
 			table.insert(symbols.procedures, {
 				name = proc_name,
@@ -459,7 +424,6 @@ function M.parse_symbols(content, filepath, symbols)
 				col = name_start_col or proc_start_col or 1,
 				file = filepath,
 				type = "procedure",
-				args = current_proc.args,
 				range = utils.get_lsp_range(
 					line_num - 1,
 					(name_start_col or proc_start_col or 1) - 1,
@@ -469,82 +433,34 @@ function M.parse_symbols(content, filepath, symbols)
 			})
 		end
 
-		-- Detect end of procedure scope
-		if current_proc and brace_depth == 0 then
-			-- Add all local variables found in this procedure to the symbols
-			for _, local_var in ipairs(current_proc.local_vars) do
-				table.insert(symbols.variables, local_var)
-			end
-			current_proc = nil
-		end
-
-		-- Parse variable assignments with scope awareness
+		-- Parse variable assignments with better precision
 		local var_patterns = {
 			{ pattern = "^%s*set%s+([%w_:]+)", command = "set" },
 			{ pattern = "^%s*variable%s+([%w_:]+)", command = "variable" },
 			{ pattern = "^%s*global%s+([%w_:]+)", command = "global" },
-			{ pattern = "^%s*upvar%s+%S+%s+([%w_:]+)", command = "upvar" },
-			{ pattern = "^%s*array%s+set%s+([%w_:]+)", command = "array" },
 		}
 
 		for _, var_pattern in ipairs(var_patterns) do
 			local var_name = trimmed:match(var_pattern.pattern)
 			if var_name then
+				-- Find the exact position of the variable name
 				local cmd_start = original_line:find(var_pattern.command)
 				local var_start_col = original_line:find(var_name, cmd_start)
 
-				local var_symbol = {
+				table.insert(symbols.variables, {
 					name = var_name,
 					line = line_num,
 					col = var_start_col or cmd_start or 1,
 					file = filepath,
 					type = "variable",
-					scope = current_proc and current_proc.name or "global",
-					command = var_pattern.command,
 					range = utils.get_lsp_range(
 						line_num - 1,
 						(var_start_col or cmd_start or 1) - 1,
 						line_num - 1,
 						(var_start_col or cmd_start or 1) + #var_name - 1
 					),
-				}
-
-				if current_proc then
-					-- It's a local variable inside a procedure
-					table.insert(current_proc.local_vars, var_symbol)
-				else
-					-- It's a global variable
-					table.insert(symbols.variables, var_symbol)
-				end
-				break
-			end
-		end
-
-		-- Parse foreach loop variables (temporary scope)
-		local foreach_pattern = "^%s*foreach%s+([%w_:]+)%s+"
-		local foreach_var = trimmed:match(foreach_pattern)
-		if foreach_var then
-			local var_start_col = original_line:find(foreach_var)
-			local var_symbol = {
-				name = foreach_var,
-				line = line_num,
-				col = var_start_col or 1,
-				file = filepath,
-				type = "variable",
-				scope = current_proc and current_proc.name or "global",
-				command = "foreach",
-				range = utils.get_lsp_range(
-					line_num - 1,
-					(var_start_col or 1) - 1,
-					line_num - 1,
-					(var_start_col or 1) + #foreach_var - 1
-				),
-			}
-
-			if current_proc then
-				table.insert(current_proc.local_vars, var_symbol)
-			else
-				table.insert(symbols.variables, var_symbol)
+				})
+				break -- Only match the first pattern
 			end
 		end
 

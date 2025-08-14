@@ -35,79 +35,11 @@ function M.get_all_symbols(root_dir)
 	return all_symbols
 end
 
--- Find symbol definition with scope awareness
-function M.find_definition_with_scope(symbol_name, current_file, current_line)
+-- Find symbol definition
+function M.find_definition(symbol_name, current_file)
 	local all_symbols = M.get_all_symbols()
 
-	-- First, try to find the current procedure scope
-	local current_proc = nil
-	for _, symbol in ipairs(all_symbols) do
-		if symbol.type == "procedure" and symbol.file == current_file then
-			-- Check if current line is within this procedure
-			-- This is a simplified check - ideally we'd parse the procedure's end
-			if current_line >= symbol.line then
-				if not current_proc or symbol.line > current_proc.line then
-					current_proc = symbol
-				end
-			end
-		end
-	end
-
-	local matches = {}
-
-	-- Search priority order:
-	-- 1. Parameters of current procedure
-	-- 2. Local variables in current procedure
-	-- 3. Global variables
-	-- 4. Procedures
-	-- 5. Other symbols
-
-	for _, symbol in ipairs(all_symbols) do
-		if symbol.name == symbol_name then
-			local priority = 0
-
-			if symbol.type == "parameter" and current_proc and symbol.scope == current_proc.name then
-				priority = 1 -- Highest priority: procedure parameters
-			elseif symbol.type == "variable" and current_proc and symbol.scope == current_proc.name then
-				priority = 2 -- Local variables in current procedure
-			elseif symbol.type == "variable" and symbol.scope == "global" then
-				priority = 3 -- Global variables
-			elseif symbol.type == "procedure" then
-				priority = 4 -- Procedures
-			else
-				priority = 5 -- Everything else
-			end
-
-			table.insert(matches, {
-				symbol = symbol,
-				priority = priority,
-				scope_match = (current_proc and symbol.scope == current_proc.name),
-			})
-		end
-	end
-
-	-- Sort by priority (lower number = higher priority)
-	table.sort(matches, function(a, b)
-		if a.priority == b.priority then
-			-- If same priority, prefer closer line numbers
-			return math.abs(a.symbol.line - current_line) < math.abs(b.symbol.line - current_line)
-		end
-		return a.priority < b.priority
-	end)
-
-	return matches[1] and matches[1].symbol or nil
-end
-
--- Enhanced find_definition that uses scope awareness
-function M.find_definition(symbol_name, current_file, current_line)
-	-- If current_line is provided, use scope-aware search
-	if current_line then
-		return M.find_definition_with_scope(symbol_name, current_file, current_line)
-	end
-
-	-- Fallback to original method
-	local all_symbols = M.get_all_symbols()
-
+	-- Look for exact matches, prioritizing procedures
 	local matches = {}
 
 	for _, symbol in ipairs(all_symbols) do
@@ -118,11 +50,11 @@ function M.find_definition(symbol_name, current_file, current_line)
 
 	-- Sort by priority: procedures first, then variables, then others
 	table.sort(matches, function(a, b)
-		local priority = { procedure = 1, parameter = 2, variable = 3, namespace = 4, package = 5 }
-		return (priority[a.type] or 6) < (priority[b.type] or 6)
+		local priority = { procedure = 1, variable = 2, namespace = 3, package = 4 }
+		return (priority[a.type] or 5) < (priority[b.type] or 5)
 	end)
 
-	return matches[1]
+	return matches[1] -- Return the highest priority match
 end
 
 -- Find all references to a symbol
