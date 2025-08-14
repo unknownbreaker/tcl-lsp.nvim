@@ -52,6 +52,40 @@ function M.find_definition(symbol_name, current_file, current_line)
 		end
 	end
 
+	-- Try to determine context from the current line
+	local context_suggests_variable = false
+	if current_line and current_file then
+		local file = io.open(current_file, "r")
+		if file then
+			local lines = {}
+			for line in file:lines() do
+				table.insert(lines, line)
+			end
+			file:close()
+
+			local line_content = lines[current_line] or ""
+
+			-- Check if symbol appears in variable-like contexts
+			-- Examples: "dict set mydict key value", "puts $mydict", "set result $mydict"
+			local patterns = {
+				"dict%s+%w+%s+" .. symbol_name .. "%s", -- dict operations on variable
+				"array%s+%w+%s+" .. symbol_name .. "%s", -- array operations on variable
+				"%" .. symbol_name, -- variable reference with $
+				"set%s+%w+%s+%" .. symbol_name, -- using as value in set
+				"puts%s+%" .. symbol_name, -- printing variable
+				"lappend%s+" .. symbol_name .. "%s", -- list operations
+				"incr%s+" .. symbol_name, -- incrementing variable
+			}
+
+			for _, pattern in ipairs(patterns) do
+				if line_content:match(pattern) then
+					context_suggests_variable = true
+					break
+				end
+			end
+		end
+	end
+
 	-- Collect all matches
 	local matches = {}
 
@@ -59,19 +93,31 @@ function M.find_definition(symbol_name, current_file, current_line)
 		if symbol.name == symbol_name then
 			local priority = 10 -- Default priority
 
-			-- Prioritize based on scope and type
-			if symbol.type == "procedure" then
-				priority = 1 -- Procedures have high priority
-			elseif symbol.type == "variable" then
+			-- Prioritize based on context, scope, and type
+			if context_suggests_variable and symbol.type == "variable" then
+				-- Context suggests this should be a variable - give variables higher priority
 				if current_proc and symbol.scope == current_proc.name then
-					priority = 2 -- Local variables in current procedure
+					priority = 1 -- Local variables in current procedure (highest when context suggests variable)
 				elseif symbol.scope == "global" then
-					priority = 3 -- Global variables
+					priority = 2 -- Global variables
 				else
-					priority = 4 -- Variables in other scopes
+					priority = 3 -- Variables in other scopes
 				end
+			elseif symbol.type == "procedure" and not context_suggests_variable then
+				priority = 4 -- Procedures (but lower when context suggests variable)
+			elseif symbol.type == "variable" then
+				-- No strong context, but still prefer local scope
+				if current_proc and symbol.scope == current_proc.name then
+					priority = 5 -- Local variables
+				elseif symbol.scope == "global" then
+					priority = 6 -- Global variables
+				else
+					priority = 7 -- Variables in other scopes
+				end
+			elseif symbol.type == "procedure" then
+				priority = 8 -- Procedures (when context doesn't suggest variable)
 			else
-				priority = 5 -- Other symbol types
+				priority = 9 -- Other symbol types
 			end
 
 			table.insert(matches, {
