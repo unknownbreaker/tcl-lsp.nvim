@@ -1,339 +1,84 @@
+local config = require("tcl-lsp.config")
+local utils = require("tcl-lsp.utils")
+local tcl = require("tcl-lsp.tcl")
+local syntax = require("tcl-lsp.syntax")
+local navigation = require("tcl-lsp.navigation")
+local symbols = require("tcl-lsp.symbols")
+
 local M = {}
-
--- Default configuration
-local default_config = {
-	hover = true,
-	diagnostics = true,
-	symbol_navigation = true,
-	completion = false,
-	symbol_update_on_change = false,
-	diagnostic_config = {
-		virtual_text = {
-			spacing = 4,
-			prefix = "●",
-			source = "if_many",
-		},
-		signs = {
-			text = {
-				[vim.diagnostic.severity.ERROR] = "✗",
-				[vim.diagnostic.severity.WARN] = "▲",
-				[vim.diagnostic.severity.HINT] = "⚑",
-				[vim.diagnostic.severity.INFO] = "»",
-			},
-		},
-		underline = true,
-		update_in_insert = false,
-		severity_sort = true,
-		float = {
-			focusable = false,
-			style = "minimal",
-			border = "rounded",
-			source = "if_many",
-			header = "",
-			prefix = "",
-		},
-	},
-	tclsh_cmd = "auto", -- Auto-detect the best tclsh
-	syntax_check_on_save = true,
-	syntax_check_on_change = false,
-	keymaps = {
-		hover = "K",
-		syntax_check = "<leader>tc",
-		goto_definition = "gd",
-		find_references = "gr",
-		document_symbols = "gO",
-		workspace_symbols = "<leader>tw",
-	},
-	-- Auto-setup features
-	auto_setup_filetypes = true,
-	auto_setup_commands = true,
-	auto_setup_autocmds = true,
-}
-
-local config = {}
-
--- Helper function to execute Tcl scripts using temporary files
-local function execute_tcl_script(script_content, tclsh_cmd)
-	tclsh_cmd = tclsh_cmd or config.tclsh_cmd or "tclsh"
-
-	-- Create temporary file
-	local temp_file = os.tmpname() .. ".tcl"
-	local file = io.open(temp_file, "w")
-	if not file then
-		vim.notify("Failed to create temporary Tcl script file", vim.log.levels.ERROR)
-		return nil, false
-	end
-
-	-- Write script content
-	file:write(script_content)
-	file:close()
-
-	-- Execute script
-	local cmd = tclsh_cmd .. " " .. vim.fn.shellescape(temp_file) .. " 2>&1"
-	local handle = io.popen(cmd)
-	local result = handle:read("*a")
-	local success = handle:close()
-
-	-- Cleanup
-	os.remove(temp_file)
-
-	return result, success
-end
-
--- Check if tcllib JSON package is available
-local function check_tcllib_availability(tclsh_cmd)
-	local test_script = [[
-if {[catch {package require json} err]} {
-    puts "ERROR: $err"
-    exit 1
-} else {
-    puts "OK"
-    puts "JSON_VERSION:[package provide json]"
-}
-]]
-
-	local result, success = execute_tcl_script(test_script, tclsh_cmd)
-	if result and success and result:match("OK") then
-		local version = result:match("JSON_VERSION:([%d%.]+)")
-		return true, version
-	else
-		return false, result
-	end
-end
-
--- Find the best available tclsh with tcllib support
-local function find_best_tclsh()
-	local candidates = {
-		"tclsh",
-		"tclsh8.6",
-		"tclsh8.5",
-		"/opt/homebrew/bin/tclsh",
-		"/opt/homebrew/bin/tclsh8.6",
-		"/opt/homebrew/Cellar/tcl-tk@8/8.6.16/bin/tclsh8.6",
-		"/opt/local/bin/tclsh",
-		"/opt/local/bin/tclsh8.6",
-		"/usr/local/bin/tclsh",
-		"/usr/local/bin/tclsh8.6",
-		"/usr/bin/tclsh",
-		"/usr/bin/tclsh8.6",
-		"/usr/bin/tclsh8.5",
-	}
-
-	for _, tclsh_cmd in ipairs(candidates) do
-		-- Check if command exists
-		local check_cmd = "command -v " .. tclsh_cmd .. " >/dev/null 2>&1"
-		if os.execute(check_cmd) == 0 then
-			-- Test if it has tcllib
-			local has_tcllib, version_or_error = check_tcllib_availability(tclsh_cmd)
-			if has_tcllib then
-				return tclsh_cmd, version_or_error
-			end
-		end
-	end
-
-	return nil, "No tclsh with tcllib found"
-end
-
--- Enhanced syntax checking using script files
-local function check_syntax(file_path, tclsh_cmd)
-	if not file_path or file_path == "" then
-		return false, "No file specified"
-	end
-
-	local syntax_script = string.format(
-		[[
-# Syntax check script
-if {[catch {
-    # Try to parse the file without executing
-    set fp [open "%s" r]
-    set content [read $fp]
-    close $fp
-    
-    # Basic syntax check by trying to parse
-    if {[catch {info complete $content} complete_result]} {
-        puts "SYNTAX_ERROR: $complete_result"
-        exit 1
-    }
-    
-    if {!$complete_result} {
-        puts "SYNTAX_ERROR: Incomplete script"
-        exit 1
-    }
-    
-    # Try to source in a safe interpreter
-    set safe_interp [interp create -safe]
-    if {[catch {$safe_interp eval $content} safe_error]} {
-        interp delete $safe_interp
-        # Only report actual syntax errors, not runtime errors
-        if {[string match "*syntax error*" $safe_error] || 
-            [string match "*missing*" $safe_error] ||
-            [string match "*unexpected*" $safe_error]} {
-            puts "SYNTAX_ERROR: $safe_error"
-            exit 1
-        }
-    }
-    interp delete $safe_interp
-    
-    puts "SYNTAX_OK"
-} err]} {
-    puts "SYNTAX_ERROR: $err"
-    exit 1
-}
-]],
-		file_path
-	)
-
-	local result, success = execute_tcl_script(syntax_script, tclsh_cmd)
-
-	if result then
-		if result:match("SYNTAX_OK") then
-			return true, "Syntax OK"
-		elseif result:match("SYNTAX_ERROR: (.+)") then
-			local error_msg = result:match("SYNTAX_ERROR: (.+)")
-			return false, error_msg
-		end
-	end
-
-	return false, "Syntax check failed: " .. (result or "unknown error")
-end
-
--- Get Tcl system information
-local function get_tcl_info(tclsh_cmd)
-	local info_script = [[
-puts "TCL_VERSION:[info patchlevel]"
-puts "TCL_LIBRARY:[info library]"
-puts "TCL_EXECUTABLE:[info nameofexecutable]"
-
-if {![catch {package require json}]} {
-    puts "JSON_VERSION:[package provide json]"
-} else {
-    puts "JSON_VERSION:NOT_AVAILABLE"
-}
-
-puts "AUTO_PATH_START"
-foreach path $auto_path {
-    puts "PATH:$path"
-}
-puts "AUTO_PATH_END"
-]]
-
-	local result, success = execute_tcl_script(info_script, tclsh_cmd)
-	if not (result and success) then
-		return nil
-	end
-
-	local info = {}
-	info.tcl_version = result:match("TCL_VERSION:([^\n]+)")
-	info.tcl_library = result:match("TCL_LIBRARY:([^\n]+)")
-	info.tcl_executable = result:match("TCL_EXECUTABLE:([^\n]+)")
-	info.json_version = result:match("JSON_VERSION:([^\n]+)")
-
-	info.auto_path = {}
-	local in_path_section = false
-	for line in result:gmatch("[^\n]+") do
-		if line == "AUTO_PATH_START" then
-			in_path_section = true
-		elseif line == "AUTO_PATH_END" then
-			in_path_section = false
-		elseif in_path_section and line:match("^PATH:(.+)") then
-			table.insert(info.auto_path, line:match("^PATH:(.+)"))
-		end
-	end
-
-	return info
-end
-
--- Test JSON functionality
-local function test_json_functionality(tclsh_cmd)
-	local json_test_script = [[
-if {[catch {package require json} err]} {
-    puts "JSON_ERROR:$err"
-    exit 1
-}
-
-set test_data {{"hello": "world", "number": 42, "array": [1, 2, 3]}}
-if {[catch {set result [json::json2dict $test_data]} err]} {
-    puts "JSON_PARSE_ERROR:$err"
-    exit 1
-} else {
-    puts "JSON_SUCCESS"
-    puts "RESULT:$result"
-}
-]]
-
-	local result, success = execute_tcl_script(json_test_script, tclsh_cmd)
-
-	if result and success then
-		if result:match("JSON_SUCCESS") then
-			local parsed_result = result:match("RESULT:([^\n]+)")
-			return true, parsed_result
-		elseif result:match("JSON_ERROR:(.+)") then
-			return false, result:match("JSON_ERROR:(.+)")
-		elseif result:match("JSON_PARSE_ERROR:(.+)") then
-			return false, "Parse error: " .. result:match("JSON_PARSE_ERROR:(.+)")
-		end
-	end
-
-	return false, "JSON test failed"
-end
-
--- Auto-setup filetype detection
-local function setup_filetype_detection()
-	vim.filetype.add({
-		extension = {
-			tcl = "tcl",
-			tk = "tcl",
-			itcl = "tcl",
-			itk = "tcl",
-			rvt = "tcl", -- Rivet template files
-			tcllib = "tcl", -- Tcllib files
-		},
-		filename = {
-			[".tclshrc"] = "tcl",
-			[".wishrc"] = "tcl",
-			["tclIndex"] = "tcl",
-		},
-		pattern = {
-			[".*%.tcl%.in$"] = "tcl", -- Template files
-			[".*%.tk%.in$"] = "tcl", -- Tk template files
-		},
-	})
-end
 
 -- Auto-setup user commands
 local function setup_user_commands()
-	vim.api.nvim_create_user_command("TclCheck", M.syntax_check, {
+	vim.api.nvim_create_user_command("TclCheck", function()
+		syntax.syntax_check_current_buffer()
+	end, {
 		desc = "Check TCL syntax of current file",
 	})
 
-	vim.api.nvim_create_user_command("TclInfo", M.show_info, {
+	vim.api.nvim_create_user_command("TclInfo", function()
+		M.show_info()
+	end, {
 		desc = "Show TCL system information",
 	})
 
-	vim.api.nvim_create_user_command("TclJsonTest", M.test_json, {
+	vim.api.nvim_create_user_command("TclJsonTest", function()
+		M.test_json()
+	end, {
 		desc = "Test JSON package functionality",
 	})
 
-	vim.api.nvim_create_user_command("TclLspStatus", function()
-		local info = get_tcl_info(config.tclsh_cmd)
-		if info then
-			local status = string.format(
-				[[
-TCL LSP Status:
-  Tcl: %s (%s)
-  JSON: %s
-  Command: %s
-  Auto-detection: %s
-]],
-				info.tcl_version or "unknown",
-				info.tcl_executable or "unknown",
-				info.json_version or "not available",
-				config.tclsh_cmd,
-				config.tclsh_cmd == "auto" and "enabled" or "disabled"
-			)
-			vim.notify(status, vim.log.levels.INFO)
+	vim.api.nvim_create_user_command("TclSymbols", function()
+		symbols.document_symbols()
+	end, {
+		desc = "Show TCL symbols in current file",
+	})
+
+	vim.api.nvim_create_user_command("TclWorkspaceSymbols", function(opts)
+		if opts.args and opts.args ~= "" then
+			symbols.search_workspace_symbols(opts.args)
+		else
+			symbols.workspace_symbols()
 		end
-	end, { desc = "Show TCL LSP status" })
+	end, {
+		desc = "Search TCL symbols in workspace",
+		nargs = "?",
+	})
+
+	vim.api.nvim_create_user_command("TclProcedures", function()
+		symbols.list_procedures()
+	end, {
+		desc = "List all procedures in current file",
+	})
+
+	vim.api.nvim_create_user_command("TclVariables", function()
+		symbols.list_variables()
+	end, {
+		desc = "List all variables in current file",
+	})
+
+	vim.api.nvim_create_user_command("TclNamespaces", function()
+		symbols.list_namespaces()
+	end, {
+		desc = "List all namespaces in current file",
+	})
+
+	vim.api.nvim_create_user_command("TclFuzzySymbols", function()
+		symbols.symbol_picker()
+	end, {
+		desc = "Fuzzy search for symbols",
+	})
+
+	vim.api.nvim_create_user_command("TclLspStatus", function()
+		M.show_status()
+	end, {
+		desc = "Show TCL LSP status",
+	})
+
+	vim.api.nvim_create_user_command("TclLspReload", function()
+		M.reload()
+	end, {
+		desc = "Reload TCL LSP configuration",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
@@ -351,189 +96,142 @@ local function setup_buffer_autocmds()
 			vim.opt_local.tabstop = 4
 			vim.opt_local.softtabstop = 4
 
-			-- Set up keymaps if configured
-			if config.keymaps then
-				local opts = { buffer = ev.buf, silent = true }
+			-- Set up navigation keymaps
+			if config.is_symbol_navigation_enabled() then
+				navigation.setup_buffer_keymaps(ev.buf)
+				symbols.setup_buffer_keymaps(ev.buf)
+			end
 
-				if config.keymaps.syntax_check then
-					vim.keymap.set(
-						"n",
-						config.keymaps.syntax_check,
-						M.syntax_check,
-						vim.tbl_extend("force", opts, { desc = "TCL Syntax Check" })
-					)
-				end
-
-				if config.keymaps.hover then
-					vim.keymap.set(
-						"n",
-						config.keymaps.hover,
-						vim.lsp.buf.hover,
-						vim.tbl_extend("force", opts, { desc = "TCL Hover Documentation" })
-					)
-				end
-
-				if config.keymaps.goto_definition then
-					vim.keymap.set(
-						"n",
-						config.keymaps.goto_definition,
-						vim.lsp.buf.definition,
-						vim.tbl_extend("force", opts, { desc = "TCL Go to Definition" })
-					)
-				end
-
-				if config.keymaps.find_references then
-					vim.keymap.set(
-						"n",
-						config.keymaps.find_references,
-						vim.lsp.buf.references,
-						vim.tbl_extend("force", opts, { desc = "TCL Find References" })
-					)
-				end
-
-				if config.keymaps.document_symbols then
-					vim.keymap.set(
-						"n",
-						config.keymaps.document_symbols,
-						vim.lsp.buf.document_symbol,
-						vim.tbl_extend("force", opts, { desc = "TCL Document Symbols" })
-					)
-				end
-
-				if config.keymaps.workspace_symbols then
-					vim.keymap.set(
-						"n",
-						config.keymaps.workspace_symbols,
-						vim.lsp.buf.workspace_symbol,
-						vim.tbl_extend("force", opts, { desc = "TCL Workspace Symbols" })
-					)
-				end
+			-- Set up syntax checking keymap
+			local keymaps = config.get_keymaps()
+			if keymaps.syntax_check then
+				utils.set_buffer_keymap(
+					"n",
+					keymaps.syntax_check,
+					syntax.syntax_check_current_buffer,
+					{ desc = "TCL Syntax Check" },
+					ev.buf
+				)
 			end
 
 			-- Additional convenience keymaps
-			local buf_opts = { buffer = ev.buf, silent = true }
-			vim.keymap.set("n", "<leader>ti", M.show_info, vim.tbl_extend("force", buf_opts, { desc = "TCL Info" }))
-			vim.keymap.set(
-				"n",
-				"<leader>tj",
-				M.test_json,
-				vim.tbl_extend("force", buf_opts, { desc = "Test TCL JSON" })
-			)
-			vim.keymap.set(
+			utils.set_buffer_keymap("n", "<leader>ti", M.show_info, { desc = "TCL Info" }, ev.buf)
+			utils.set_buffer_keymap("n", "<leader>tj", M.test_json, { desc = "Test TCL JSON" }, ev.buf)
+			utils.set_buffer_keymap(
 				"n",
 				"<leader>ts",
-				M.syntax_check,
-				vim.tbl_extend("force", buf_opts, { desc = "TCL Syntax Check" })
+				syntax.syntax_check_current_buffer,
+				{ desc = "TCL Syntax Check" },
+				ev.buf
 			)
 		end,
 	})
 
-	-- Auto syntax check on save
-	if config.syntax_check_on_save then
-		vim.api.nvim_create_autocmd("BufWritePost", {
-			pattern = "*.tcl",
-			group = tcl_group,
-			callback = function()
-				vim.defer_fn(function()
-					M.syntax_check()
-				end, 100)
-			end,
-		})
-	end
-
-	-- Auto syntax check on change (if enabled)
-	if config.syntax_check_on_change then
-		vim.api.nvim_create_autocmd("TextChanged", {
-			pattern = "*.tcl",
-			group = tcl_group,
-			callback = function()
-				vim.defer_fn(function()
-					M.syntax_check()
-				end, 500)
-			end,
-		})
-	end
+	-- Set up syntax checking autocmds
+	syntax.setup_autocmds()
 end
 
--- Setup function - handles everything automatically
-function M.setup(user_config)
-	config = vim.tbl_deep_extend("force", default_config, user_config or {})
-
+-- Initialize TCL environment
+local function initialize_tcl_environment(tclsh_cmd)
 	-- Auto-detect the best tclsh if set to "auto" or not specified
-	if config.tclsh_cmd == "auto" or config.tclsh_cmd == "tclsh" then
-		local best_tclsh, version_or_error = find_best_tclsh()
+	if tclsh_cmd == "auto" or tclsh_cmd == "tclsh" then
+		local best_tclsh, version_or_error = utils.find_best_tclsh()
 		if best_tclsh then
-			config.tclsh_cmd = best_tclsh
-			vim.notify("✅ TCL LSP: Found " .. best_tclsh .. " with JSON " .. version_or_error, vim.log.levels.INFO)
+			config.set_value("tclsh_cmd", best_tclsh)
+			utils.notify("✅ TCL LSP: Found " .. best_tclsh .. " with JSON " .. version_or_error, vim.log.levels.INFO)
+			return best_tclsh, version_or_error
 		else
-			vim.notify("❌ TCL LSP: No suitable Tcl installation found: " .. version_or_error, vim.log.levels.ERROR)
-			vim.notify("💡 Try installing: brew install tcl-tk && install tcllib", vim.log.levels.INFO)
-			return
+			utils.notify("❌ TCL LSP: No suitable Tcl installation found: " .. version_or_error, vim.log.levels.ERROR)
+			utils.notify("💡 Try installing: brew install tcl-tk tcllib", vim.log.levels.INFO)
+			return nil, version_or_error
 		end
 	else
 		-- Verify user-specified tclsh
-		local has_tcllib, version_or_error = check_tcllib_availability(config.tclsh_cmd)
+		local has_tcllib, version_or_error = utils.check_tcllib_availability(tclsh_cmd)
 		if not has_tcllib then
-			vim.notify("❌ TCL LSP: Specified tclsh doesn't have tcllib: " .. version_or_error, vim.log.levels.ERROR)
-			return
+			utils.notify("❌ TCL LSP: Specified tclsh doesn't have tcllib: " .. version_or_error, vim.log.levels.ERROR)
+			return nil, version_or_error
 		else
-			vim.notify(
-				"✅ TCL LSP: Using " .. config.tclsh_cmd .. " with JSON " .. version_or_error,
-				vim.log.levels.INFO
-			)
+			utils.notify("✅ TCL LSP: Using " .. tclsh_cmd .. " with JSON " .. version_or_error, vim.log.levels.INFO)
+			return tclsh_cmd, version_or_error
 		end
 	end
+end
 
-	-- Configure diagnostics globally
-	vim.diagnostic.config(config.diagnostic_config)
+-- Main setup function
+function M.setup(user_config)
+	-- Setup configuration
+	local cfg = config.setup(user_config)
 
-	-- Auto-setup everything if enabled (default: true)
-	if config.auto_setup_filetypes then
-		setup_filetype_detection()
+	-- Validate configuration
+	local valid, errors = config.validate()
+	if not valid then
+		utils.notify("❌ TCL LSP: Configuration errors:\n" .. table.concat(errors, "\n"), vim.log.levels.ERROR)
+		return
 	end
 
-	if config.auto_setup_commands then
+	-- Initialize TCL environment
+	local tclsh_cmd, tcl_info = initialize_tcl_environment(cfg.tclsh_cmd)
+	if not tclsh_cmd then
+		return
+	end
+
+	-- Test TCL environment
+	local tcl_ok, tcl_err = tcl.initialize_tcl_environment(tclsh_cmd)
+	if not tcl_ok then
+		utils.notify("❌ TCL LSP: Failed to initialize TCL environment: " .. tcl_err, vim.log.levels.ERROR)
+		return
+	end
+
+	-- Configure diagnostics globally if enabled
+	if config.is_diagnostics_enabled() then
+		vim.diagnostic.config(config.get_diagnostic_config())
+	end
+
+	-- Auto-setup everything if enabled (default: true)
+	if config.should_auto_setup_filetypes() then
+		utils.setup_filetype_detection()
+	end
+
+	if config.should_auto_setup_commands() then
 		setup_user_commands()
 	end
 
-	if config.auto_setup_autocmds then
+	if config.should_auto_setup_autocmds() then
 		setup_buffer_autocmds()
 	end
 
 	-- Show success message with quick start info
-	local success_msg = string.format([[
+	local success_msg = string.format(
+		[[
 🎉 TCL LSP ready! Quick commands:
   :TclCheck - Check syntax
   :TclInfo - System info  
   :TclJsonTest - Test JSON
-  <leader>tc - Syntax check
-  K - Hover docs (in .tcl files)
-]])
+  :TclSymbols - Document symbols
+  :TclWorkspaceSymbols - Search workspace
+  %s - Syntax check (in .tcl files)
+  %s - Hover docs (in .tcl files)
+  %s - Go to definition (in .tcl files)
+]],
+		cfg.keymaps.syntax_check or "<leader>tc",
+		cfg.keymaps.hover or "K",
+		cfg.keymaps.goto_definition or "gd"
+	)
 
-	vim.notify(success_msg, vim.log.levels.INFO)
+	utils.notify(success_msg, vim.log.levels.INFO)
 end
 
--- Public functions
+-- Public API functions
 function M.syntax_check()
-	local file_path = vim.api.nvim_buf_get_name(0)
-	if not file_path or file_path == "" then
-		vim.notify("No file to check", vim.log.levels.WARN)
-		return
-	end
-
-	local success, message = check_syntax(file_path, config.tclsh_cmd)
-
-	if success then
-		vim.notify("✅ " .. message, vim.log.levels.INFO)
-	else
-		vim.notify("❌ " .. message, vim.log.levels.ERROR)
-	end
+	syntax.syntax_check_current_buffer()
 end
 
 function M.show_info()
-	local info = get_tcl_info(config.tclsh_cmd)
+	local tclsh_cmd = config.get_tclsh_cmd()
+	local info = tcl.get_tcl_info(tclsh_cmd)
 	if not info then
-		vim.notify("Failed to get Tcl info", vim.log.levels.ERROR)
+		utils.notify("Failed to get Tcl info", vim.log.levels.ERROR)
 		return
 	end
 
@@ -552,18 +250,170 @@ Library Paths: %d entries
 		#info.auto_path
 	)
 
-	vim.notify(info_text, vim.log.levels.INFO)
+	utils.notify(info_text, vim.log.levels.INFO)
 end
 
 function M.test_json()
-	local success, result = test_json_functionality(config.tclsh_cmd)
+	local tclsh_cmd = config.get_tclsh_cmd()
+	local success, result = tcl.test_json_functionality(tclsh_cmd)
 
 	if success then
-		vim.notify("✅ JSON test passed\nResult: " .. result, vim.log.levels.INFO)
+		utils.notify("✅ JSON test passed\nResult: " .. result, vim.log.levels.INFO)
 	else
-		vim.notify("❌ JSON test failed: " .. result, vim.log.levels.ERROR)
+		utils.notify("❌ JSON test failed: " .. result, vim.log.levels.ERROR)
 	end
 end
 
--- Export the module (CRITICAL!)
+function M.show_status()
+	local cfg = config.get()
+	local tclsh_cmd = cfg.tclsh_cmd
+	local info = tcl.get_tcl_info(tclsh_cmd)
+
+	local status_info = {
+		"TCL LSP Status:",
+		"  Configuration: " .. (cfg and "loaded" or "not loaded"),
+		"  TCL Command: " .. (tclsh_cmd or "unknown"),
+		"  Auto-detection: " .. (cfg.tclsh_cmd == "auto" and "enabled" or "disabled"),
+	}
+
+	if info then
+		table.insert(status_info, "  TCL Version: " .. (info.tcl_version or "unknown"))
+		table.insert(status_info, "  TCL Executable: " .. (info.tcl_executable or "unknown"))
+		table.insert(status_info, "  JSON Support: " .. (info.json_version or "not available"))
+	end
+
+	table.insert(status_info, "")
+	table.insert(status_info, "Features:")
+	table.insert(status_info, "  Hover: " .. (cfg.hover and "enabled" or "disabled"))
+	table.insert(status_info, "  Diagnostics: " .. (cfg.diagnostics and "enabled" or "disabled"))
+	table.insert(status_info, "  Symbol Navigation: " .. (cfg.symbol_navigation and "enabled" or "disabled"))
+	table.insert(status_info, "  Syntax Check on Save: " .. (cfg.syntax_check_on_save and "enabled" or "disabled"))
+
+	utils.notify(table.concat(status_info, "\n"), vim.log.levels.INFO)
+end
+
+function M.reload()
+	-- Clear any existing autocmds
+	vim.api.nvim_clear_autocmds({ group = "TclLSP" })
+	vim.api.nvim_clear_autocmds({ group = "TclLSP-Syntax" })
+
+	-- Clear any existing user commands
+	pcall(vim.api.nvim_del_user_command, "TclCheck")
+	pcall(vim.api.nvim_del_user_command, "TclInfo")
+	pcall(vim.api.nvim_del_user_command, "TclJsonTest")
+	pcall(vim.api.nvim_del_user_command, "TclSymbols")
+	pcall(vim.api.nvim_del_user_command, "TclWorkspaceSymbols")
+	pcall(vim.api.nvim_del_user_command, "TclProcedures")
+	pcall(vim.api.nvim_del_user_command, "TclVariables")
+	pcall(vim.api.nvim_del_user_command, "TclNamespaces")
+	pcall(vim.api.nvim_del_user_command, "TclFuzzySymbols")
+	pcall(vim.api.nvim_del_user_command, "TclLspStatus")
+	pcall(vim.api.nvim_del_user_command, "TclLspReload")
+
+	-- Reload configuration with current settings
+	local current_config = config.get()
+	M.setup(current_config)
+
+	utils.notify("✅ TCL LSP reloaded successfully", vim.log.levels.INFO)
+end
+
+-- Get current configuration (for external access)
+function M.get_config()
+	return config.get()
+end
+
+-- Get symbol under cursor (for external integrations)
+function M.get_symbol_under_cursor()
+	return symbols.get_symbol_under_cursor()
+end
+
+-- Find symbol definition (for external integrations)
+function M.find_definition(symbol_name, file_path)
+	file_path = file_path or utils.get_current_file_path()
+	if not file_path then
+		return nil, "No file specified"
+	end
+
+	local tclsh_cmd = config.get_tclsh_cmd()
+	local file_symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+	if not file_symbols then
+		return nil, "Failed to analyze file"
+	end
+
+	for _, symbol in ipairs(file_symbols) do
+		if symbol.name == symbol_name then
+			return symbol, nil
+		end
+	end
+
+	return nil, "Symbol not found"
+end
+
+-- Find symbol references (for external integrations)
+function M.find_references(symbol_name, file_path)
+	file_path = file_path or utils.get_current_file_path()
+	if not file_path then
+		return nil, "No file specified"
+	end
+
+	local tclsh_cmd = config.get_tclsh_cmd()
+	return tcl.find_symbol_references(file_path, symbol_name, tclsh_cmd)
+end
+
+-- Analyze file and return symbols (for external integrations)
+function M.analyze_file(file_path)
+	if not file_path then
+		return nil, "No file specified"
+	end
+
+	local tclsh_cmd = config.get_tclsh_cmd()
+	return tcl.analyze_tcl_file(file_path, tclsh_cmd)
+end
+
+-- Check if TCL LSP is properly initialized
+function M.is_initialized()
+	local cfg = config.get()
+	return cfg and cfg.tclsh_cmd and cfg.tclsh_cmd ~= "auto"
+end
+
+-- Get version information
+function M.get_version()
+	return {
+		version = "1.0.0",
+		tcl_lsp = true,
+		features = {
+			hover = true,
+			goto_definition = true,
+			find_references = true,
+			document_symbols = true,
+			workspace_symbols = true,
+			syntax_checking = true,
+			diagnostics = true,
+		},
+	}
+end
+
+-- Compatibility layer for the original monolithic API
+M.find_references = function()
+	navigation.find_references()
+end
+
+M.document_symbols = function()
+	symbols.document_symbols()
+end
+
+M.workspace_symbols = function()
+	symbols.workspace_symbols()
+end
+
+M.smart_goto_tcl_definition = function()
+	navigation.goto_definition()
+end
+
+M.smart_tcl_hover = function()
+	navigation.hover()
+end
+
+-- Export the module
 return M
