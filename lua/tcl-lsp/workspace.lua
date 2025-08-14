@@ -97,20 +97,65 @@ function M.find_definition(symbol_name, current_file, current_line)
 			if context_suggests_variable and symbol.type == "variable" then
 				-- Context suggests this should be a variable - give variables higher priority
 				if current_proc and symbol.scope == current_proc.name then
-					priority = 1 -- Local variables in current procedure (highest when context suggests variable)
+					-- Extra priority boost for variables that were defined in dictionary/array/list contexts
+					if
+						symbol.context
+						and (
+							symbol.context:match("dict_")
+							or symbol.context:match("array_")
+							or symbol.context:match("list_")
+						)
+					then
+						priority = 0.5 -- Highest priority for data structure variables
+					else
+						priority = 1 -- Local variables in current procedure
+					end
 				elseif symbol.scope == "global" then
-					priority = 2 -- Global variables
+					if
+						symbol.context
+						and (
+							symbol.context:match("dict_")
+							or symbol.context:match("array_")
+							or symbol.context:match("list_")
+						)
+					then
+						priority = 1.5 -- High priority for global data structure variables
+					else
+						priority = 2 -- Global variables
+					end
 				else
 					priority = 3 -- Variables in other scopes
 				end
 			elseif symbol.type == "procedure" and not context_suggests_variable then
 				priority = 4 -- Procedures (but lower when context suggests variable)
 			elseif symbol.type == "variable" then
-				-- No strong context, but still prefer local scope
+				-- No strong context, but still prefer local scope and data structure contexts
 				if current_proc and symbol.scope == current_proc.name then
-					priority = 5 -- Local variables
+					if
+						symbol.context
+						and (
+							symbol.context:match("dict_")
+							or symbol.context:match("array_")
+							or symbol.context:match("list_")
+						)
+					then
+						priority = 4.5 -- Local data structure variables
+					else
+						priority = 5 -- Local variables
+					end
 				elseif symbol.scope == "global" then
-					priority = 6 -- Global variables
+					if
+						symbol.context
+						and (
+							symbol.context:match("dict_")
+							or symbol.context:match("array_")
+							or symbol.context:match("list_")
+						)
+					then
+						priority = 5.5 -- Global data structure variables
+					else
+						priority = 6 -- Global variables
+					end
 				else
 					priority = 7 -- Variables in other scopes
 				end

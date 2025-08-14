@@ -429,7 +429,7 @@ function M.parse_symbols(content, filepath, symbols)
 			-- Mark that we're entering a procedure
 			in_procedure = true
 			current_proc_name = proc_name
-			proc_start_depth = brace_depth - 1 -- The opening brace of the proc body
+			proc_start_depth = brace_depth - 1
 
 			table.insert(symbols.procedures, {
 				name = proc_name,
@@ -452,43 +452,31 @@ function M.parse_symbols(content, filepath, symbols)
 			current_proc_name = nil
 		end
 
-		-- Parse variable assignments
-		local var_patterns = {
-			{ pattern = "^set%s+([%w_:]+)", cmd = "set" },
-			{ pattern = "^variable%s+([%w_:]+)", cmd = "variable" },
-			{ pattern = "^global%s+([%w_:]+)", cmd = "global" },
-			{ pattern = "^upvar%s+%S+%s+([%w_:]+)", cmd = "upvar" },
-			{ pattern = "^foreach%s+([%w_:]+)%s+", cmd = "foreach" },
-		}
+		-- Comprehensive variable definition patterns
+		local variable_definitions = M.find_variable_definitions(trimmed, original_line)
 
-		for _, var_pattern in ipairs(var_patterns) do
-			local var_name = trimmed:match(var_pattern.pattern)
-			if var_name then
-				local var_start_col = original_line:find(var_name, 1, true)
-
-				-- Determine scope
-				local scope = "global"
-				if in_procedure and current_proc_name then
-					scope = current_proc_name
-				end
-
-				table.insert(symbols.variables, {
-					name = var_name,
-					line = line_num,
-					col = var_start_col or 1,
-					file = filepath,
-					type = "variable",
-					scope = scope,
-					command = var_pattern.cmd,
-					range = utils.get_lsp_range(
-						line_num - 1,
-						(var_start_col or 1) - 1,
-						line_num - 1,
-						(var_start_col or 1) + #var_name - 1
-					),
-				})
-				break
+		for _, var_def in ipairs(variable_definitions) do
+			local scope = "global"
+			if in_procedure and current_proc_name then
+				scope = current_proc_name
 			end
+
+			table.insert(symbols.variables, {
+				name = var_def.name,
+				line = line_num,
+				col = var_def.col,
+				file = filepath,
+				type = "variable",
+				scope = scope,
+				command = var_def.command,
+				context = var_def.context,
+				range = utils.get_lsp_range(
+					line_num - 1,
+					var_def.col - 1,
+					line_num - 1,
+					var_def.col + #var_def.name - 1
+				),
+			})
 		end
 
 		-- Parse namespace definitions (unchanged)
@@ -533,6 +521,145 @@ function M.parse_symbols(content, filepath, symbols)
 
 		::continue::
 	end
+end
+
+-- Comprehensive function to find all variable definitions in a line
+function M.find_variable_definitions(trimmed_line, original_line)
+	local definitions = {}
+
+	-- Standard variable assignment patterns
+	local standard_patterns = {
+		{ pattern = "^set%s+([%w_:]+)", cmd = "set", context = "assignment" },
+		{ pattern = "^variable%s+([%w_:]+)", cmd = "variable", context = "declaration" },
+		{ pattern = "^global%s+([%w_:]+)", cmd = "global", context = "declaration" },
+		{ pattern = "^upvar%s+%S+%s+([%w_:]+)", cmd = "upvar", context = "reference" },
+		{ pattern = "^foreach%s+([%w_:]+)%s+", cmd = "foreach", context = "iterator" },
+	}
+
+	for _, pattern_info in ipairs(standard_patterns) do
+		local var_name = trimmed_line:match(pattern_info.pattern)
+		if var_name then
+			local col = original_line:find(var_name, 1, true)
+			table.insert(definitions, {
+				name = var_name,
+				col = col or 1,
+				command = pattern_info.cmd,
+				context = pattern_info.context,
+			})
+		end
+	end
+
+	-- Dictionary operations that define/modify variables
+	local dict_patterns = {
+		-- dict set varname key value
+		{ pattern = "^dict%s+set%s+([%w_:]+)", cmd = "dict_set", context = "dict_assignment" },
+		-- dict with varname script
+		{ pattern = "^dict%s+with%s+([%w_:]+)", cmd = "dict_with", context = "dict_context" },
+		-- dict append varname key value
+		{ pattern = "^dict%s+append%s+([%w_:]+)", cmd = "dict_append", context = "dict_modification" },
+		-- dict incr varname key ?increment?
+		{ pattern = "^dict%s+incr%s+([%w_:]+)", cmd = "dict_incr", context = "dict_modification" },
+		-- dict lappend varname key value
+		{ pattern = "^dict%s+lappend%s+([%w_:]+)", cmd = "dict_lappend", context = "dict_modification" },
+		-- dict merge varname dict1 dict2 ...
+		{ pattern = "^dict%s+merge%s+([%w_:]+)", cmd = "dict_merge", context = "dict_assignment" },
+		-- dict replace varname key value ...
+		{ pattern = "^dict%s+replace%s+([%w_:]+)", cmd = "dict_replace", context = "dict_assignment" },
+		-- dict unset varname key
+		{ pattern = "^dict%s+unset%s+([%w_:]+)", cmd = "dict_unset", context = "dict_modification" },
+		-- dict update varname key varname key varname script
+		{ pattern = "^dict%s+update%s+([%w_:]+)", cmd = "dict_update", context = "dict_context" },
+	}
+
+	for _, pattern_info in ipairs(dict_patterns) do
+		local var_name = trimmed_line:match(pattern_info.pattern)
+		if var_name then
+			local col = original_line:find(var_name, 1, true)
+			table.insert(definitions, {
+				name = var_name,
+				col = col or 1,
+				command = pattern_info.cmd,
+				context = pattern_info.context,
+			})
+		end
+	end
+
+	-- Array operations that define/modify variables
+	local array_patterns = {
+		-- array set varname list
+		{ pattern = "^array%s+set%s+([%w_:]+)", cmd = "array_set", context = "array_assignment" },
+		-- array unset varname ?pattern?
+		{ pattern = "^array%s+unset%s+([%w_:]+)", cmd = "array_unset", context = "array_modification" },
+	}
+
+	for _, pattern_info in ipairs(array_patterns) do
+		local var_name = trimmed_line:match(pattern_info.pattern)
+		if var_name then
+			local col = original_line:find(var_name, 1, true)
+			table.insert(definitions, {
+				name = var_name,
+				col = col or 1,
+				command = pattern_info.cmd,
+				context = pattern_info.context,
+			})
+		end
+	end
+
+	-- List operations that modify variables
+	local list_patterns = {
+		-- lappend varname value ...
+		{ pattern = "^lappend%s+([%w_:]+)", cmd = "lappend", context = "list_modification" },
+		-- linsert varname index element ...
+		{ pattern = "^linsert%s+([%w_:]+)", cmd = "linsert", context = "list_modification" },
+		-- lreplace varname first last ?element ...?
+		{ pattern = "^lreplace%s+([%w_:]+)", cmd = "lreplace", context = "list_modification" },
+		-- lset varname index value
+		{ pattern = "^lset%s+([%w_:]+)", cmd = "lset", context = "list_modification" },
+	}
+
+	for _, pattern_info in ipairs(list_patterns) do
+		local var_name = trimmed_line:match(pattern_info.pattern)
+		if var_name then
+			local col = original_line:find(var_name, 1, true)
+			table.insert(definitions, {
+				name = var_name,
+				col = col or 1,
+				command = pattern_info.cmd,
+				context = pattern_info.context,
+			})
+		end
+	end
+
+	-- Other variable-modifying operations
+	local misc_patterns = {
+		-- incr varname ?increment?
+		{ pattern = "^incr%s+([%w_:]+)", cmd = "incr", context = "numeric_modification" },
+		-- append varname value ...
+		{ pattern = "^append%s+([%w_:]+)", cmd = "append", context = "string_modification" },
+		-- read channelId varname
+		{ pattern = "^read%s+%S+%s+([%w_:]+)", cmd = "read", context = "io_assignment" },
+		-- gets channelId varname
+		{ pattern = "^gets%s+%S+%s+([%w_:]+)", cmd = "gets", context = "io_assignment" },
+		-- scan string format varname ...
+		{ pattern = "^scan%s+%S+%s+%S+%s+([%w_:]+)", cmd = "scan", context = "parsing_assignment" },
+		-- regexp pattern string ?matchVar?
+		{ pattern = "^regexp%s+%S+%s+%S+%s+([%w_:]+)", cmd = "regexp", context = "pattern_assignment" },
+	}
+
+	for _, pattern_info in ipairs(misc_patterns) do
+		local var_name = trimmed_line:match(pattern_info.pattern)
+		if var_name then
+			local col = original_line:find(var_name, 1, true)
+			table.insert(definitions, {
+				name = var_name,
+				col = col or 1,
+				command = pattern_info.cmd,
+				context = pattern_info.context,
+			})
+		end
+	end
+
+	return definitions
 end
 
 -- Also add a helper function to find the exact definition line
