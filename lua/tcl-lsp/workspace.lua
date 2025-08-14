@@ -36,25 +36,65 @@ function M.get_all_symbols(root_dir)
 end
 
 -- Find symbol definition
-function M.find_definition(symbol_name, current_file)
+function M.find_definition(symbol_name, current_file, current_line)
 	local all_symbols = M.get_all_symbols()
 
-	-- Look for exact matches, prioritizing procedures
+	-- Find what procedure we're currently in (if any)
+	local current_proc = nil
+	if current_line then
+		for _, symbol in ipairs(all_symbols) do
+			if symbol.type == "procedure" and symbol.file == current_file and symbol.line <= current_line then
+				-- This is a simple heuristic - assumes we're in the last procedure before current line
+				if not current_proc or symbol.line > current_proc.line then
+					current_proc = symbol
+				end
+			end
+		end
+	end
+
+	-- Collect all matches
 	local matches = {}
 
 	for _, symbol in ipairs(all_symbols) do
 		if symbol.name == symbol_name then
-			table.insert(matches, symbol)
+			local priority = 10 -- Default priority
+
+			-- Prioritize based on scope and type
+			if symbol.type == "procedure" then
+				priority = 1 -- Procedures have high priority
+			elseif symbol.type == "variable" then
+				if current_proc and symbol.scope == current_proc.name then
+					priority = 2 -- Local variables in current procedure
+				elseif symbol.scope == "global" then
+					priority = 3 -- Global variables
+				else
+					priority = 4 -- Variables in other scopes
+				end
+			else
+				priority = 5 -- Other symbol types
+			end
+
+			table.insert(matches, {
+				symbol = symbol,
+				priority = priority,
+				distance = current_line and math.abs(symbol.line - current_line) or 1000,
+			})
 		end
 	end
 
-	-- Sort by priority: procedures first, then variables, then others
+	if #matches == 0 then
+		return nil
+	end
+
+	-- Sort by priority first, then by distance
 	table.sort(matches, function(a, b)
-		local priority = { procedure = 1, variable = 2, namespace = 3, package = 4 }
-		return (priority[a.type] or 5) < (priority[b.type] or 5)
+		if a.priority == b.priority then
+			return a.distance < b.distance
+		end
+		return a.priority < b.priority
 	end)
 
-	return matches[1] -- Return the highest priority match
+	return matches[1].symbol
 end
 
 -- Find all references to a symbol

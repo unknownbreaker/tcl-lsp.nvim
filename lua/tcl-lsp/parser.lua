@@ -396,6 +396,10 @@ end
 function M.parse_symbols(content, filepath, symbols)
 	local lines = vim.split(content, "\n")
 	local line_num = 0
+	local in_procedure = false
+	local current_proc_name = nil
+	local brace_depth = 0
+	local proc_start_depth = 0
 
 	for _, line in ipairs(lines) do
 		line_num = line_num + 1
@@ -407,113 +411,124 @@ function M.parse_symbols(content, filepath, symbols)
 			goto continue
 		end
 
-		-- Parse procedure definitions with more precision
-		-- Look for: proc name {args} {body} or proc name args body
-		local proc_pattern = "^%s*proc%s+([%w_:]+)"
-		local proc_name = trimmed:match(proc_pattern)
+		-- Track brace depth for simple scope detection
+		for i = 1, #original_line do
+			local char = original_line:sub(i, i)
+			if char == "{" then
+				brace_depth = brace_depth + 1
+			elseif char == "}" then
+				brace_depth = brace_depth - 1
+			end
+		end
 
+		-- Parse procedure definitions
+		local proc_name = trimmed:match("^proc%s+([%w_:]+)")
 		if proc_name then
-			-- Find the exact column where 'proc' starts
-			local proc_start_col = original_line:find("proc")
-			-- Find where the procedure name starts
-			local name_start_col = original_line:find(proc_name, proc_start_col)
+			local name_start_col = original_line:find(proc_name, 1, true)
+
+			-- Mark that we're entering a procedure
+			in_procedure = true
+			current_proc_name = proc_name
+			proc_start_depth = brace_depth - 1 -- The opening brace of the proc body
 
 			table.insert(symbols.procedures, {
 				name = proc_name,
 				line = line_num,
-				col = name_start_col or proc_start_col or 1,
+				col = name_start_col or 1,
 				file = filepath,
 				type = "procedure",
 				range = utils.get_lsp_range(
 					line_num - 1,
-					(name_start_col or proc_start_col or 1) - 1,
+					(name_start_col or 1) - 1,
 					line_num - 1,
-					(name_start_col or proc_start_col or 1) + #proc_name - 1
+					(name_start_col or 1) + #proc_name - 1
 				),
 			})
 		end
 
-		-- Parse variable assignments with better precision
+		-- Check if we've exited the current procedure
+		if in_procedure and brace_depth <= proc_start_depth then
+			in_procedure = false
+			current_proc_name = nil
+		end
+
+		-- Parse variable assignments
 		local var_patterns = {
-			{ pattern = "^%s*set%s+([%w_:]+)", command = "set" },
-			{ pattern = "^%s*variable%s+([%w_:]+)", command = "variable" },
-			{ pattern = "^%s*global%s+([%w_:]+)", command = "global" },
+			{ pattern = "^set%s+([%w_:]+)", cmd = "set" },
+			{ pattern = "^variable%s+([%w_:]+)", cmd = "variable" },
+			{ pattern = "^global%s+([%w_:]+)", cmd = "global" },
+			{ pattern = "^upvar%s+%S+%s+([%w_:]+)", cmd = "upvar" },
+			{ pattern = "^foreach%s+([%w_:]+)%s+", cmd = "foreach" },
 		}
 
 		for _, var_pattern in ipairs(var_patterns) do
 			local var_name = trimmed:match(var_pattern.pattern)
 			if var_name then
-				-- Find the exact position of the variable name
-				local cmd_start = original_line:find(var_pattern.command)
-				local var_start_col = original_line:find(var_name, cmd_start)
+				local var_start_col = original_line:find(var_name, 1, true)
+
+				-- Determine scope
+				local scope = "global"
+				if in_procedure and current_proc_name then
+					scope = current_proc_name
+				end
 
 				table.insert(symbols.variables, {
 					name = var_name,
 					line = line_num,
-					col = var_start_col or cmd_start or 1,
+					col = var_start_col or 1,
 					file = filepath,
 					type = "variable",
+					scope = scope,
+					command = var_pattern.cmd,
 					range = utils.get_lsp_range(
 						line_num - 1,
-						(var_start_col or cmd_start or 1) - 1,
+						(var_start_col or 1) - 1,
 						line_num - 1,
-						(var_start_col or cmd_start or 1) + #var_name - 1
-					),
-				})
-				break -- Only match the first pattern
-			end
-		end
-
-		-- Parse namespace definitions with precision
-		local ns_pattern = "^%s*namespace%s+eval%s+([%w_:]+)"
-		local ns_name = trimmed:match(ns_pattern)
-		if ns_name then
-			local ns_cmd_start = original_line:find("namespace")
-			local ns_name_start = original_line:find(ns_name, ns_cmd_start)
-
-			table.insert(symbols.namespaces, {
-				name = ns_name,
-				line = line_num,
-				col = ns_name_start or ns_cmd_start or 1,
-				file = filepath,
-				type = "namespace",
-				range = utils.get_lsp_range(
-					line_num - 1,
-					(ns_name_start or ns_cmd_start or 1) - 1,
-					line_num - 1,
-					(ns_name_start or ns_cmd_start or 1) + #ns_name - 1
-				),
-			})
-		end
-
-		-- Parse package requirements and provides with precision
-		local pkg_patterns = {
-			{ pattern = "^%s*package%s+require%s+([%w_:]+)", type = "require" },
-			{ pattern = "^%s*package%s+provide%s+([%w_:]+)", type = "provide" },
-		}
-
-		for _, pkg_pattern in ipairs(pkg_patterns) do
-			local pkg_name = trimmed:match(pkg_pattern.pattern)
-			if pkg_name then
-				local pkg_cmd_start = original_line:find("package")
-				local pkg_name_start = original_line:find(pkg_name, pkg_cmd_start)
-
-				table.insert(symbols.packages, {
-					name = pkg_name,
-					line = line_num,
-					col = pkg_name_start or pkg_cmd_start or 1,
-					file = filepath,
-					type = "package",
-					subtype = pkg_pattern.type,
-					range = utils.get_lsp_range(
-						line_num - 1,
-						(pkg_name_start or pkg_cmd_start or 1) - 1,
-						line_num - 1,
-						(pkg_name_start or pkg_cmd_start or 1) + #pkg_name - 1
+						(var_start_col or 1) + #var_name - 1
 					),
 				})
 				break
 			end
+		end
+
+		-- Parse namespace definitions (unchanged)
+		local ns_name = trimmed:match("^namespace%s+eval%s+([%w_:]+)")
+		if ns_name then
+			local ns_name_start = original_line:find(ns_name, 1, true)
+
+			table.insert(symbols.namespaces, {
+				name = ns_name,
+				line = line_num,
+				col = ns_name_start or 1,
+				file = filepath,
+				type = "namespace",
+				range = utils.get_lsp_range(
+					line_num - 1,
+					(ns_name_start or 1) - 1,
+					line_num - 1,
+					(ns_name_start or 1) + #ns_name - 1
+				),
+			})
+		end
+
+		-- Parse package requirements (unchanged)
+		local pkg_name = trimmed:match("^package%s+require%s+([%w_:]+)")
+		if pkg_name then
+			local pkg_name_start = original_line:find(pkg_name, 1, true)
+
+			table.insert(symbols.packages, {
+				name = pkg_name,
+				line = line_num,
+				col = pkg_name_start or 1,
+				file = filepath,
+				type = "package",
+				range = utils.get_lsp_range(
+					line_num - 1,
+					(pkg_name_start or 1) - 1,
+					line_num - 1,
+					(pkg_name_start or 1) + #pkg_name - 1
+				),
+			})
 		end
 
 		::continue::
