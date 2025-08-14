@@ -88,6 +88,85 @@ function M.setup(opts)
 		utils.cache_clear()
 		vim.notify("TCL LSP cache cleared", vim.log.levels.INFO)
 	end, { desc = "Clear TCL LSP cache" })
+
+	-- Diagnostic command to test tclsh directly
+	vim.api.nvim_create_user_command("TclDiagnose", function()
+		local cfg = config.get()
+		local current_file = vim.api.nvim_buf_get_name(0)
+
+		print("=== TCL LSP Diagnostics ===")
+		print("Current file: " .. (current_file ~= "" and current_file or "No file"))
+		print("tclsh command: " .. cfg.tclsh_cmd)
+
+		-- Test 1: Check if tclsh is available
+		local tclsh_ok, tclsh_error = utils.check_tclsh(cfg.tclsh_cmd)
+		print("tclsh available: " .. (tclsh_ok and "YES" or "NO"))
+		if not tclsh_ok then
+			print("tclsh error: " .. tclsh_error)
+		end
+
+		-- Test 2: Test simple tclsh command
+		local simple_test = vim.fn.system(cfg.tclsh_cmd .. ' -c "puts {Hello from TCL}" 2>&1')
+		print("Simple tclsh test: " .. simple_test:gsub("\n", " "))
+
+		-- Test 3: Check file if available
+		if current_file ~= "" then
+			print("File exists: " .. (vim.fn.filereadable(current_file) == 1 and "YES" or "NO"))
+			print("File size: " .. vim.fn.getfsize(current_file) .. " bytes")
+
+			-- Test direct tclsh on current file
+			local file_test =
+				vim.fn.system(string.format('%s -c "source %s" 2>&1', cfg.tclsh_cmd, vim.fn.shellescape(current_file)))
+			print("Direct file test result:")
+			print(file_test)
+		end
+
+		-- Test 4: Check treesitter
+		local bufnr = vim.api.nvim_get_current_buf()
+		local has_ts = pcall(require, "nvim-treesitter")
+		print("Treesitter available: " .. (has_ts and "YES" or "NO"))
+
+		if has_ts then
+			local ts_ok, ts_error = pcall(vim.treesitter.get_parser, bufnr, "tcl")
+			print("TCL treesitter parser: " .. (ts_ok and "OK" or "ERROR"))
+			if not ts_ok then
+				print("Treesitter error: " .. tostring(ts_error))
+			end
+		end
+
+		print("=== End Diagnostics ===")
+	end, { desc = "Diagnose TCL LSP setup" })
+
+	-- Command to test syntax checking with detailed output
+	vim.api.nvim_create_user_command("TclTestSyntax", function()
+		local current_file = vim.api.nvim_buf_get_name(0)
+		if current_file == "" then
+			vim.notify("No file in current buffer", vim.log.levels.WARN)
+			return
+		end
+
+		print("=== Testing TCL Syntax Check ===")
+		print("File: " .. current_file)
+
+		local cfg = config.get()
+		local parser = require("tcl-lsp.parser")
+
+		-- Test the syntax checking function directly
+		local errors = parser.check_syntax_with_tclsh(current_file, cfg.tclsh_cmd)
+
+		if #errors == 0 then
+			print("✓ No syntax errors found")
+			vim.notify("TCL syntax OK", vim.log.levels.INFO)
+		else
+			print("✗ Found " .. #errors .. " error(s):")
+			for i, error in ipairs(errors) do
+				print(string.format("  %d. Line %d: %s", i, error.line, error.message))
+			end
+			vim.notify("Found " .. #errors .. " TCL syntax error(s)", vim.log.levels.ERROR)
+		end
+
+		print("=== End Syntax Test ===")
+	end, { desc = "Test TCL syntax checking with detailed output" })
 end
 
 function M.attach_buffer(bufnr)

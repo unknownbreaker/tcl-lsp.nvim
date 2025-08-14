@@ -54,39 +54,124 @@ function M.check_syntax_with_tclsh(filepath, tclsh_cmd)
 	tclsh_cmd = tclsh_cmd or "tclsh"
 	local errors = {}
 
-	-- Create a simple syntax check script
-	local check_script = string.format(
+	-- First, check if the file exists and is readable
+	local file = io.open(filepath, "r")
+	if not file then
+		table.insert(errors, {
+			line = 1,
+			col = 1,
+			message = "Cannot read file: " .. filepath,
+			severity = vim.diagnostic.severity.ERROR,
+			source = "tcl-lsp",
+		})
+		return errors
+	end
+	file:close()
+
+	-- Create a safer validation script that handles more error cases
+	local temp_script = vim.fn.tempname() .. ".tcl"
+	local script_content = string.format(
 		[[
-    if {[catch {source %s} error]} {
-      puts stderr "SYNTAX_ERROR:$error"
-      exit 1
+# TCL syntax validation script
+set original_file {%s}
+
+# Capture all errors
+if {[catch {
+    # Try to source the file
+    source $original_file
+} error_msg error_info]} {
+    # Extract useful error information
+    set error_line 1
+    set error_detail $error_msg
+    
+    # Try to get line number from errorInfo
+    if {[info exists error_info]} {
+        if {[regexp {line ([0-9]+)} $error_info match line_num]} {
+            set error_line $line_num
+        }
     }
-    exit 0
-  ]],
-		vim.fn.shellescape(filepath)
+    
+    # Try to get line number from error message itself
+    if {[regexp {line ([0-9]+)} $error_msg match line_num]} {
+        set error_line $line_num
+    }
+    
+    # Output structured error
+    puts stderr "TCL_ERROR:$error_line:$error_detail"
+    exit 1
+}
+
+# If we get here, syntax is OK
+puts "TCL_OK"
+exit 0
+]],
+		filepath
 	)
 
-	-- Execute tclsh with our check script
-	local cmd = string.format("%s -c %s", vim.fn.shellescape(tclsh_cmd), vim.fn.shellescape(check_script))
+	-- Write the validation script
+	local script_file = io.open(temp_script, "w")
+	if not script_file then
+		table.insert(errors, {
+			line = 1,
+			col = 1,
+			message = "Cannot create temporary validation script",
+			severity = vim.diagnostic.severity.ERROR,
+			source = "tcl-lsp",
+		})
+		return errors
+	end
 
-	local output = vim.fn.system(cmd .. " 2>&1")
+	script_file:write(script_content)
+	script_file:close()
+
+	-- Execute the validation script
+	local cmd = string.format("%s %s 2>&1", vim.fn.shellescape(tclsh_cmd), vim.fn.shellescape(temp_script))
+
+	local output = vim.fn.system(cmd)
 	local exit_code = vim.v.shell_error
 
-	if exit_code ~= 0 then
-		-- Parse tclsh error output
-		for line in output:gmatch("[^\r\n]+") do
-			if line:match("SYNTAX_ERROR:") then
-				local error_msg = line:gsub("SYNTAX_ERROR:", "")
-				local line_num = M.extract_line_number(error_msg)
+	-- Clean up temp file
+	vim.fn.delete(temp_script)
 
+	if exit_code ~= 0 then
+		-- Parse our structured error output
+		for line in output:gmatch("[^\r\n]+") do
+			if line:match("^TCL_ERROR:") then
+				local line_num, error_msg = line:match("^TCL_ERROR:(%d+):(.*)$")
+				if line_num and error_msg then
+					table.insert(errors, {
+						line = tonumber(line_num),
+						col = 1,
+						message = error_msg:gsub("^%s+", ""):gsub("%s+$", ""), -- trim whitespace
+						severity = vim.diagnostic.severity.ERROR,
+						source = "tclsh",
+					})
+				end
+			elseif line:match("TCL_OK") then
+				-- This shouldn't happen with exit_code != 0, but just in case
+				break
+			else
+				-- Fallback: treat any other output as an error
+				local line_num = M.extract_line_number(line) or 1
 				table.insert(errors, {
-					line = line_num or 1,
+					line = line_num,
 					col = 1,
-					message = error_msg,
+					message = line,
 					severity = vim.diagnostic.severity.ERROR,
 					source = "tclsh",
 				})
 			end
+		end
+
+		-- If we didn't get any structured errors, create a generic one
+		if #errors == 0 then
+			table.insert(errors, {
+				line = 1,
+				col = 1,
+				message = "TCL syntax error: " .. output,
+				severity = vim.diagnostic.severity.ERROR,
+				source = "tclsh",
+			})
 		end
 	end
 
@@ -223,6 +308,32 @@ end
 function M.get_cached_symbols(filepath)
 	local cached = file_cache[filepath]
 	return cached and cached.symbols or nil
+end
+
+function M.safe_parse_file(filepath)
+	-- Disable treesitter temporarily for this file if it's causing issues
+	local bufnr = vim.fn.bufnr(filepath)
+	local ts_disabled = false
+
+	if bufnr ~= -1 then
+		-- Check if treesitter is causing issues
+		local ok, _ = pcall(vim.treesitter.get_parser, bufnr, "tcl")
+		if not ok then
+			-- Disable treesitter for this buffer temporarily
+			vim.b[bufnr].ts_highlight = false
+			ts_disabled = true
+		end
+	end
+
+	-- Parse the file normally
+	local result = M.parse_file(filepath)
+
+	-- Re-enable treesitter if we disabled it
+	if ts_disabled and bufnr ~= -1 then
+		vim.b[bufnr].ts_highlight = nil
+	end
+
+	return result
 end
 
 return M
