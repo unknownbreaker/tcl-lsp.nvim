@@ -19,13 +19,21 @@ end
 
 -- Get word at cursor position (helper for LSP methods)
 function M.get_word_at_position(line, character)
-	if not line or character < 0 or character >= #line then
+	print("=== WORD EXTRACTION DEBUG ===")
+	print("Line:", '"' .. (line or "nil") .. '"')
+	print("Character position:", character)
+
+	if not line or character < 0 or character > #line then
+		print("ERROR: Invalid line or character position")
 		return nil
 	end
 
 	-- Find word boundaries (TCL identifiers can contain :, _, letters, numbers)
 	local before = line:sub(1, character + 1)
 	local after = line:sub(character + 1)
+
+	print("Before cursor:", '"' .. before .. '"')
+	print("After cursor:", '"' .. after .. '"')
 
 	-- Extract word part before cursor
 	local word_start = before:match(".*[^%w_:]([%w_:]*)$")
@@ -39,8 +47,20 @@ function M.get_word_at_position(line, character)
 		word_end = ""
 	end
 
+	print("Word start:", '"' .. word_start .. '"')
+	print("Word end:", '"' .. word_end .. '"')
+
 	local full_word = word_start .. word_end
-	return full_word ~= "" and full_word or nil
+	print("Full word:", '"' .. full_word .. '"')
+	print("Word length:", #full_word)
+
+	if full_word == "" then
+		print("ERROR: Empty word extracted")
+		return nil
+	end
+
+	print("SUCCESS: Returning word:", '"' .. full_word .. '"')
+	return full_word
 end
 
 -- Convert file path to LSP URI
