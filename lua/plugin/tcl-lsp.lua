@@ -36,6 +36,7 @@ vim.filetype.add({
 		tk = "tcl",
 		itcl = "tcl",
 		itk = "tcl",
+		rvt = "tcl", -- Rivet TCL files
 	},
 	filename = {
 		["tclsh"] = "tcl",
@@ -46,7 +47,10 @@ vim.filetype.add({
 	pattern = {
 		[".*%.tcl%.in"] = "tcl",
 		[".*%.tk%.in"] = "tcl",
+		[".*%.rvt%.in"] = "tcl", -- Rivet template files
 		["^#!.*tclsh"] = "tcl",
 		["^#!.*wish"] = "tcl",
+		-- Rivet file patterns
+		[".*%.rvt"] = "tcl",
 	},
 })

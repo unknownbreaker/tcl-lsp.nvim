@@ -44,7 +44,7 @@ function M.setup(user_config)
 			default_config = {
 				name = "tcl_lsp",
 				cmd = { "tcl-lsp-dummy" }, -- Dummy command, we handle everything in on_attach
-				filetypes = { "tcl" },
+				filetypes = { "tcl", "rvt" },
 				root_dir = function(fname)
 					local util = require("lspconfig.util")
 					return util.root_pattern(".git", "*.tcl", "pkgIndex.tcl")(fname)

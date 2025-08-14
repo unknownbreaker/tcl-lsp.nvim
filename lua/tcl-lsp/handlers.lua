@@ -36,6 +36,16 @@ local tcl_docs = {
 	lrange = "**lrange** - Extract range from list\n\nSyntax: `lrange list first last`\n\nReturn elements from first to last index.",
 	lsearch = "**lsearch** - Search list for element\n\nSyntax: `lsearch ?options? list pattern`\n\nSearch for pattern in list and return index.",
 	lsort = "**lsort** - Sort list elements\n\nSyntax: `lsort ?options? list`\n\nReturn sorted copy of list.",
+
+	-- Rivet-specific commands
+	include = '**include** - Rivet include directive\n\nSyntax: `<%@ include file="filename.rvt" %>`\n\nInclude another Rivet template file.',
+	parse = '**parse** - Rivet parse directive\n\nSyntax: `<%@ parse file="filename.rvt" %>`\n\nParse and execute another Rivet template file.',
+	hputs = "**hputs** - Rivet HTML output\n\nSyntax: `hputs string`\n\nOutput string directly to HTML without escaping.",
+	hesc = "**hesc** - HTML escape\n\nSyntax: `hesc string`\n\nEscape HTML special characters in string.",
+	makeurl = "**makeurl** - Create URL\n\nSyntax: `makeurl ?-noamp? file ?arg value ...?`\n\nCreate a URL with optional query parameters.",
+	import_keyvalue_pairs = "**import_keyvalue_pairs** - Import form data\n\nSyntax: `import_keyvalue_pairs`\n\nImport form data into TCL variables.",
+	var_qs = "**var_qs** - Query string variable\n\nSyntax: `var_qs varname ?default?`\n\nGet query string variable value.",
+	var_post = "**var_post** - POST variable\n\nSyntax: `var_post varname ?default?`\n\nGet POST form variable value.",
 }
 
 -- Get word under cursor

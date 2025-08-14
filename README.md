@@ -13,7 +13,7 @@ A Language Server Protocol (LSP) implementation for TCL/Tk in Neovim, written in
 - 📝 **Diagnostics** - Integrated with Neovim's diagnostic system
 - ⚡ **Fast & Lightweight** - Pure Lua implementation, no external dependencies
 - 🔧 **Easy Setup** - Works out of the box with LazyVim and nvim-lspconfig
-- 🎯 **TCL Focused** - Designed specifically for TCL/Tk development
+- 🎯 **TCL/Rivet Focused** - Designed specifically for TCL/Tk and Apache Rivet development
 
 ## 📦 Installation
 
@@ -21,7 +21,7 @@ A Language Server Protocol (LSP) implementation for TCL/Tk in Neovim, written in
 
 ```lua
 {
-  "unknownbreaker/tcl-lsp.nvim",
+  "YOUR_USERNAME/tcl-lsp.nvim",
   ft = "tcl",
   dependencies = { "neovim/nvim-lspconfig" },
   config = function()
@@ -34,7 +34,7 @@ A Language Server Protocol (LSP) implementation for TCL/Tk in Neovim, written in
 
 ```lua
 use {
-  'unknownbreaker/tcl-lsp.nvim',
+  'YOUR_USERNAME/tcl-lsp.nvim',
   ft = 'tcl',
   requires = { 'neovim/nvim-lspconfig' },
   config = function()
@@ -46,7 +46,7 @@ use {
 ### With [vim-plug](https://github.com/junegunn/vim-plug)
 
 ```vim
-Plug 'unknownbreaker/tcl-lsp.nvim'
+Plug 'YOUR_USERNAME/tcl-lsp.nvim'
 Plug 'neovim/nvim-lspconfig'
 ```
 
@@ -105,10 +105,10 @@ require("tcl-lsp").setup({
 
 ### Symbol Navigation
 
-Navigate your TCL codebase with full LSP support:
+Navigate your TCL/Rivet codebase with full LSP support:
 
 ```tcl
-# Define a procedure
+# Regular TCL file (.tcl)
 proc calculate {x y} {
     set result [expr $x + $y]  # 'gd' on 'result' jumps to definition
     return $result
@@ -117,16 +117,21 @@ proc calculate {x y} {
 # Use the procedure
 set value [calculate 10 20]   # 'gd' on 'calculate' jumps to proc definition
                               # 'gr' finds all references to 'calculate'
+```
 
-# Namespace example
-namespace eval ::myapp {
-    variable config "default"   # Shows in document symbols ('gO')
+```html
+<!-- Rivet template file (.rvt) -->
+<html>
+  <body>
+    <h1>Welcome to Rivet</h1>
 
-    proc init {} {
-        variable config
-        puts $config
-    }
-}
+    <? # TCL code within Rivet tags - full LSP support! proc greet {name} {
+    return "Hello, $name!" } set user_name [var_qs "name" "World"] #
+    Rivet-specific commands supported hputs [greet $user_name] # 'gd' works on
+    'greet' here too ?> <%@ include file="header.rvt" %>
+    <!-- Include directives tracked -->
+  </body>
+</html>
 ```
 
 ### Hover Documentation
@@ -180,17 +185,43 @@ if {$x > 5          # Missing closing brace
 - `tclsh` available in PATH (for syntax checking)
 - [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig)
 
-## 🔧 Supported Features
+### Supported File Types
 
-### Core LSP Features
+**✅ Standard TCL Files:**
 
-✅ **Hover Documentation** - 25+ built-in TCL commands  
-✅ **Go to Definition** - Jump to procedures, variables, namespaces  
-✅ **Find References** - Find all symbol usages across workspace  
-✅ **Document Symbols** - File outline with procedures, variables, etc.  
-✅ **Workspace Symbols** - Search symbols across all files  
-✅ **Diagnostics** - Real-time syntax error detection  
-✅ **Single File Support** - Works without project structure
+- `.tcl` - TCL script files
+- `.tk` - Tk GUI scripts
+- `.itcl` - Incr TCL object-oriented extension
+- `.itk` - Incr Tk widget extension
+
+**✅ Apache Rivet Files:**
+
+- `.rvt` - Rivet template files (TCL embedded in HTML)
+- `.rvt.in` - Rivet template input files
+
+**✅ TCL Configuration:**
+
+- `tclsh`, `wish` - TCL interpreter files
+- `.tclshrc`, `.wishrc` - TCL startup files
+
+### Rivet-Specific Features
+
+For `.rvt` files, the plugin provides additional support:
+
+**🏷️ Rivet Tag Parsing:**
+
+- `<? tcl_code ?>` - TCL code blocks within HTML
+- `<%@ include file="..." %>` - Include directives
+- `<%@ parse file="..." %>` - Parse directives
+
+**📚 Rivet Commands Documentation:**
+
+- `hputs` - HTML output without escaping
+- `hesc` - HTML character escaping
+- `makeurl` - URL generation with parameters
+- `var_qs` / `var_post` - Form data access
+- `import_keyvalue_pairs` - Form data import
+  ✅ **Single File Support** - Works without project structure
 
 ### Symbol Detection
 

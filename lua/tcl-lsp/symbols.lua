@@ -13,9 +13,11 @@ local function parse_tcl_symbols(content, uri)
 		namespaces = {},
 		sources = {},
 		packages = {},
+		rivet_tags = {}, -- Rivet-specific constructs
 	}
 
 	local lines = vim.split(content, "\n")
+	local is_rvt_file = uri and uri:match("%.rvt$")
 
 	for line_num, line in ipairs(lines) do
 		local trimmed = vim.trim(line)
@@ -99,6 +101,75 @@ local function parse_tcl_symbols(content, uri)
 				kind = vim.lsp.protocol.SymbolKind.Package,
 				detail = "package",
 			})
+		end
+
+		-- Rivet-specific parsing for .rvt files
+		if is_rvt_file then
+			-- Parse Rivet tags: <? tcl_code ?>
+			local rivet_code = line:match("<%?(.-)%?>")
+			if rivet_code then
+				-- Look for procedures and variables within Rivet tags
+				local rivet_proc = rivet_code:match("proc%s+([%w_:]+)")
+				if rivet_proc then
+					table.insert(symbols.procedures, {
+						name = rivet_proc,
+						line = line_num - 1,
+						character = line:find(rivet_proc) - 1,
+						uri = uri,
+						kind = vim.lsp.protocol.SymbolKind.Function,
+						detail = "rivet procedure",
+					})
+				end
+
+				local rivet_var = rivet_code:match("set%s+([%w_:]+)")
+				if rivet_var then
+					-- Check for duplicates
+					local already_exists = false
+					for _, var in ipairs(symbols.variables) do
+						if var.name == rivet_var then
+							already_exists = true
+							break
+						end
+					end
+
+					if not already_exists then
+						table.insert(symbols.variables, {
+							name = rivet_var,
+							line = line_num - 1,
+							character = line:find(rivet_var) - 1,
+							uri = uri,
+							kind = vim.lsp.protocol.SymbolKind.Variable,
+							detail = "rivet variable",
+						})
+					end
+				end
+			end
+
+			-- Parse Rivet include/template directives
+			local rivet_include = trimmed:match('<%@%s*include%s+file="([^"]+)"')
+			if rivet_include then
+				table.insert(symbols.rivet_tags, {
+					name = rivet_include,
+					line = line_num - 1,
+					character = line:find(rivet_include) - 1,
+					uri = uri,
+					kind = vim.lsp.protocol.SymbolKind.File,
+					detail = "rivet include",
+				})
+			end
+
+			-- Parse Rivet parse directives
+			local rivet_parse = trimmed:match('<%@%s*parse%s+file="([^"]+)"')
+			if rivet_parse then
+				table.insert(symbols.rivet_tags, {
+					name = rivet_parse,
+					line = line_num - 1,
+					character = line:find(rivet_parse) - 1,
+					uri = uri,
+					kind = vim.lsp.protocol.SymbolKind.File,
+					detail = "rivet parse",
+				})
+			end
 		end
 
 		::continue::
