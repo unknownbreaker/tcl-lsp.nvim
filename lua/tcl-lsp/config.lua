@@ -1,50 +1,45 @@
 local M = {}
 
-M.defaults = {
-	-- TCL interpreter settings
-	tclsh_cmd = "tclsh",
-	syntax_check_on_save = true,
-	syntax_check_on_change = false,
-
-	-- Syntax checking mode
-	syntax_check_mode = "package_aware", -- Options: "package_aware", "parse_only", "full", "disabled"
-
-	-- Feature toggles
-	hover = true,
-	diagnostics = true,
-	symbol_navigation = true,
-	completion = false,
-
-	-- Symbol parsing
-	symbol_update_on_change = false,
-
-	-- Diagnostic configuration
-	diagnostic_config = {
-		virtual_text = true,
-		signs = true,
-		underline = true,
-		update_in_insert = false,
+-- Default configuration
+local default_config = {
+	server = {
+		cmd = nil, -- Auto-detected
+		settings = {
+			tcl = {
+				-- Future: TCL-specific settings
+			},
+		},
 	},
-
-	-- Keymaps (set to false to disable)
-	keymaps = {
-		hover = "K",
-		syntax_check = "<leader>tc",
-		goto_definition = "gd",
-		find_references = "gr",
-		document_symbols = "gO",
-		workspace_symbols = "<leader>ts",
+	on_attach = nil,
+	capabilities = nil,
+	auto_install = {
+		tcl = true,
+		tcllib = true,
 	},
+	log_level = vim.log.levels.WARN,
 }
 
-M.options = {}
+-- Current configuration
+local current_config = {}
 
-function M.setup(opts)
-	M.options = vim.tbl_deep_extend("force", M.defaults, opts or {})
+-- Setup configuration
+function M.setup(user_config)
+	current_config = vim.tbl_deep_extend("force", default_config, user_config or {})
 end
 
+-- Get current configuration
 function M.get()
-	return M.options
+	return current_config
+end
+
+-- Get default configuration
+function M.get_default()
+	return vim.deepcopy(default_config)
+end
+
+-- Update configuration
+function M.update(updates)
+	current_config = vim.tbl_deep_extend("force", current_config, updates)
 end
 
 return M

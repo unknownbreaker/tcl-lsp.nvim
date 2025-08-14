@@ -1,28 +1,29 @@
 # tcl-lsp.nvim
 
-A Language Server Protocol (LSP) implementation for TCL/Tk in Neovim, written in pure Lua.
+A Language Server Protocol (LSP) implementation for TCL/Tk in Neovim, featuring a real TCL-based LSP server that leverages `tclsh`'s native introspection capabilities.
 
 ## ✨ Features
 
-- 🔍 **Hover Documentation** - Built-in help for 25+ TCL commands
+- 🚀 **Real LSP Server** - Proper background LSP server written in TCL
+- 🔍 **Native TCL Introspection** - Uses `tclsh`'s built-in capabilities for accurate parsing
 - 🎯 **Go to Definition** - Jump to procedure and variable definitions
 - 🔗 **Find References** - Find all usages of symbols across workspace
 - 📋 **Document Symbols** - Outline view of procedures, variables, and namespaces
 - 🔎 **Workspace Symbols** - Search symbols across all TCL files
-- 🐛 **Syntax Checking** - Real-time error detection using `tclsh`
-- 📝 **Diagnostics** - Integrated with Neovim's diagnostic system
-- ⚡ **Fast & Lightweight** - Pure Lua implementation, no external dependencies
+- 🐛 **Hover Documentation** - Built-in help for 25+ TCL commands
+- ⚡ **Performance** - Background processing with persistent symbol database
 - 🔧 **Easy Setup** - Works out of the box with LazyVim and nvim-lspconfig
 - 🎯 **TCL/Rivet Focused** - Designed specifically for TCL/Tk and Apache Rivet development
+- 🏥 **Health Check** - Built-in dependency verification and installation
 
 ## 📦 Installation
 
-### With [lazy.nvim](https://github.com/folke/lazy.nvim) (Recommended for LazyVim)
+### With [lazy.nvim](https://github.com/folke/lazy.nvim) (Recommended)
 
 ```lua
 {
-  "YOUR_USERNAME/tcl-lsp.nvim",
-  ft = "tcl",
+  "unknownbreaker/tcl-lsp.nvim",
+  ft = { "tcl" },
   dependencies = { "neovim/nvim-lspconfig" },
   config = function()
     require("tcl-lsp").setup()
@@ -34,8 +35,8 @@ A Language Server Protocol (LSP) implementation for TCL/Tk in Neovim, written in
 
 ```lua
 use {
-  'YOUR_USERNAME/tcl-lsp.nvim',
-  ft = 'tcl',
+  'unknownbreaker/tcl-lsp.nvim',
+  ft = { 'tcl' },
   requires = { 'neovim/nvim-lspconfig' },
   config = function()
     require('tcl-lsp').setup()
@@ -43,18 +44,30 @@ use {
 }
 ```
 
-### With [vim-plug](https://github.com/junegunn/vim-plug)
+## 🔧 Dependencies
 
-```vim
-Plug 'YOUR_USERNAME/tcl-lsp.nvim'
-Plug 'neovim/nvim-lspconfig'
+The plugin automatically checks and can install dependencies:
+
+- **tclsh** - TCL interpreter (required)
+- **tcllib** - TCL standard library for JSON support (required)
+- **nvim-lspconfig** - Neovim LSP configuration (required)
+
+### Installation Commands
+
+```bash
+# macOS
+brew install tcl-tk tcllib
+
+# Ubuntu/Debian
+sudo apt-get install tcl tcllib
+
+# CentOS/RHEL/Fedora
+sudo yum install tcl tcllib
+# or
+sudo dnf install tcl tcllib
 ```
 
-Then add to your Neovim config:
-
-```lua
-require('tcl-lsp').setup()
-```
+Or run `:TclLspInstall` for automatic installation.
 
 ## ⚙️ Configuration
 
@@ -68,200 +81,171 @@ require("tcl-lsp").setup()
 
 ```lua
 require("tcl-lsp").setup({
-  -- Enable/disable features
-  hover = true,                    -- Enable hover documentation
-  diagnostics = true,              -- Enable syntax checking
-  symbol_navigation = true,        -- Enable go-to-definition, references, etc.
-  completion = false,              -- Completion (future feature)
-
-  -- Symbol parsing
-  symbol_update_on_change = false, -- Update symbols while typing
-
-  -- Diagnostic configuration
-  diagnostic_config = {
-    virtual_text = true,
-    signs = true,
-    underline = true,
-    update_in_insert = false,
+  -- Server configuration
+  server = {
+    settings = {
+      tcl = {
+        -- Future: TCL-specific settings
+      }
+    }
   },
 
-  -- TCL interpreter settings
-  tclsh_cmd = "tclsh",            -- Command to run TCL interpreter
-  syntax_check_on_save = true,    -- Check syntax when saving
-  syntax_check_on_change = false, -- Check syntax while typing
+  -- Custom on_attach function
+  on_attach = function(client, bufnr)
+    -- Your custom keymaps or configurations
+    vim.keymap.set('n', '<leader>tc', function()
+      vim.lsp.buf.hover()
+    end, { buffer = bufnr, desc = 'TCL hover' })
+  end,
 
-  -- Keymaps (set to false to disable)
-  keymaps = {
-    hover = "K",                  -- Show hover documentation
-    syntax_check = "<leader>tc",  -- Manual syntax check
-    goto_definition = "gd",       -- Go to definition
-    find_references = "gr",       -- Find references
-    document_symbols = "gO",      -- Document symbols
+  -- LSP capabilities (optional)
+  capabilities = vim.lsp.protocol.make_client_capabilities(),
+
+  -- Auto-install dependencies
+  auto_install = {
+    tcl = true,     -- Check for tclsh
+    tcllib = true,  -- Check for JSON package
   },
+
+  -- Logging level
+  log_level = vim.log.levels.INFO,
 })
 ```
 
-## 🚀 Usage
+## 🎮 Usage
 
-### Symbol Navigation
+### Default Keymaps
 
-Navigate your TCL/Rivet codebase with full LSP support:
+When the LSP attaches to a TCL buffer, these keymaps are automatically set:
 
-```tcl
-# Regular TCL file (.tcl)
-proc calculate {x y} {
-    set result [expr $x + $y]  # 'gd' on 'result' jumps to definition
-    return $result
-}
+| Key          | Action               | Description                                |
+| ------------ | -------------------- | ------------------------------------------ |
+| `K`          | Hover                | Show documentation for symbol under cursor |
+| `gd`         | Go to Definition     | Jump to symbol definition                  |
+| `gD`         | Go to Declaration    | Jump to symbol declaration                 |
+| `gr`         | Find References      | Find all references to symbol              |
+| `gi`         | Go to Implementation | Jump to implementation                     |
+| `gt`         | Type Definition      | Jump to type definition                    |
+| `<leader>rn` | Rename               | Rename symbol                              |
+| `<leader>ca` | Code Actions         | Show available code actions                |
+| `gO`         | Document Symbols     | Show document outline                      |
+| `<leader>ws` | Workspace Symbols    | Search workspace symbols                   |
+| `<leader>tc` | TCL Check            | Manual syntax check                        |
 
-# Use the procedure
-set value [calculate 10 20]   # 'gd' on 'calculate' jumps to proc definition
-                              # 'gr' finds all references to 'calculate'
-```
+### Commands
 
-```html
-<!-- Rivet template file (.rvt) -->
-<html>
-  <body>
-    <h1>Welcome to Rivet</h1>
+| Command                | Description                            |
+| ---------------------- | -------------------------------------- |
+| `:TclLspInfo`          | Show LSP server status and information |
+| `:TclLspStart`         | Start the TCL LSP server               |
+| `:TclLspStop`          | Stop the TCL LSP server                |
+| `:TclLspRestart`       | Restart the TCL LSP server             |
+| `:TclLspLog`           | View LSP logs                          |
+| `:TclLspInstall`       | Install missing dependencies           |
+| `:checkhealth tcl-lsp` | Run health check                       |
 
-    <? # TCL code within Rivet tags - full LSP support! proc greet {name} {
-    return "Hello, $name!" } set user_name [var_qs "name" "World"] #
-    Rivet-specific commands supported hputs [greet $user_name] # 'gd' works on
-    'greet' here too ?> <%@ include file="header.rvt" %>
-    <!-- Include directives tracked -->
-  </body>
-</html>
-```
-
-### Hover Documentation
-
-Place your cursor on any TCL command and press `K` to see documentation:
-
-```tcl
-puts "Hello World"  # Hover over 'puts' for documentation
-set var 123         # Hover over 'set' for help
-proc myproc {} {}   # Hover over 'proc' for syntax info
-```
-
-### Document Symbols
-
-Press `gO` to see an outline of your TCL file:
-
-- 📋 **Procedures** - All proc definitions
-- 📊 **Variables** - set commands
-- 📦 **Namespaces** - namespace eval blocks
-- 📄 **Source Files** - source commands
-- 📚 **Packages** - package require statements
-
-### Workspace Symbols
-
-Search across all TCL files in your workspace:
-
-- `:TclWorkspaceSymbols` - List all symbols
-- `:TclWorkspaceSymbols proc_name` - Search for specific symbols
-
-### Syntax Checking
-
-Errors are automatically highlighted:
-
-```tcl
-# This will show an error
-if {$x > 5          # Missing closing brace
-    puts "error"
-```
-
-### Custom Commands
-
-- `:TclCheck` - Manual syntax check
-- `:TclSymbols` - Show symbols in current buffer
-- `:TclWorkspaceSymbols` - Search workspace symbols
-- `:TclInfo` - Show LSP status information
-- `<leader>tc` - Quick syntax check keymap
-
-## 📋 Requirements
-
-- Neovim 0.8+
-- `tclsh` available in PATH (for syntax checking)
-- [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig)
-
-### Supported File Types
-
-**✅ Standard TCL Files:**
+### File Types Supported
 
 - `.tcl` - TCL script files
 - `.tk` - Tk GUI scripts
+- `.rvt` - Apache Rivet template files
+- `.rvt.in` - Rivet template input files
 - `.itcl` - Incr TCL object-oriented extension
 - `.itk` - Incr Tk widget extension
 
-**✅ Apache Rivet Files:**
+## 🏥 Health Check
 
-- `.rvt` - Rivet template files (TCL embedded in HTML)
-- `.rvt.in` - Rivet template input files
+Run `:checkhealth tcl-lsp` to verify your installation:
 
-**✅ TCL Configuration:**
+```vim
+:checkhealth tcl-lsp
+```
 
-- `tclsh`, `wish` - TCL interpreter files
-- `.tclshrc`, `.wishrc` - TCL startup files
+This will check:
 
-### Rivet-Specific Features
+- ✅ tclsh installation
+- ✅ TCL JSON package availability
+- ✅ LSP server script
+- ✅ nvim-lspconfig integration
+- ✅ Server status
 
-For `.rvt` files, the plugin provides additional support:
+## 🐛 Troubleshooting
 
-**🏷️ Rivet Tag Parsing:**
+### Common Issues
 
-- `<? tcl_code ?>` - TCL code blocks within HTML
-- `<%@ include file="..." %>` - Include directives
-- `<%@ parse file="..." %>` - Parse directives
+1. **"tclsh not found"**
 
-**📚 Rivet Commands Documentation:**
+   ```bash
+   # Install TCL
+   brew install tcl-tk  # macOS
+   sudo apt-get install tcl  # Ubuntu
+   ```
 
-- `hputs` - HTML output without escaping
-- `hesc` - HTML character escaping
-- `makeurl` - URL generation with parameters
-- `var_qs` / `var_post` - Form data access
-- `import_keyvalue_pairs` - Form data import
-  ✅ **Single File Support** - Works without project structure
+2. **"TCL JSON package not available"**
 
-### Symbol Detection
+   ```bash
+   # Install tcllib
+   brew install tcllib  # macOS
+   sudo apt-get install tcllib  # Ubuntu
+   ```
 
-The plugin automatically detects and indexes:
+3. **"Server script not found"**
+   - Verify plugin installation
+   - Check if `bin/tcl-lsp-server.tcl` exists in plugin directory
+   - Run `:TclLspInfo` for diagnostics
 
-**Procedures:** `proc name args body`  
-**Variables:** `set varname value`  
-**Namespaces:** `namespace eval name { ... }`  
-**Source Files:** `source filename.tcl`  
-**Packages:** `package require packagename`
+4. **Server won't start**
+   - Run `:checkhealth tcl-lsp`
+   - Check `:TclLspLog` for errors
+   - Verify file permissions: `chmod +x path/to/tcl-lsp-server.tcl`
 
-### Supported TCL Commands
+### Debug Mode
 
-The plugin provides hover documentation for 25+ TCL commands including:
+Enable debug logging:
 
-**Core Commands:** `set`, `puts`, `if`, `for`, `while`, `proc`, `return`  
-**String/List:** `string`, `list`, `split`, `join`, `lappend`, `llength`  
-**Control Flow:** `switch`, `catch`, `error`, `eval`  
-**File Operations:** `file`, `glob`, `source`  
-**Advanced:** `namespace`, `package`, `regexp`, `regsub`
+```lua
+require("tcl-lsp").setup({
+  log_level = vim.log.levels.DEBUG,
+})
+```
+
+Then check logs with `:TclLspLog` or `:LspLog`.
+
+## 🚀 Performance
+
+This plugin uses a real LSP server architecture for optimal performance:
+
+- **Background Processing** - Server runs independently of Neovim
+- **Persistent Symbol Database** - Symbols cached across sessions
+- **Incremental Updates** - Only re-parses changed files
+- **Native TCL Parsing** - Leverages `tclsh`'s introspection capabilities
+- **Efficient Protocol** - Standard LSP JSON-RPC communication
 
 ## 🤝 Contributing
 
 Contributions are welcome! Here are some ways to help:
 
-1. **Add more TCL commands** to the documentation
-2. **Improve error parsing** for better diagnostics
-3. **Add completion support** for TCL commands
-4. **Enhance syntax checking** with more detailed error reporting
-5. **Add tests** for the plugin functionality
+1. **Report Issues** - Bug reports and feature requests
+2. **Add TCL Commands** - Expand the built-in documentation
+3. **Improve Parsing** - Enhance symbol detection
+4. **Add Tests** - Help improve reliability
+5. **Documentation** - Improve docs and examples
 
 ### Development Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/tcl-lsp.nvim.git
+# Clone the repository
+git clone https://github.com/your-username/tcl-lsp.nvim.git
 cd tcl-lsp.nvim
 
-# Make changes to lua/tcl-lsp/
-# Test in Neovim by symlinking to your config
+# Test locally
 ln -s $(pwd) ~/.local/share/nvim/lazy/tcl-lsp.nvim
+
+# Make server script executable
+chmod +x bin/tcl-lsp-server.tcl
+
+# Test the server
+tclsh bin/tcl-lsp-server.tcl --test
 ```
 
 ## 📄 License
@@ -270,8 +254,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-- Inspired by the [jdc8/lsp](https://github.com/jdc8/lsp) TCL LSP implementation
-- Built for the [LazyVim](https://github.com/LazyVim/LazyVim) ecosystem
+- Inspired by the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
+- Built for the [Neovim](https://neovim.io/) and [TCL/Tk](https://www.tcl.tk/) communities
 - Uses [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig) for LSP integration
 
 ## 📚 Related Projects
@@ -282,4 +266,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-**Made with ❤️ for the TCL and Neovim communities**
+Made with ❤️ for the TCL and Neovim communities
