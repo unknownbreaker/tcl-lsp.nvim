@@ -264,16 +264,21 @@ function M.goto_definition()
 		position = utils.get_lsp_position(),
 	}
 
+	-- Get the word at cursor to check what we're looking for
+	local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+	local line = lines[params.position.line + 1] or ""
+	local word = utils.get_word_at_position(line, params.position.character)
+
 	local result = require("tcl-lsp.handlers.definition").handle(params)
 	if result then
 		local filepath = utils.uri_to_path(result.uri)
-		local line = result.range.start.line + 1
+		local line_num = result.range.start.line + 1
 
 		-- Open the file
 		vim.cmd(string.format("edit %s", vim.fn.fnameescape(filepath)))
 
 		-- Jump to the line
-		vim.api.nvim_win_set_cursor(0, { line, 0 })
+		vim.api.nvim_win_set_cursor(0, { line_num, 0 })
 
 		-- Center the line on screen
 		vim.cmd("normal! zz")
@@ -287,12 +292,139 @@ function M.goto_definition()
 			local name_start = after_proc:match("^%s*")
 			if name_start then
 				local col = proc_start + 4 + #name_start - 1
-				vim.api.nvim_win_set_cursor(0, { line, col })
+				vim.api.nvim_win_set_cursor(0, { line_num, col })
 			end
 		end
 	else
-		-- Don't show "Definition not found" here - let the handler show its own message
-		-- The handler will show the appropriate message for built-in commands
+		-- Only show "Definition not found" if the handler didn't already show a message
+		-- The handler shows messages for built-in commands, so we only need to handle
+		-- the case where it's truly an unknown symbol
+		if word then
+			-- Check if it's a built-in command (same list as in definition handler)
+			local builtin_commands = {
+				"puts",
+				"set",
+				"unset",
+				"proc",
+				"return",
+				"if",
+				"else",
+				"elseif",
+				"for",
+				"while",
+				"foreach",
+				"break",
+				"continue",
+				"switch",
+				"catch",
+				"error",
+				"eval",
+				"expr",
+				"incr",
+				"append",
+				"string",
+				"format",
+				"scan",
+				"binary",
+				"encoding",
+				"list",
+				"lappend",
+				"linsert",
+				"lreplace",
+				"lset",
+				"lassign",
+				"lindex",
+				"llength",
+				"lrange",
+				"lsearch",
+				"lsort",
+				"split",
+				"join",
+				"concat",
+				"array",
+				"dict",
+				"parray",
+				"global",
+				"variable",
+				"upvar",
+				"uplevel",
+				"info",
+				"rename",
+				"namespace",
+				"package",
+				"source",
+				"load",
+				"auto_load",
+				"file",
+				"glob",
+				"pwd",
+				"cd",
+				"open",
+				"close",
+				"read",
+				"gets",
+				"seek",
+				"tell",
+				"eof",
+				"flush",
+				"fconfigure",
+				"fcopy",
+				"chan",
+				"socket",
+				"exec",
+				"pid",
+				"exit",
+				"time",
+				"after",
+				"update",
+				"vwait",
+				"regexp",
+				"regsub",
+				"clock",
+				"wm",
+				"bind",
+				"event",
+				"focus",
+				"grab",
+				"selection",
+				"clipboard",
+				"font",
+				"image",
+				"option",
+				"pack",
+				"grid",
+				"place",
+				"destroy",
+				"winfo",
+				"tk",
+				"tkwait",
+				"button",
+				"label",
+				"entry",
+				"text",
+				"listbox",
+				"frame",
+				"toplevel",
+				"canvas",
+				"scrollbar",
+				"scale",
+				"menubutton",
+				"menu",
+				"checkbutton",
+				"radiobutton",
+			}
+
+			local builtin_set = {}
+			for _, cmd in ipairs(builtin_commands) do
+				builtin_set[cmd] = true
+			end
+
+			-- Only show "Definition not found" for non-built-in commands
+			if not builtin_set[word] then
+				vim.notify(string.format("Definition not found for '%s'", word), vim.log.levels.INFO)
+			end
+			-- For built-in commands, the handler already showed the appropriate message
+		end
 	end
 end
 
