@@ -116,10 +116,10 @@ function M.health()
 	health.report_start("tcl-lsp.nvim")
 
 	-- Check Neovim version
-	if vim.fn.has("nvim-0.8") == 1 then
-		health.report_ok("Neovim version >= 0.8")
+	if vim.fn.has("nvim-0.11") == 1 then
+		health.report_ok("Neovim version >= 0.11")
 	else
-		health.report_error("Neovim version < 0.8", "Please upgrade to Neovim 0.8+")
+		health.report_error("Neovim version < 0.11", "Please upgrade to Neovim 0.11+")
 	end
 
 	-- Check tclsh
