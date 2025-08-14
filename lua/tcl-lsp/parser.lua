@@ -534,18 +534,21 @@ function M.find_exact_definition_line(filepath, symbol_name, approximate_line)
 	end
 	file:close()
 
+	-- Escape special pattern characters in symbol_name
+	local escaped_name = symbol_name:gsub("([^%w])", "%%%1")
+
 	-- Search around the approximate line for the actual definition
 	local search_start = math.max(1, approximate_line - 5)
 	local search_end = math.min(#lines, approximate_line + 5)
 
 	for i = search_start, search_end do
 		local line = lines[i]
-		local trimmed = line:match("^%s*(.-)%s*$")
+		local trimmed = line:match("^%s*(.-)%s*")
 
 		-- Skip comments and empty lines
 		if not trimmed:match("^#") and trimmed ~= "" then
 			-- Check if this line contains the procedure definition
-			if trimmed:match("^proc%s+" .. vim.patternescape(symbol_name) .. "%s") then
+			if trimmed:match("^proc%s+" .. escaped_name .. "%s") then
 				return i
 			end
 		end
