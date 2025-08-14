@@ -66,7 +66,7 @@ require("tcl-lsp").setup()
 
 ### Advanced Configuration
 
-````lua
+```lua
 require("tcl-lsp").setup({
   -- Enable/disable features
   hover = true,                    -- Enable hover documentation
@@ -99,18 +99,7 @@ require("tcl-lsp").setup({
     document_symbols = "gO",      -- Document symbols
   },
 })
-```virtual_text = true,
-    signs = true,
-    underline = true,
-    update_in_insert = false,
-  },
-
-  -- TCL interpreter settings
-  tclsh_cmd = "tclsh",            -- Command to run TCL interpreter
-  syntax_check_on_save = true,    -- Check syntax when saving
-  syntax_check_on_change = false, -- Check syntax while typing
-})
-````
+```
 
 ## 🚀 Usage
 
