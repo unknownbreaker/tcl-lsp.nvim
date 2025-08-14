@@ -291,7 +291,8 @@ function M.goto_definition()
 			end
 		end
 	else
-		vim.notify("Definition not found", vim.log.levels.INFO)
+		-- Don't show "Definition not found" here - let the handler show its own message
+		-- The handler will show the appropriate message for built-in commands
 	end
 end
 
