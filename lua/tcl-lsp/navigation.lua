@@ -4,6 +4,444 @@ local config = require("tcl-lsp.config")
 local tcl = require("tcl-lsp.tcl")
 local M = {}
 
+-- Enhanced workspace file discovery
+local function get_workspace_tcl_files(current_file)
+	local files = {}
+
+	-- 1. Get files from source dependencies (most important)
+	local dependent_files = semantic.build_source_dependencies(current_file, config.get_tclsh_cmd())
+	for _, file in ipairs(dependent_files) do
+		if utils.file_exists(file) then
+			table.insert(files, file)
+		end
+	end
+
+	-- 2. Get all TCL files in current directory and subdirectories
+	local workspace_files = vim.fn.glob("**/*.tcl", false, true)
+	for _, file in ipairs(workspace_files) do
+		if not vim.tbl_contains(files, file) and utils.file_exists(file) then
+			table.insert(files, file)
+		end
+	end
+
+	-- 3. Check common TCL locations
+	local common_patterns = {
+		"*.tcl",
+		"lib/*.tcl",
+		"src/*.tcl",
+		"scripts/*.tcl",
+		"../**/*.tcl", -- Check parent directories
+		"tcl/*.tcl",
+		"*.tk",
+		"*.itcl",
+	}
+
+	for _, pattern in ipairs(common_patterns) do
+		local pattern_files = vim.fn.glob(pattern, false, true)
+		for _, file in ipairs(pattern_files) do
+			if not vim.tbl_contains(files, file) and utils.file_exists(file) then
+				table.insert(files, file)
+			end
+		end
+	end
+
+	-- 4. Check files in the same directory as current file
+	local current_dir = vim.fn.fnamemodify(current_file, ":h")
+	local dir_files = vim.fn.glob(current_dir .. "/*.tcl", false, true)
+	for _, file in ipairs(dir_files) do
+		if not vim.tbl_contains(files, file) and utils.file_exists(file) then
+			table.insert(files, file)
+		end
+	end
+
+	return files
+end
+
+-- Enhanced cross-file symbol search with semantic awareness
+function M.find_definition_across_workspace(symbol_name, current_file, cursor_line)
+	local tclsh_cmd = config.get_tclsh_cmd()
+
+	-- First, get semantic resolution for the symbol
+	local resolution = tcl.resolve_symbol(symbol_name, current_file, cursor_line, tclsh_cmd)
+
+	-- Get all relevant files to search
+	local files_to_search = get_workspace_tcl_files(current_file)
+
+	utils.notify("Searching " .. #files_to_search .. " files for '" .. symbol_name .. "'...", vim.log.levels.INFO)
+
+	local matches = {}
+
+	for _, file_path in ipairs(files_to_search) do
+		if file_path ~= current_file then -- Skip current file
+			local file_symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+			if file_symbols then
+				-- Use semantic resolution if available
+				if resolution and resolution.resolutions then
+					local file_matches = M.find_matching_symbols(file_symbols, resolution.resolutions, symbol_name)
+					for _, match in ipairs(file_matches) do
+						table.insert(matches, {
+							symbol = match.symbol,
+							file = file_path,
+							priority = match.priority,
+							resolution = match.resolution,
+							method = "semantic",
+						})
+					end
+				end
+
+				-- Fallback to direct matching
+				for _, symbol in ipairs(file_symbols) do
+					if M.symbol_matches_query(symbol.name, symbol_name) then
+						-- Check if we already have this match from semantic resolution
+						local already_matched = false
+						for _, existing_match in ipairs(matches) do
+							if existing_match.file == file_path and existing_match.symbol.line == symbol.line then
+								already_matched = true
+								break
+							end
+						end
+
+						if not already_matched then
+							local priority = (symbol.name == symbol_name) and 10 or 5
+							table.insert(matches, {
+								symbol = symbol,
+								file = file_path,
+								priority = priority,
+								method = "direct",
+							})
+						end
+					end
+				end
+			end
+		end
+	end
+
+	-- Enhanced matching for namespace-qualified symbols
+	if symbol_name:match("::") then
+		-- If searching for qualified name, also search for definitions without full qualification
+		local unqualified = symbol_name:match("([^:]+)$")
+		if unqualified then
+			for _, file_path in ipairs(files_to_search) do
+				if file_path ~= current_file then
+					local file_symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+					if file_symbols then
+						for _, symbol in ipairs(file_symbols) do
+							if symbol.name == unqualified or symbol.name:match("::" .. unqualified .. "$") then
+								-- Check if already matched
+								local already_matched = false
+								for _, existing_match in ipairs(matches) do
+									if
+										existing_match.file == file_path
+										and existing_match.symbol.line == symbol.line
+									then
+										already_matched = true
+										break
+									end
+								end
+
+								if not already_matched then
+									table.insert(matches, {
+										symbol = symbol,
+										file = file_path,
+										priority = 7, -- Medium priority for unqualified matches
+										method = "unqualified_fallback",
+									})
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
+	return matches, files_to_search
+end
+
+-- Enhanced goto_definition with better cross-file support
+function M.goto_definition()
+	local word, err = utils.get_qualified_word_under_cursor()
+	if not word then
+		word, err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify(err, vim.log.levels.WARN)
+			return
+		end
+	end
+
+	local file_path, file_err = utils.get_current_file_path()
+	if not file_path then
+		utils.notify(file_err, vim.log.levels.WARN)
+		return
+	end
+
+	local tclsh_cmd = config.get_tclsh_cmd()
+	local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+
+	-- First check current file
+	local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+	local current_file_matches = {}
+
+	if symbols then
+		-- Try smart resolution first
+		local resolution = tcl.resolve_symbol(word, file_path, cursor_line, tclsh_cmd)
+		if resolution and resolution.resolutions then
+			current_file_matches = M.find_matching_symbols(symbols, resolution.resolutions, word)
+		end
+
+		-- Fallback to simple matching if smart resolution fails
+		if #current_file_matches == 0 then
+			for _, symbol in ipairs(symbols) do
+				if symbol.name == word or utils.symbols_match(symbol.name, word) then
+					table.insert(current_file_matches, {
+						symbol = symbol,
+						priority = (symbol.name == word) and 10 or 5,
+						resolution = { type = "fallback", name = word },
+					})
+				end
+			end
+		end
+	end
+
+	-- If found in current file, use it (prefer local definitions)
+	if #current_file_matches > 0 then
+		if #current_file_matches == 1 then
+			local match = current_file_matches[1]
+			vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
+			utils.notify(
+				string.format("Found %s '%s' at line %d", match.symbol.type, match.symbol.name, match.symbol.line),
+				vim.log.levels.INFO
+			)
+			return
+		else
+			M.show_prioritized_symbol_choices(current_file_matches, word, resolution and resolution.context)
+			return
+		end
+	end
+
+	-- Not found in current file, search workspace
+	utils.notify("Symbol '" .. word .. "' not found in current file, searching workspace...", vim.log.levels.INFO)
+
+	local workspace_matches, searched_files = M.find_definition_across_workspace(word, file_path, cursor_line)
+
+	if #workspace_matches == 0 then
+		utils.notify(
+			string.format("Definition of '%s' not found in %d searched files", word, #searched_files),
+			vim.log.levels.WARN
+		)
+		return
+	end
+
+	-- Sort matches by priority
+	table.sort(workspace_matches, function(a, b)
+		return a.priority > b.priority
+	end)
+
+	if #workspace_matches == 1 then
+		local match = workspace_matches[1]
+		vim.cmd("edit " .. match.file)
+		vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
+		utils.notify(
+			string.format(
+				"Found %s '%s' in %s at line %d (%s match)",
+				match.symbol.type,
+				match.symbol.name,
+				vim.fn.fnamemodify(match.file, ":t"),
+				match.symbol.line,
+				match.method
+			),
+			vim.log.levels.INFO
+		)
+	else
+		M.show_workspace_prioritized_choices(workspace_matches, word, nil)
+	end
+end
+
+-- Enhanced symbol matching that considers different name patterns
+function M.symbol_matches_query(symbol_name, query)
+	-- Exact match
+	if symbol_name == query then
+		return true
+	end
+
+	-- Handle namespace qualification
+	if query:match("::") then
+		-- Query is qualified
+		if symbol_name == query then
+			return true
+		end
+		-- Check if symbol's qualified name matches
+		if symbol_name:match("::" .. query:match("([^:]+)$") .. "$") then
+			return true
+		end
+	else
+		-- Query is unqualified
+		if symbol_name == query then
+			return true
+		end
+		-- Check if query matches the unqualified part of symbol
+		if symbol_name:match("::" .. query .. "$") then
+			return true
+		end
+		-- Check if symbol starts with query (partial match)
+		if symbol_name:match("^" .. query) then
+			return true
+		end
+	end
+
+	return false
+end
+
+-- Show prioritized workspace symbol choices with enhanced information
+function M.show_workspace_prioritized_choices(matches, query, context)
+	-- Group matches by file for better organization
+	local file_groups = {}
+
+	for _, match in ipairs(matches) do
+		local file_short = vim.fn.fnamemodify(match.file, ":t")
+		if not file_groups[file_short] then
+			file_groups[file_short] = {}
+		end
+		table.insert(file_groups[file_short], match)
+	end
+
+	local choices = {}
+	local match_index = 1
+
+	for file_short, file_matches in pairs(file_groups) do
+		-- Add file header
+		table.insert(choices, string.format("── %s ──", file_short))
+
+		for _, match in ipairs(file_matches) do
+			local context_info = ""
+			if match.symbol.scope and match.symbol.scope ~= "" then
+				context_info = " [" .. match.symbol.scope .. "]"
+			end
+
+			local method_info = ""
+			if match.method == "semantic" then
+				method_info = " (semantic)"
+			elseif match.method == "unqualified_fallback" then
+				method_info = " (unqualified)"
+			end
+
+			table.insert(
+				choices,
+				string.format(
+					"  %d. %s '%s'%s at line %d (priority: %d)%s",
+					match_index,
+					match.symbol.type,
+					match.symbol.name,
+					context_info,
+					match.symbol.line,
+					match.priority,
+					method_info
+				)
+			)
+
+			match_index = match_index + 1
+		end
+	end
+
+	vim.ui.select(choices, {
+		prompt = "Multiple definitions found for '" .. query .. "' across workspace:",
+		format_item = function(item)
+			return item
+		end,
+	}, function(choice, idx)
+		if not choice or choice:match("^──") then
+			return -- Header selected, ignore
+		end
+
+		-- Find the actual match corresponding to this choice
+		local choice_num = choice:match("^%s*(%d+)%.")
+		if choice_num then
+			choice_num = tonumber(choice_num)
+			local selected_match = matches[choice_num]
+			if selected_match then
+				vim.cmd("edit " .. selected_match.file)
+				vim.api.nvim_win_set_cursor(0, { selected_match.symbol.line, 0 })
+				utils.notify(
+					string.format(
+						"Jumped to %s '%s' in %s at line %d",
+						selected_match.symbol.type,
+						selected_match.symbol.name,
+						vim.fn.fnamemodify(selected_match.file, ":t"),
+						selected_match.symbol.line
+					),
+					vim.log.levels.INFO
+				)
+			end
+		end
+	end)
+end
+
+-- Additional helper functions for better cross-file support
+function M.find_matching_symbols(symbols, resolutions, query)
+	local matches = {}
+
+	for _, resolution in ipairs(resolutions) do
+		for _, symbol in ipairs(symbols) do
+			local symbol_matches = false
+
+			-- Check if symbol matches this resolution
+			if resolution.type == "qualified_name" and symbol.name == resolution.name then
+				symbol_matches = true
+			elseif
+				resolution.type == "namespace_qualified"
+				and (
+					symbol.name == resolution.name
+					or (symbol.qualified_name and symbol.qualified_name == resolution.name)
+				)
+			then
+				symbol_matches = true
+			elseif
+				resolution.type == "proc_local"
+				and symbol.name == query
+				and (symbol.scope == "proc_local" or symbol.scope == "local")
+			then
+				symbol_matches = true
+			elseif
+				resolution.type == "global"
+				and symbol.name == query
+				and (symbol.scope == "global" or symbol.type == "global")
+			then
+				symbol_matches = true
+			elseif resolution.type == "package_qualified" and symbol.name == resolution.name then
+				symbol_matches = true
+			elseif symbol.name == query then -- Fallback exact match
+				symbol_matches = true
+			end
+
+			if symbol_matches then
+				table.insert(matches, {
+					symbol = symbol,
+					resolution = resolution,
+					priority = resolution.priority or 5,
+				})
+			end
+		end
+	end
+
+	-- Remove duplicates and sort by priority
+	local seen = {}
+	local unique_matches = {}
+
+	for _, match in ipairs(matches) do
+		local key = match.symbol.name .. ":" .. match.symbol.line
+		if not seen[key] then
+			seen[key] = true
+			table.insert(unique_matches, match)
+		end
+	end
+
+	table.sort(unique_matches, function(a, b)
+		return a.priority > b.priority
+	end)
+
+	return unique_matches
+end
 -- DEBUG: Enhanced goto_definition with comprehensive logging
 function M.goto_definition()
 	print("=== DEBUG: goto_definition START (with REAL semantic engine) ===")
