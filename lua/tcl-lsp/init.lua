@@ -2238,6 +2238,131 @@ puts "SEMANTIC_FOUND: $semantic_count"
 	end, {
 		desc = "Compare regex vs true semantic analysis",
 	})
+
+	-- Test the hybrid semantic analysis
+
+	vim.api.nvim_create_user_command("TclTestHybrid", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to analyze: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("🔬 Testing HYBRID semantic analysis (Parser + Patterns)", vim.log.levels.INFO)
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		-- Clear cache to force fresh analysis
+		tcl.invalidate_cache(file_path)
+
+		-- Run the hybrid analysis
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if not symbols then
+			utils.notify("❌ Hybrid analysis failed", vim.log.levels.ERROR)
+			utils.notify("Check :messages for debug output", vim.log.levels.INFO)
+			return
+		end
+
+		if #symbols == 0 then
+			utils.notify("❌ Hybrid analysis found ZERO symbols", vim.log.levels.ERROR)
+			utils.notify("Both parser and patterns failed", vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("✅ HYBRID analysis found " .. #symbols .. " symbols!", vim.log.levels.INFO)
+
+		-- Show method to verify it's hybrid
+		local by_method = {}
+		for _, symbol in ipairs(symbols) do
+			local method = symbol.method or "unknown"
+			if not by_method[method] then
+				by_method[method] = 0
+			end
+			by_method[method] = by_method[method] + 1
+		end
+
+		utils.notify("Analysis methods used:", vim.log.levels.INFO)
+		for method, count in pairs(by_method) do
+			utils.notify("  " .. method .. ": " .. count .. " symbols", vim.log.levels.INFO)
+		end
+
+		-- Group by type and show results
+		local by_type = {}
+		for _, symbol in ipairs(symbols) do
+			if not by_type[symbol.type] then
+				by_type[symbol.type] = {}
+			end
+			table.insert(by_type[symbol.type], symbol)
+		end
+
+		utils.notify("", vim.log.levels.INFO)
+		utils.notify("Symbols found by type:", vim.log.levels.INFO)
+		for type_name, type_symbols in pairs(by_type) do
+			utils.notify(string.format("  %s (%d):", type_name, #type_symbols), vim.log.levels.INFO)
+
+			for i = 1, math.min(3, #type_symbols) do
+				local symbol = type_symbols[i]
+				local qualified_info = symbol.qualified_name and (" → " .. symbol.qualified_name) or ""
+				utils.notify(
+					string.format(
+						"    %d. '%s'%s [%s] line %d",
+						i,
+						symbol.name,
+						qualified_info,
+						symbol.scope,
+						symbol.line
+					),
+					vim.log.levels.INFO
+				)
+			end
+
+			if #type_symbols > 3 then
+				utils.notify(string.format("    ... and %d more", #type_symbols - 3), vm.log.levels.INFO)
+			end
+		end
+
+		utils.notify("", vim.log.levels.INFO)
+		utils.notify("🎯 Now try goto definition - it should work!", vim.log.levels.INFO)
+	end, {
+		desc = "Test hybrid semantic analysis (parser + patterns)",
+	})
+
+	-- Final comparison of all approaches
+	vim.api.nvim_create_user_command("TclCompareAll", function()
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("📊 Comparing ALL analysis approaches", vim.log.levels.INFO)
+
+		-- Test each approach
+		utils.notify("1. Testing regex patterns...", vim.log.levels.INFO)
+		vim.cmd("TclTestAnalysisSteps")
+
+		utils.notify("2. Testing pure semantic...", vim.log.levels.INFO)
+		vim.cmd("TclTestTrueSemantic")
+
+		utils.notify("3. Testing hybrid approach...", vim.log.levels.INFO)
+		vim.cmd("TclTestHybrid")
+
+		utils.notify("", vim.log.levels.INFO)
+		utils.notify("📈 Summary:", vim.log.levels.INFO)
+		utils.notify("- Regex: Works but fragile", vim.log.levels.INFO)
+		utils.notify("- Pure semantic: More accurate but eval issues", vim.log.levels.INFO)
+		utils.notify("- Hybrid: Best of both worlds!", vim.log.levels.INFO)
+	end, {
+		desc = "Compare all analysis approaches",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings

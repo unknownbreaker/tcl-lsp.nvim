@@ -169,11 +169,12 @@ function M.analyze_tcl_file(file_path, tclsh_cmd)
 		return cached_symbols
 	end
 
-	-- TRUE semantic analysis using TCL's introspection and safe evaluation
+	-- Hybrid semantic analysis: TCL parser + enhanced patterns
 	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
-	local true_semantic_script = string.format(
+	local hybrid_script = string.format(
 		[[
-# TRUE SEMANTIC ANALYSIS - Uses TCL's actual parser, not regex
+# HYBRID SEMANTIC ANALYSIS
+# Uses TCL's parser for validation + enhanced pattern matching for extraction
 set file_path "%s"
 
 # Read the file
@@ -186,318 +187,274 @@ if {[catch {
     exit 1
 }
 
-puts "SEMANTIC_DEBUG: Starting true semantic analysis"
+puts "HYBRID_DEBUG: Starting hybrid semantic analysis"
 
-# Create a safe interpreter for semantic evaluation
-set semantic_interp [interp create -safe]
+# First, validate the entire file with TCL's parser
+set content_valid 0
+if {[catch {info complete $content} is_complete]} {
+    puts "HYBRID_DEBUG: File has syntax issues, will parse incrementally"
+} else {
+    if {$is_complete} {
+        set content_valid 1
+        puts "HYBRID_DEBUG: File is syntactically valid TCL"
+    } else {
+        puts "HYBRID_DEBUG: File appears incomplete, parsing as-is"
+    }
+}
 
-# Set up symbol tracking state
-set symbols_found [list]
+# Split content into logical commands using TCL's parser
+set commands [list]
+set pos 0
+set content_length [string length $content]
+
+while {$pos < $content_length} {
+    set cmd_start $pos
+    set cmd_end $pos
+    
+    # Find next complete command using TCL's parser
+    while {$cmd_end < $content_length} {
+        set partial [string range $content $cmd_start $cmd_end]
+        
+        if {[catch {info complete $partial} complete]} {
+            incr cmd_end
+            continue
+        }
+        
+        if {$complete && [string trim $partial] ne ""} {
+            lappend commands [list $partial $cmd_start]
+            set pos [expr {$cmd_end + 1}]
+            break
+        }
+        
+        incr cmd_end
+    }
+    
+    # Prevent infinite loops
+    if {$cmd_end >= $content_length} {
+        # Add remaining content as final command
+        set remaining [string range $content $cmd_start end]
+        if {[string trim $remaining] ne ""} {
+            lappend commands [list $remaining $cmd_start]
+        }
+        break
+    }
+}
+
+puts "HYBRID_DEBUG: Parsed [llength $commands] logical commands"
+
+# Now analyze each command with semantic context + patterns
 set current_namespace ""
 set current_proc ""
 set namespace_stack [list]
+set line_map [dict create]
 
-# Add symbol tracking commands to the safe interpreter
-$semantic_interp alias emit_symbol emit_symbol
-$semantic_interp alias track_namespace_enter track_namespace_enter
-$semantic_interp alias track_namespace_exit track_namespace_exit
-$semantic_interp alias track_proc_enter track_proc_enter
-$semantic_interp alias track_proc_exit track_proc_exit
-
-# Symbol emission function
-proc emit_symbol {type name qualified_name line scope context extra} {
-    global symbols_found
-    lappend symbols_found [list $type $name $qualified_name $line $scope $context $extra]
-    puts "SYMBOL:$type:$name:$qualified_name:$line:$scope:$context:$extra"
-}
-
-# Context tracking functions
-proc track_namespace_enter {name} {
-    global current_namespace namespace_stack
-    lappend namespace_stack $current_namespace
-    set current_namespace $name
-    puts "SEMANTIC_DEBUG: Entering namespace: $name"
-}
-
-proc track_namespace_exit {} {
-    global current_namespace namespace_stack
-    if {[llength $namespace_stack] > 0} {
-        set current_namespace [lindex $namespace_stack end]
-        set namespace_stack [lrange $namespace_stack 0 end-1]
-    } else {
-        set current_namespace ""
+# Build line number mapping
+set lines [split $content "\n"]
+set char_pos 0
+set line_num 0
+foreach line $lines {
+    incr line_num
+    set line_start $char_pos
+    set line_end [expr {$char_pos + [string length $line]}]
+    
+    for {set i $line_start} {$i <= $line_end} {incr i} {
+        dict set line_map $i $line_num
     }
-    puts "SEMANTIC_DEBUG: Exiting namespace, now in: $current_namespace"
+    
+    incr char_pos [expr {[string length $line] + 1}]  # +1 for newline
 }
 
-proc track_proc_enter {name} {
-    global current_proc
-    set current_proc $name
-    puts "SEMANTIC_DEBUG: Entering procedure: $name"
-}
-
-proc track_proc_exit {} {
-    global current_proc
-    set current_proc ""
-    puts "SEMANTIC_DEBUG: Exiting procedure"
-}
-
-# Override TCL commands in the safe interpreter to use semantic tracking
-$semantic_interp eval {
-    # Override namespace command
-    rename namespace original_namespace
-    proc namespace {subcommand args} {
-        if {$subcommand eq "eval"} {
-            set ns_name [lindex $args 0]
-            set body [lindex $args 1]
-            
-            # Clean namespace name
-            set clean_ns [string trim $ns_name "{}\""]
-            
-            # Use info frame to get line number (approximate)
-            set line_num 1
-            catch {set line_num [dict get [info frame -1] line]}
-            
-            # Emit namespace symbol
-            emit_symbol "namespace" $clean_ns $clean_ns $line_num "namespace" "" ""
-            
-            # Track namespace context
-            track_namespace_enter $clean_ns
-            
-            # Evaluate the body semantically
-            if {[catch {eval $body} ns_err]} {
-                puts "SEMANTIC_DEBUG: Namespace body evaluation had issues: $ns_err"
-                # Continue anyway - this is normal for complex namespaces
-            }
-            
-            # Exit namespace context
-            track_namespace_exit
+# Function to find line number from character position
+proc find_line {char_pos} {
+    global line_map
+    set best_line 1
+    dict for {pos line} $line_map {
+        if {$pos <= $char_pos} {
+            set best_line $line
         } else {
-            # Handle other namespace subcommands
-            eval original_namespace $subcommand $args
-        }
-        return ""
-    }
-    
-    # Override proc command  
-    rename proc original_proc
-    proc proc {name args body} {
-        # Get line number
-        set line_num 1
-        catch {set line_num [dict get [info frame -1] line]}
-        
-        # Create qualified name based on current context
-        global current_namespace
-        set qualified_name $name
-        if {$current_namespace ne "" && ![string match "::*" $name]} {
-            set qualified_name "${current_namespace}::$name"
-        }
-        
-        # Emit procedure symbol
-        emit_symbol "procedure" $name $qualified_name $line_num "procedure" $current_namespace [join $args " "]
-        
-        # Track and emit parameters using TCL's argument parsing
-        track_proc_enter $name
-        foreach arg_spec $args {
-            if {[llength $arg_spec] == 1} {
-                # Simple parameter
-                set param_name $arg_spec
-                emit_symbol "parameter" $param_name "${name}::$param_name" $line_num "parameter" $name ""
-            } elseif {[llength $arg_spec] == 2} {
-                # Parameter with default
-                set param_name [lindex $arg_spec 0]
-                set default_val [lindex $arg_spec 1]
-                emit_symbol "parameter" $param_name "${name}::$param_name" $line_num "parameter" $name $default_val
-            }
-        }
-        
-        # Don't actually execute the procedure body to avoid side effects
-        # In a full implementation, we could parse it for local variables
-        track_proc_exit
-        
-        return ""
-    }
-    
-    # Override set command
-    rename set original_set
-    proc set {varname args} {
-        set line_num 1
-        catch {set line_num [dict get [info frame -1] line]}
-        
-        global current_namespace current_proc
-        set qualified_name $varname
-        set scope "global"
-        
-        if {$current_proc ne ""} {
-            set scope "local"
-            set qualified_name "${current_proc}::$varname"
-        } elseif {$current_namespace ne "" && ![string match "::*" $varname]} {
-            set scope "namespace"
-            set qualified_name "${current_namespace}::$varname"
-        }
-        
-        set value ""
-        if {[llength $args] > 0} {
-            set value [lindex $args 0]
-        }
-        
-        emit_symbol "variable" $varname $qualified_name $line_num $scope $current_proc $value
-        return ""
-    }
-    
-    # Override global command
-    rename global original_global
-    proc global {args} {
-        set line_num 1
-        catch {set line_num [dict get [info frame -1] line]}
-        
-        foreach var $args {
-            emit_symbol "global" $var $var $line_num "global" "" ""
-        }
-        return ""
-    }
-    
-    # Override package command
-    rename package original_package
-    proc package {subcommand args} {
-        set line_num 1
-        catch {set line_num [dict get [info frame -1] line]}
-        
-        if {$subcommand eq "require" || $subcommand eq "provide"} {
-            set pkg_name [lindex $args 0]
-            set version ""
-            if {[llength $args] > 1} {
-                set version [lindex $args 1]
-            }
-            emit_symbol "package" $pkg_name $pkg_name $line_num "package" "" "$subcommand $version"
-        }
-        return ""
-    }
-    
-    # Override source command
-    rename source original_source
-    proc source {filename} {
-        set line_num 1
-        catch {set line_num [dict get [info frame -1] line]}
-        
-        emit_symbol "source" $filename $filename $line_num "source" "" ""
-        return ""
-    }
-    
-    # Override array command
-    rename array original_array
-    proc array {subcommand name args} {
-        if {$subcommand eq "set"} {
-            set line_num 1
-            catch {set line_num [dict get [info frame -1] line]}
-            
-            global current_namespace current_proc
-            set qualified_name $name
-            set scope "global"
-            
-            if {$current_proc ne ""} {
-                set scope "local"
-                set qualified_name "${current_proc}::$name"
-            } elseif {$current_namespace ne "" && ![string match "::*" $name]} {
-                set scope "namespace"
-                set qualified_name "${current_namespace}::$name"
-            }
-            
-            emit_symbol "array" $name $qualified_name $line_num $scope $current_proc ""
-        }
-        return ""
-    }
-    
-    # Disable potentially dangerous commands
-    proc exec {args} { return "" }
-    proc open {args} { return "" }
-    proc file {args} { return "" }
-    proc puts {args} { return "" }
-    proc exit {args} { return "" }
-}
-
-# Now evaluate the entire file content using TCL's actual parser
-puts "SEMANTIC_DEBUG: Starting semantic evaluation of file content"
-
-if {[catch {
-    $semantic_interp eval $content
-} eval_err]} {
-    puts "SEMANTIC_DEBUG: Full evaluation failed: $eval_err"
-    
-    # Try to evaluate command by command using TCL's parser
-    puts "SEMANTIC_DEBUG: Attempting incremental parsing"
-    
-    # Use TCL's own parser to split into commands
-    set command_start 0
-    set content_length [string length $content]
-    
-    while {$command_start < $content_length} {
-        # Find the next complete command using info complete
-        set command_end $command_start
-        
-        while {$command_end < $content_length} {
-            set partial_command [string range $content $command_start $command_end]
-            
-            if {[catch {info complete $partial_command} is_complete]} {
-                # If info complete fails, skip this character
-                incr command_end
-                continue
-            }
-            
-            if {$is_complete} {
-                # Found a complete command, try to evaluate it
-                set clean_command [string trim $partial_command]
-                if {$clean_command ne "" && ![string match "#*" $clean_command]} {
-                    if {[catch {
-                        $semantic_interp eval $clean_command
-                    } cmd_err]} {
-                        puts "SEMANTIC_DEBUG: Command failed: [string range $clean_command 0 50]... Error: $cmd_err"
-                    }
-                }
-                
-                set command_start [expr {$command_end + 1}]
-                break
-            }
-            
-            incr command_end
-        }
-        
-        # Prevent infinite loop
-        if {$command_end >= $content_length} {
             break
         }
     }
+    return $best_line
 }
 
-puts "SEMANTIC_DEBUG: Semantic evaluation complete"
+# Function to emit symbols
+proc emit_symbol {type name qualified_name line scope context extra} {
+    puts "SYMBOL:$type:$name:$qualified_name:$line:$scope:$context:$extra"
+}
 
-# Clean up
-interp delete $semantic_interp
+# Analyze each parsed command with enhanced semantic awareness
+foreach cmd_info $commands {
+    set cmd_text [lindex $cmd_info 0]
+    set cmd_pos [lindex $cmd_info 1]
+    set cmd_line [find_line $cmd_pos]
+    
+    set trimmed [string trim $cmd_text]
+    if {$trimmed eq "" || [string match "#*" $trimmed]} {
+        continue
+    }
+    
+    puts "HYBRID_DEBUG: Analyzing command at line $cmd_line: [string range $trimmed 0 50]..."
+    
+    # Try to parse the command semantically first
+    set semantic_parsed 0
+    
+    # Use TCL's parser to break down the command
+    if {[catch {
+        set cmd_parts [list]
+        set parse_pos 0
+        set cmd_length [string length $trimmed]
+        
+        while {$parse_pos < $cmd_length} {
+            # Use TCL's list parsing to extract arguments properly
+            if {[catch {
+                set element [lindex $trimmed $parse_pos]
+                if {$element ne ""} {
+                    lappend cmd_parts $element
+                }
+                incr parse_pos
+            }]} {
+                break
+            }
+        }
+        
+        if {[llength $cmd_parts] > 0} {
+            set cmd_name [lindex $cmd_parts 0]
+            
+            # Handle commands semantically based on parsed structure
+            if {$cmd_name eq "namespace"} {
+                if {[llength $cmd_parts] >= 3 && [lindex $cmd_parts 1] eq "eval"} {
+                    set ns_name [lindex $cmd_parts 2]
+                    set clean_ns [string trim $ns_name "{}\""]
+                    
+                    lappend namespace_stack $current_namespace
+                    set current_namespace $clean_ns
+                    
+                    emit_symbol "namespace" $clean_ns $clean_ns $cmd_line "namespace" "" ""
+                    set semantic_parsed 1
+                    puts "HYBRID_DEBUG: Semantically parsed namespace: $clean_ns"
+                }
+            } elseif {$cmd_name eq "proc"} {
+                if {[llength $cmd_parts] >= 4} {
+                    set proc_name [lindex $cmd_parts 1]
+                    set proc_args [lindex $cmd_parts 2]
+                    
+                    set qualified_name $proc_name
+                    if {$current_namespace ne "" && ![string match "::*" $proc_name]} {
+                        set qualified_name "${current_namespace}::$proc_name"
+                    }
+                    
+                    emit_symbol "procedure" $proc_name $qualified_name $cmd_line "procedure" $current_namespace $proc_args
+                    
+                    # Parse parameters using TCL's list processing
+                    if {[catch {
+                        foreach param_spec $proc_args {
+                            if {[llength $param_spec] == 1} {
+                                set param_name $param_spec
+                                emit_symbol "parameter" $param_name "${proc_name}::$param_name" $cmd_line "parameter" $proc_name ""
+                            } elseif {[llength $param_spec] == 2} {
+                                set param_name [lindex $param_spec 0]
+                                set default_val [lindex $param_spec 1]
+                                emit_symbol "parameter" $param_name "${proc_name}::$param_name" $cmd_line "parameter" $proc_name $default_val
+                            }
+                        }
+                    }]} {
+                        puts "HYBRID_DEBUG: Parameter parsing failed for $proc_name"
+                    }
+                    
+                    set semantic_parsed 1
+                    puts "HYBRID_DEBUG: Semantically parsed procedure: $proc_name"
+                }
+            } elseif {$cmd_name eq "package"} {
+                if {[llength $cmd_parts] >= 3} {
+                    set subcmd [lindex $cmd_parts 1]
+                    set pkg_name [lindex $cmd_parts 2]
+                    emit_symbol "package" $pkg_name $pkg_name $cmd_line "package" "" $subcmd
+                    set semantic_parsed 1
+                    puts "HYBRID_DEBUG: Semantically parsed package: $pkg_name"
+                }
+            } elseif {$cmd_name eq "set"} {
+                if {[llength $cmd_parts] >= 2} {
+                    set var_name [lindex $cmd_parts 1]
+                    
+                    set qualified_name $var_name
+                    set scope "global"
+                    
+                    if {$current_proc ne ""} {
+                        set scope "local"
+                        set qualified_name "${current_proc}::$var_name"
+                    } elseif {$current_namespace ne "" && ![string match "::*" $var_name]} {
+                        set scope "namespace"
+                        set qualified_name "${current_namespace}::$var_name"
+                    }
+                    
+                    emit_symbol "variable" $var_name $qualified_name $cmd_line $scope $current_proc ""
+                    set semantic_parsed 1
+                    puts "HYBRID_DEBUG: Semantically parsed variable: $var_name"
+                }
+            }
+        }
+    }]} {
+        puts "HYBRID_DEBUG: Semantic parsing failed for command, falling back to patterns"
+    }
+    
+    # If semantic parsing failed, fall back to enhanced patterns
+    if {!$semantic_parsed} {
+        puts "HYBRID_DEBUG: Using pattern fallback for: [string range $trimmed 0 30]..."
+        
+        # Enhanced pattern matching with validation
+        if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_:][a-zA-Z0-9_:]*)} $trimmed match ns_name]} {
+            set clean_ns [string trim $ns_name "{}\""]
+            lappend namespace_stack $current_namespace
+            set current_namespace $clean_ns
+            emit_symbol "namespace" $clean_ns $clean_ns $cmd_line "namespace" "" ""
+            puts "HYBRID_DEBUG: Pattern matched namespace: $clean_ns"
+        } elseif {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match proc_name]} {
+            set qualified_name $proc_name
+            if {$current_namespace ne "" && ![string match "::*" $proc_name]} {
+                set qualified_name "${current_namespace}::$proc_name"
+            }
+            emit_symbol "procedure" $proc_name $qualified_name $cmd_line "procedure" $current_namespace ""
+            puts "HYBRID_DEBUG: Pattern matched procedure: $proc_name"
+        } elseif {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match cmd pkg_name]} {
+            emit_symbol "package" $pkg_name $pkg_name $cmd_line "package" "" $cmd
+            puts "HYBRID_DEBUG: Pattern matched package: $pkg_name"
+        } elseif {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match var_name]} {
+            set qualified_name $var_name
+            set scope "global"
+            if {$current_namespace ne "" && ![string match "::*" $var_name]} {
+                set scope "namespace"  
+                set qualified_name "${current_namespace}::$var_name"
+            }
+            emit_symbol "variable" $var_name $qualified_name $cmd_line $scope $current_proc ""
+            puts "HYBRID_DEBUG: Pattern matched variable: $var_name"
+        }
+    }
+}
 
-puts "SEMANTIC_ANALYSIS_COMPLETE"
-puts "SEMANTIC_DEBUG: Found [llength $symbols_found] symbols total"
+puts "HYBRID_ANALYSIS_COMPLETE"
 ]],
 		escaped_path
 	)
 
-	local result, success = utils.execute_tcl_script(true_semantic_script, tclsh_cmd)
+	local result, success = utils.execute_tcl_script(hybrid_script, tclsh_cmd)
 
 	if not (result and success) then
-		print("DEBUG: True semantic analysis failed")
+		print("DEBUG: Hybrid analysis failed")
 		print("DEBUG: Result:", result or "nil")
 		print("DEBUG: Success:", success)
 		return nil
 	end
 
-	print("DEBUG: True semantic analysis output:")
+	print("DEBUG: Hybrid analysis output:")
 	print(result)
 
 	local symbols = {}
 	for line in result:gmatch("[^\n]+") do
 		if line:match("^SYMBOL:") then
-			print("DEBUG: Processing true semantic line:", line)
+			print("DEBUG: Processing hybrid line:", line)
 
-			-- Parse semantic output: SYMBOL:type:name:qualified_name:line:scope:context:extra
+			-- Parse: SYMBOL:type:name:qualified_name:line:scope:context:extra
 			local symbol_type, name, qualified_name, line_num, scope, context, extra =
 				line:match("SYMBOL:([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]*):([^:]*)")
 
@@ -512,24 +469,16 @@ puts "SEMANTIC_DEBUG: Found [llength $symbols_found] symbols total"
 					context = context ~= "" and context or nil,
 					proc_context = (symbol_type == "parameter" and context ~= "") and context or nil,
 					args = extra ~= "" and extra or nil,
-					method = "true_semantic_no_regex",
+					method = "hybrid_semantic",
 				}
 
-				print(
-					"DEBUG: Found TRUE semantic symbol:",
-					symbol.type,
-					symbol.name,
-					"at line",
-					symbol.line,
-					"method:",
-					symbol.method
-				)
+				print("DEBUG: Found hybrid symbol:", symbol.type, symbol.name, "at line", symbol.line)
 				table.insert(symbols, symbol)
 			end
 		end
 	end
 
-	print("DEBUG: Total TRUE semantic symbols found:", #symbols)
+	print("DEBUG: Total hybrid symbols found:", #symbols)
 
 	-- Cache the results
 	cache_file_analysis(file_path, symbols)
