@@ -85,7 +85,7 @@ end
 function M.analyze_tcl_file(file_path, tclsh_cmd)
 	local analysis_script = string.format(
 		[[
-# TCL Symbol Analysis Script
+# TCL Symbol Analysis Script with Semantic Understanding
 set file_path "%s"
 set symbols [list]
 
@@ -103,8 +103,12 @@ if {[catch {
 set lines [split $content "\n"]
 set line_num 0
 set current_namespace ""
+set current_proc ""
+set namespace_stack [list]
+set proc_stack [list]
+set brace_depth 0
 
-# Parse each line to find symbols
+# Parse each line to find symbols with context
 foreach line $lines {
     incr line_num
     set trimmed [string trim $line]
@@ -114,35 +118,68 @@ foreach line $lines {
         continue
     }
     
-    # Track current namespace context
-    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
-        set current_namespace $ns_name
-        puts "SYMBOL:namespace:$ns_name:$line_num:$line"
+    # Track brace depth for scope management
+    set open_braces [regexp -all {\{} $line]
+    set close_braces [regexp -all {\}} $line]
+    incr brace_depth $open_braces
+    incr brace_depth -$close_braces
+    
+    # Track namespace context
+    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{} $line match ns_name]} {
+        lappend namespace_stack $current_namespace
+        if {$current_namespace eq ""} {
+            set current_namespace $ns_name
+        } else {
+            set current_namespace "$current_namespace\::$ns_name"
+        }
+        puts "SYMBOL:namespace:$ns_name:$line_num:$line:CONTEXT:$current_namespace"
     }
     
-    # Find procedure definitions with full namespace qualification
+    # Track procedure context and find procedure definitions
     if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{(.*)$} $line match proc_name args]} {
-        # If proc name doesn't contain ::, prepend current namespace
+        lappend proc_stack $current_proc
+        set current_proc $proc_name
+        
+        # Determine full qualified name
+        set full_proc_name $proc_name
         if {![string match "*::*" $proc_name] && $current_namespace ne ""} {
             set full_proc_name "$current_namespace\::$proc_name"
-            puts "SYMBOL:procedure:$full_proc_name:$line_num:$line"
-            # Also add the short name for local references
-            puts "SYMBOL:procedure_local:$proc_name:$line_num:$line"
-        } else {
-            puts "SYMBOL:procedure:$proc_name:$line_num:$line"
+        }
+        
+        puts "SYMBOL:procedure:$full_proc_name:$line_num:$line:CONTEXT:$current_namespace:ARGS:$args"
+        
+        # Also add the local name for reference within the namespace
+        if {$current_namespace ne "" && ![string match "*::*" $proc_name]} {
+            puts "SYMBOL:procedure_local:$proc_name:$line_num:$line:CONTEXT:$current_namespace:QUALIFIED:$full_proc_name"
         }
     }
     
-    # Find variable assignments (set commands) with namespace context
+    # Find variable assignments with scope awareness
     if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
-        # If var name doesn't contain ::, prepend current namespace for qualified name
+        set scope "local"
+        set context_info $current_namespace
+        
+        # Determine variable scope
+        if {$current_proc ne ""} {
+            set scope "proc_local"
+            set context_info "$current_namespace\::$current_proc"
+        } elseif {$current_namespace ne ""} {
+            set scope "namespace"
+        } else {
+            set scope "global"
+        }
+        
+        # Handle qualified vs unqualified variable names
+        set full_var_name $var_name
         if {![string match "*::*" $var_name] && $current_namespace ne ""} {
             set full_var_name "$current_namespace\::$var_name"
-            puts "SYMBOL:variable:$full_var_name:$line_num:$line"
-            # Also add the short name for local references
-            puts "SYMBOL:variable_local:$var_name:$line_num:$line"
-        } else {
-            puts "SYMBOL:variable:$var_name:$line_num:$line"
+        }
+        
+        puts "SYMBOL:variable:$full_var_name:$line_num:$line:SCOPE:$scope:CONTEXT:$context_info"
+        
+        # Add local reference if in namespace
+        if {$current_namespace ne "" && ![string match "*::*" $var_name]} {
+            puts "SYMBOL:variable_local:$var_name:$line_num:$line:SCOPE:$scope:CONTEXT:$context_info:QUALIFIED:$full_var_name"
         }
     }
     
@@ -150,34 +187,38 @@ foreach line $lines {
     if {[regexp {^\s*global\s+([a-zA-Z_][a-zA-Z0-9_:\s]*)} $line match globals]} {
         foreach global_var [split $globals] {
             if {$global_var ne ""} {
-                puts "SYMBOL:global:$global_var:$line_num:$line"
+                puts "SYMBOL:global:$global_var:$line_num:$line:SCOPE:global:CONTEXT:$current_namespace"
             }
         }
     }
     
     # Find package requirements
     if {[regexp {^\s*package\s+require\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match pkg_name]} {
-        puts "SYMBOL:package:$pkg_name:$line_num:$line"
+        puts "SYMBOL:package:$pkg_name:$line_num:$line:CONTEXT:$current_namespace"
     }
     
     # Find package provide statements
     if {[regexp {^\s*package\s+provide\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match pkg_name]} {
-        puts "SYMBOL:package_provide:$pkg_name:$line_num:$line"
+        puts "SYMBOL:package_provide:$pkg_name:$line_num:$line:CONTEXT:$current_namespace"
     }
     
     # Find source commands
     if {[regexp {^\s*source\s+(.+)$} $line match source_file]} {
-        # Clean up the filename (remove quotes, etc.)
         set clean_file [string trim $source_file "\"'\{\}"]
-        puts "SYMBOL:source:$clean_file:$line_num:$line"
+        puts "SYMBOL:source:$clean_file:$line_num:$line:CONTEXT:$current_namespace"
     }
     
-    # Reset namespace context when leaving namespace block
-    # This is a simple heuristic - proper parsing would track brace nesting
-    if {[regexp {^\s*\}\s*$} $line] && $current_namespace ne ""} {
-        # Check if this might be the end of the namespace
-        # In practice, this is tricky without full parsing, but we'll try
-        set current_namespace ""
+    # Handle end of blocks (simplified - proper parsing would track specific block types)
+    if {$brace_depth == 0} {
+        # We're back at top level - reset contexts
+        if {[llength $namespace_stack] > 0} {
+            set current_namespace [lindex $namespace_stack end]
+            set namespace_stack [lrange $namespace_stack 0 end-1]
+        }
+        if {[llength $proc_stack] > 0} {
+            set current_proc [lindex $proc_stack end]
+            set proc_stack [lrange $proc_stack 0 end-1]
+        }
     }
 }
 
@@ -194,14 +235,45 @@ puts "ANALYSIS_COMPLETE"
 
 	local symbols = {}
 	for line in result:gmatch("[^\n]+") do
-		local symbol_type, name, line_num, text = line:match("SYMBOL:([^:]+):([^:]+):([^:]+):(.+)")
-		if symbol_type and name and line_num and text then
-			table.insert(symbols, {
-				type = symbol_type,
-				name = name,
-				line = tonumber(line_num),
-				text = text,
-			})
+		-- Parse enhanced symbol format: SYMBOL:type:name:line:text:CONTEXT:context:SCOPE:scope:etc
+		local parts = {}
+		for part in line:gmatch("([^:]+)") do
+			table.insert(parts, part)
+		end
+
+		if parts[1] == "SYMBOL" and #parts >= 5 then
+			local symbol = {
+				type = parts[2],
+				name = parts[3],
+				line = tonumber(parts[4]),
+				text = parts[5],
+				context = "",
+				scope = "",
+				args = "",
+				qualified_name = "",
+			}
+
+			-- Parse additional metadata
+			local i = 6
+			while i <= #parts do
+				if parts[i] == "CONTEXT" and i < #parts then
+					symbol.context = parts[i + 1]
+					i = i + 2
+				elseif parts[i] == "SCOPE" and i < #parts then
+					symbol.scope = parts[i + 1]
+					i = i + 2
+				elseif parts[i] == "ARGS" and i < #parts then
+					symbol.args = parts[i + 1]
+					i = i + 2
+				elseif parts[i] == "QUALIFIED" and i < #parts then
+					symbol.qualified_name = parts[i + 1]
+					i = i + 2
+				else
+					i = i + 1
+				end
+			end
+
+			table.insert(symbols, symbol)
 		end
 	end
 
@@ -472,7 +544,160 @@ function M.get_command_documentation(command)
 	return tcl_docs[command]
 end
 
--- Execute a TCL command and capture its output
+-- Resolve a symbol using TCL's semantic engine
+function M.resolve_symbol(symbol_name, file_path, cursor_line, tclsh_cmd)
+	local resolution_script = string.format(
+		[[
+# Smart Symbol Resolution using TCL's semantic understanding
+set symbol_name "%s"
+set file_path "%s"
+set cursor_line %d
+
+# Read and analyze the file to understand context at cursor position
+if {[catch {
+    set fp [open $file_path r]
+    set content [read $fp]
+    close $fp
+} err]} {
+    puts "ERROR: Cannot read file: $err"
+    exit 1
+}
+
+set lines [split $content "\n"]
+set current_namespace ""
+set current_proc ""
+set line_num 0
+
+# Determine context at cursor position
+foreach line $lines {
+    incr line_num
+    set trimmed [string trim $line]
+    
+    if {$trimmed eq "" || [string index $trimmed 0] eq "#"} {
+        continue
+    }
+    
+    # Track namespace context up to cursor
+    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
+        set current_namespace $ns_name
+    }
+    
+    # Track procedure context up to cursor
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match proc_name]} {
+        set current_proc $proc_name
+    }
+    
+    # Stop when we reach the cursor line
+    if {$line_num >= $cursor_line} {
+        break
+    }
+}
+
+puts "CURSOR_CONTEXT:namespace:$current_namespace:proc:$current_proc"
+
+# Now resolve the symbol using TCL's resolution rules
+set candidates [list]
+
+# 1. Check if it's a built-in command
+if {[info commands $symbol_name] ne ""} {
+    puts "RESOLUTION:builtin_command:$symbol_name:priority:10"
+}
+
+# 2. Check for qualified name as-is
+if {[string match "*::*" $symbol_name]} {
+    puts "RESOLUTION:qualified_name:$symbol_name:priority:9"
+} else {
+    # 3. Check in current namespace context
+    if {$current_namespace ne ""} {
+        set ns_qualified "$current_namespace\::$symbol_name"
+        puts "RESOLUTION:namespace_qualified:$ns_qualified:priority:8:context:$current_namespace"
+    }
+    
+    # 4. Check in current procedure context (for local variables)
+    if {$current_proc ne ""} {
+        puts "RESOLUTION:proc_local:$symbol_name:priority:7:context:$current_proc"
+    }
+    
+    # 5. Check as global
+    puts "RESOLUTION:global:$symbol_name:priority:6"
+}
+
+# 6. Check for package namespaces that might be imported
+# This is a simplified check - real TCL would track package imports
+set common_packages [list "json" "http" "uri" "base64"]
+foreach pkg $common_packages {
+    set pkg_qualified "$pkg\::$symbol_name"
+    puts "RESOLUTION:package_qualified:$pkg_qualified:priority:5:package:$pkg"
+}
+
+puts "RESOLUTION_COMPLETE"
+]],
+		symbol_name,
+		file_path,
+		cursor_line
+	)
+
+	local result, success = utils.execute_tcl_script(resolution_script, tclsh_cmd)
+
+	if not (result and success) then
+		return nil
+	end
+
+	local resolutions = {}
+	local context = {}
+
+	for line in result:gmatch("[^\n]+") do
+		if line:match("CURSOR_CONTEXT:") then
+			local ns, proc = line:match("CURSOR_CONTEXT:namespace:([^:]*):proc:([^:]*)")
+			context.namespace = (ns ~= "") and ns or nil
+			context.proc = (proc ~= "") and proc or nil
+		elseif line:match("RESOLUTION:") then
+			local parts = {}
+			for part in line:gmatch("([^:]+)") do
+				table.insert(parts, part)
+			end
+
+			if #parts >= 4 then
+				local resolution = {
+					type = parts[2],
+					name = parts[3],
+					priority = tonumber(parts[4]) or 0,
+					context = "",
+					package = "",
+				}
+
+				-- Parse additional metadata
+				local i = 5
+				while i <= #parts do
+					if parts[i] == "priority" and i < #parts then
+						resolution.priority = tonumber(parts[i + 1]) or 0
+						i = i + 2
+					elseif parts[i] == "context" and i < #parts then
+						resolution.context = parts[i + 1]
+						i = i + 2
+					elseif parts[i] == "package" and i < #parts then
+						resolution.package = parts[i + 1]
+						i = i + 2
+					else
+						i = i + 1
+					end
+				end
+
+				table.insert(resolutions, resolution)
+			end
+		end
+	end
+
+	-- Sort resolutions by priority (higher priority first)
+	table.sort(resolutions, function(a, b)
+		return a.priority > b.priority
+	end)
+
+	return {
+		context = context,
+		resolutions = resolutions,
+	}
+end
 function M.execute_tcl_command(command, tclsh_cmd)
 	local script = string.format(
 		[[

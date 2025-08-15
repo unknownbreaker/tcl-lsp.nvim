@@ -3,7 +3,7 @@ local config = require("tcl-lsp.config")
 local tcl = require("tcl-lsp.tcl")
 local M = {}
 
--- Smart TCL go-to-definition using tclsh analysis
+-- Smart TCL go-to-definition using semantic resolution
 function M.goto_definition()
 	-- Try to get qualified word first, fall back to regular word
 	local word, err = utils.get_qualified_word_under_cursor()
@@ -22,49 +22,276 @@ function M.goto_definition()
 	end
 
 	local tclsh_cmd = config.get_tclsh_cmd()
-	local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+	local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
 
+	-- Use smart symbol resolution
+	local resolution = tcl.resolve_symbol(word, file_path, cursor_line, tclsh_cmd)
+	if not resolution then
+		utils.notify("Failed to analyze symbol context", vim.log.levels.ERROR)
+		return
+	end
+
+	-- Get all symbols from current file
+	local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
 	if not symbols then
 		utils.notify("Failed to analyze file with TCL", vim.log.levels.ERROR)
 		return
 	end
 
-	-- Look for matching symbol in current file
-	-- Try exact match first, then partial matches
-	local exact_match = nil
-	local partial_matches = {}
+	-- Find the best matching symbols based on resolution priority
+	local matches = M.find_matching_symbols(symbols, resolution.resolutions, word)
 
-	for _, symbol in ipairs(symbols) do
-		if symbol.name == word then
-			exact_match = symbol
-			break
-		elseif M.symbol_matches_query(symbol.name, word) then
-			table.insert(partial_matches, symbol)
+	if #matches == 0 then
+		-- Try workspace search if nothing found locally
+		utils.notify("Symbol '" .. word .. "' not found in current file, searching workspace...", vim.log.levels.INFO)
+		M.search_workspace_for_definition_smart(word, file_path, cursor_line, tclsh_cmd)
+	elseif #matches == 1 then
+		local match = matches[1]
+		vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
+		utils.notify(
+			string.format(
+				"Found %s '%s' at line %d (priority: %d)",
+				match.symbol.type,
+				match.symbol.name,
+				match.symbol.line,
+				match.priority
+			),
+			vim.log.levels.INFO
+		)
+	else
+		-- Multiple matches, show them prioritized
+		M.show_prioritized_symbol_choices(matches, word, resolution.context)
+	end
+end
+
+-- Find matching symbols based on resolution priority
+function M.find_matching_symbols(symbols, resolutions, query)
+	local matches = {}
+
+	for _, resolution in ipairs(resolutions) do
+		for _, symbol in ipairs(symbols) do
+			local symbol_matches = false
+
+			-- Check if symbol matches this resolution
+			if resolution.type == "qualified_name" and symbol.name == resolution.name then
+				symbol_matches = true
+			elseif
+				resolution.type == "namespace_qualified"
+				and (symbol.name == resolution.name or symbol.qualified_name == resolution.name)
+			then
+				symbol_matches = true
+			elseif
+				resolution.type == "proc_local"
+				and symbol.name == query
+				and (symbol.scope == "proc_local" or symbol.scope == "local")
+			then
+				symbol_matches = true
+			elseif
+				resolution.type == "global"
+				and symbol.name == query
+				and (symbol.scope == "global" or symbol.type == "global")
+			then
+				symbol_matches = true
+			elseif resolution.type == "package_qualified" and symbol.name == resolution.name then
+				symbol_matches = true
+			elseif symbol.name == query then -- Fallback exact match
+				symbol_matches = true
+			end
+
+			if symbol_matches then
+				table.insert(matches, {
+					symbol = symbol,
+					resolution = resolution,
+					priority = resolution.priority,
+				})
+			end
 		end
 	end
 
-	if exact_match then
-		vim.api.nvim_win_set_cursor(0, { exact_match.line, 0 })
-		utils.notify(
-			string.format("Found %s '%s' at line %d", exact_match.type, word, exact_match.line),
-			vim.log.levels.INFO
-		)
-		return
-	elseif #partial_matches == 1 then
-		local match = partial_matches[1]
-		vim.api.nvim_win_set_cursor(0, { match.line, 0 })
-		utils.notify(string.format("Found %s '%s' at line %d", match.type, match.name, match.line), vim.log.levels.INFO)
-		return
-	elseif #partial_matches > 1 then
-		-- Multiple matches, let user choose
-		M.show_symbol_choices(partial_matches, word)
-		return
+	-- Remove duplicates and sort by priority
+	local seen = {}
+	local unique_matches = {}
+
+	for _, match in ipairs(matches) do
+		local key = match.symbol.name .. ":" .. match.symbol.line
+		if not seen[key] then
+			seen[key] = true
+			table.insert(unique_matches, match)
+		end
 	end
 
-	-- If not found in current file, search workspace
-	utils.notify("Symbol '" .. word .. "' not found in current file, searching workspace...", vim.log.levels.INFO)
+	table.sort(unique_matches, function(a, b)
+		return a.priority > b.priority
+	end)
 
-	M.search_workspace_for_definition(word, file_path, tclsh_cmd)
+	return unique_matches
+end
+
+-- Show prioritized symbol choices with context
+function M.show_prioritized_symbol_choices(matches, query, context)
+	local choices = {}
+
+	for i, match in ipairs(matches) do
+		local symbol = match.symbol
+		local context_info = ""
+
+		if symbol.scope and symbol.scope ~= "" then
+			context_info = " [" .. symbol.scope .. "]"
+		elseif symbol.context and symbol.context ~= "" then
+			context_info = " [ns: " .. symbol.context .. "]"
+		end
+
+		table.insert(
+			choices,
+			string.format(
+				"%d. %s '%s'%s at line %d (priority: %d)",
+				i,
+				symbol.type,
+				symbol.name,
+				context_info,
+				symbol.line,
+				match.priority
+			)
+		)
+	end
+
+	local context_str = ""
+	if context.namespace then
+		context_str = context_str .. "namespace: " .. context.namespace
+	end
+	if context.proc then
+		if context_str ~= "" then
+			context_str = context_str .. ", "
+		end
+		context_str = context_str .. "procedure: " .. context.proc
+	end
+
+	local prompt = "Multiple definitions found for '" .. query .. "'"
+	if context_str ~= "" then
+		prompt = prompt .. " (in " .. context_str .. ")"
+	end
+	prompt = prompt .. ":"
+
+	vim.ui.select(choices, {
+		prompt = prompt,
+	}, function(choice, idx)
+		if idx then
+			local selected_match = matches[idx]
+			vim.api.nvim_win_set_cursor(0, { selected_match.symbol.line, 0 })
+			utils.notify(
+				string.format(
+					"Jumped to %s '%s' at line %d",
+					selected_match.symbol.type,
+					selected_match.symbol.name,
+					selected_match.symbol.line
+				),
+				vim.log.levels.INFO
+			)
+		end
+	end)
+end
+
+-- Smart workspace search with semantic resolution
+function M.search_workspace_for_definition_smart(symbol_name, current_file, cursor_line, tclsh_cmd)
+	-- Get resolution for the symbol
+	local resolution = tcl.resolve_symbol(symbol_name, current_file, cursor_line, tclsh_cmd)
+
+	local files = vim.fn.glob("**/*.tcl", false, true)
+	local matches = {}
+
+	for _, file in ipairs(files) do
+		if file ~= current_file then -- Skip current file
+			local file_symbols = tcl.analyze_tcl_file(file, tclsh_cmd)
+			if file_symbols then
+				local file_matches = M.find_matching_symbols(file_symbols, resolution.resolutions, symbol_name)
+				for _, match in ipairs(file_matches) do
+					table.insert(matches, {
+						symbol = match.symbol,
+						file = file,
+						priority = match.priority,
+						resolution = match.resolution,
+					})
+				end
+			end
+		end
+	end
+
+	if #matches == 0 then
+		utils.notify("Definition of '" .. symbol_name .. "' not found", vim.log.levels.WARN)
+	elseif #matches == 1 then
+		local match = matches[1]
+		vim.cmd("edit " .. match.file)
+		vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
+		utils.notify(
+			string.format(
+				"Found %s '%s' in %s at line %d (priority: %d)",
+				match.symbol.type,
+				match.symbol.name,
+				match.file,
+				match.symbol.line,
+				match.priority
+			),
+			vim.log.levels.INFO
+		)
+	else
+		-- Multiple matches across files
+		M.show_workspace_prioritized_choices(matches, symbol_name, resolution.context)
+	end
+end
+
+-- Show prioritized workspace symbol choices
+function M.show_workspace_prioritized_choices(matches, query, context)
+	-- Sort by priority first, then by file
+	table.sort(matches, function(a, b)
+		if a.priority ~= b.priority then
+			return a.priority > b.priority
+		end
+		return a.file < b.file
+	end)
+
+	local choices = {}
+	for i, match in ipairs(matches) do
+		local file_short = vim.fn.fnamemodify(match.file, ":t")
+		local context_info = ""
+
+		if match.symbol.scope and match.symbol.scope ~= "" then
+			context_info = " [" .. match.symbol.scope .. "]"
+		end
+
+		table.insert(
+			choices,
+			string.format(
+				"%d. %s '%s'%s in %s at line %d (priority: %d)",
+				i,
+				match.symbol.type,
+				match.symbol.name,
+				context_info,
+				file_short,
+				match.symbol.line,
+				match.priority
+			)
+		)
+	end
+
+	vim.ui.select(choices, {
+		prompt = "Multiple definitions found for '" .. query .. "' across workspace:",
+	}, function(choice, idx)
+		if idx then
+			local selected_match = matches[idx]
+			vim.cmd("edit " .. selected_match.file)
+			vim.api.nvim_win_set_cursor(0, { selected_match.symbol.line, 0 })
+			utils.notify(
+				string.format(
+					"Jumped to %s '%s' in %s at line %d",
+					selected_match.symbol.type,
+					selected_match.symbol.name,
+					vim.fn.fnamemodify(selected_match.file, ":t"),
+					selected_match.symbol.line
+				),
+				vim.log.levels.INFO
+			)
+		end
+	end)
 end
 
 -- Check if a symbol name matches a query (handles namespace syntax)
@@ -72,7 +299,7 @@ function M.symbol_matches_query(symbol_name, query)
 	return utils.symbols_match(symbol_name, query)
 end
 
--- Show multiple symbol choices to user
+-- Show multiple symbol choices to user (legacy function for backward compatibility)
 function M.show_symbol_choices(symbols, query)
 	local choices = {}
 	for i, symbol in ipairs(symbols) do
