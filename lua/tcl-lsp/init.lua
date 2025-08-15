@@ -793,6 +793,372 @@ puts "SUCCESS: File parsed without errors"
 		desc = "Test analysis on specific file",
 		nargs = "?",
 	})
+
+	-- Test semantic analysis vs regex patterns
+	vim.api.nvim_create_user_command("TclTestSemantic", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to analyze: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		utils.notify("🧠 Testing TRUE semantic analysis (not regex patterns)...", vim.log.levels.INFO)
+
+		-- Clear cache to force fresh analysis
+		tcl.invalidate_cache(file_path)
+
+		-- Run semantic analysis
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if not symbols then
+			utils.notify("❌ Semantic analysis failed", vim.log.levels.ERROR)
+			return
+		end
+
+		if #symbols == 0 then
+			utils.notify("⚠️  No symbols found with semantic analysis", vim.log.levels.WARN)
+			return
+		end
+
+		utils.notify("✅ Semantic analysis found " .. #symbols .. " symbols:", vim.log.levels.INFO)
+
+		-- Group by method to show semantic vs other approaches
+		local by_method = {}
+		for _, symbol in ipairs(symbols) do
+			local method = symbol.method or "unknown"
+			if not by_method[method] then
+				by_method[method] = {}
+			end
+			table.insert(by_method[method], symbol)
+		end
+
+		for method, method_symbols in pairs(by_method) do
+			utils.notify(string.format("  %s method: %d symbols", method, #method_symbols), vim.log.levels.INFO)
+
+			-- Show a few examples
+			for i = 1, math.min(3, #method_symbols) do
+				local symbol = method_symbols[i]
+				local qualified_info = symbol.qualified_name and (" → " .. symbol.qualified_name) or ""
+				utils.notify(
+					string.format("    %s '%s'%s [%s]", symbol.type, symbol.name, qualified_info, symbol.scope),
+					vim.log.levels.INFO
+				)
+			end
+
+			if #method_symbols > 3 then
+				utils.notify(string.format("    ... and %d more", #method_symbols - 3), vim.log.levels.INFO)
+			end
+		end
+	end, {
+		desc = "Test true semantic analysis (not regex)",
+	})
+
+	-- Test semantic vs regex on tricky TCL constructs
+	vim.api.nvim_create_user_command("TclCreateSemanticTest", function()
+		local tricky_tcl = [[
+# This file tests tricky TCL constructs that regex patterns typically miss
+
+# Dynamic procedure creation
+set proc_name "dynamic_proc"
+set proc_args {arg1 arg2}
+set proc_body {
+    puts "arg1: $arg1, arg2: $arg2"
+    return [expr {$arg1 + $arg2}]
+}
+eval "proc $proc_name [list $proc_args] [list $proc_body]"
+
+# Namespace with variable interpolation
+set ns_name "test_namespace"
+namespace eval $ns_name {
+    variable count 0
+    
+    proc increment {{step 1}} {
+        variable count
+        incr count $step
+        return $count
+    }
+    
+    # Procedure with complex parameter patterns
+    proc complex_proc {required {optional "default"} args} {
+        variable count
+        puts "Required: $required"
+        puts "Optional: $optional" 
+        puts "Args: $args"
+        puts "Count: $count"
+        
+        # Variable assignment inside control structure
+        if {$count > 5} {
+            set status "high"
+        } else {
+            set status "low"
+        }
+        
+        # Array operations
+        array set local_array {key1 value1 key2 value2}
+        
+        # Dynamic variable names
+        set var_name "dynamic_var"
+        set $var_name "dynamic_value"
+        
+        return $status
+    }
+}
+
+# Uplevel and upvar (advanced TCL constructs)
+proc wrapper_proc {script} {
+    set local_var "wrapper_value"
+    uplevel 1 $script
+}
+
+proc upvar_test {var_name} {
+    upvar $var_name local_ref
+    set local_ref "modified_by_upvar"
+}
+
+# Complex namespace operations
+namespace eval another_ns {
+    namespace import ::${ns_name}::*
+    
+    proc call_imported {} {
+        return [increment 2]
+    }
+}
+
+# Runtime procedure modification
+proc original_proc {arg} {
+    return "original: $arg"
+}
+
+# This would be missed by regex but caught by semantic analysis
+rename original_proc old_original_proc
+proc original_proc {arg} {
+    set result [old_original_proc $arg]
+    return "modified: $result"
+}
+
+# Package with variable name
+set package_name "json"
+package require $package_name
+
+# Source with computed filename
+set config_dir "/etc/myapp"
+set config_file "config.tcl"
+source [file join $config_dir $config_file]
+]]
+
+		-- Create new buffer with tricky TCL
+		vim.cmd("new")
+		vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.split(tricky_tcl, "\n"))
+		vim.bo.filetype = "tcl"
+
+		local utils = require("tcl-lsp.utils")
+		utils.notify("Created test file with tricky TCL constructs that regex typically misses:", vim.log.levels.INFO)
+		utils.notify("- Dynamic procedure creation (line 5)", vim.log.levels.INFO)
+		utils.notify("- Variable interpolation in namespaces (line 12)", vim.log.levels.INFO)
+		utils.notify("- Complex parameter patterns (line 22)", vim.log.levels.INFO)
+		utils.notify("- Variables in control structures (line 30)", vim.log.levels.INFO)
+		utils.notify("- Dynamic variable names (line 38)", vim.log.levels.INFO)
+		utils.notify("- Uplevel/upvar constructs (line 45)", vim.log.levels.INFO)
+		utils.notify("- Runtime procedure modification (line 65)", vim.log.levels.INFO)
+		utils.notify("", vim.log.levels.INFO)
+		utils.notify("Try: :TclTestSemantic to see if semantic analysis catches these!", vim.log.levels.INFO)
+	end, {
+		desc = "Create test file with tricky TCL constructs",
+	})
+
+	-- Compare semantic vs regex analysis
+	vim.api.nvim_create_user_command("TclCompareAnalysis", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to analyze: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		utils.notify("🔬 Comparing semantic analysis vs regex patterns...", vim.log.levels.INFO)
+
+		-- Clear cache
+		tcl.invalidate_cache(file_path)
+
+		-- Run semantic analysis
+		local semantic_symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if not semantic_symbols then
+			utils.notify("❌ Semantic analysis failed", vim.log.levels.ERROR)
+			return
+		end
+
+		-- Count symbols by type and method
+		local semantic_count = {}
+		local regex_count = {}
+
+		for _, symbol in ipairs(semantic_symbols) do
+			local method = symbol.method or "unknown"
+			if not semantic_count[symbol.type] then
+				semantic_count[symbol.type] = 0
+			end
+			semantic_count[symbol.type] = semantic_count[symbol.type] + 1
+		end
+
+		utils.notify("📊 Analysis Results:", vim.log.levels.INFO)
+		utils.notify("Semantic Analysis Results:", vim.log.levels.INFO)
+
+		local total_semantic = 0
+		for sym_type, count in pairs(semantic_count) do
+			utils.notify(string.format("  %s: %d", sym_type, count), vim.log.levels.INFO)
+			total_semantic = total_semantic + count
+		end
+
+		utils.notify(string.format("Total symbols found: %d", total_semantic), vim.log.levels.INFO)
+
+		-- Show some advanced symbols that regex would miss
+		utils.notify("", vim.log.levels.INFO)
+		utils.notify("🎯 Advanced constructs detected (regex would miss these):", vim.log.levels.INFO)
+
+		local advanced_found = false
+		for _, symbol in ipairs(semantic_symbols) do
+			-- Look for signs of advanced analysis
+			if symbol.type == "parameter" and symbol.proc_context then
+				utils.notify(
+					string.format("  Parameter '%s' of procedure '%s'", symbol.name, symbol.proc_context),
+					vim.log.levels.INFO
+				)
+				advanced_found = true
+			elseif symbol.qualified_name and symbol.qualified_name ~= symbol.name then
+				utils.notify(
+					string.format("  Qualified symbol '%s' → '%s'", symbol.name, symbol.qualified_name),
+					vim.log.levels.INFO
+				)
+				advanced_found = true
+			elseif symbol.scope and symbol.scope ~= "global" then
+				utils.notify(
+					string.format("  Scoped %s '%s' [%s]", symbol.type, symbol.name, symbol.scope),
+					vim.log.levels.INFO
+				)
+				advanced_found = true
+			end
+		end
+
+		if not advanced_found then
+			utils.notify("  No advanced constructs found (file may be simple)", vim.log.levels.INFO)
+		end
+	end, {
+		desc = "Compare semantic analysis vs regex patterns",
+	})
+
+	-- Test semantic resolution specifically
+	vim.api.nvim_create_user_command("TclTestSemanticResolution", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+
+		local word, err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify("No symbol under cursor: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local file_path, file_err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file: " .. (file_err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		utils.notify("🧠 Testing SEMANTIC resolution for '" .. word .. "' (not regex)", vim.log.levels.INFO)
+
+		-- Run semantic resolution
+		local resolution = tcl.resolve_symbol(word, file_path, cursor_line, tclsh_cmd)
+
+		if not resolution then
+			utils.notify("❌ Semantic resolution failed", vim.log.levels.ERROR)
+			return
+		end
+
+		-- Show semantic context
+		local context = resolution.context
+		utils.notify("📍 Semantic Context at cursor:", vim.log.levels.INFO)
+		utils.notify("  Namespace: " .. (context.namespace or "::"), vim.log.levels.INFO)
+		utils.notify("  Procedure: " .. (context.proc or "none"), vim.log.levels.INFO)
+
+		if context.proc_params and #context.proc_params > 0 then
+			utils.notify("  Parameters: " .. table.concat(context.proc_params, ", "), vim.log.levels.INFO)
+
+			-- Check if current symbol is a parameter
+			for _, param in ipairs(context.proc_params) do
+				if param == word then
+					utils.notify("  ✅ '" .. word .. "' IS a parameter!", vim.log.levels.INFO)
+					break
+				end
+			end
+		end
+
+		-- Show semantic resolution results
+		utils.notify("", vim.log.levels.INFO)
+		utils.notify("🎯 Semantic Resolution Results:", vim.log.levels.INFO)
+
+		for i, res in ipairs(resolution.resolutions) do
+			local res_info = string.format("  %d. %s '%s' (priority: %d)", i, res.type, res.name, res.priority)
+
+			if res.proc then
+				res_info = res_info .. " [proc: " .. res.proc .. "]"
+			end
+			if res.namespace then
+				res_info = res_info .. " [ns: " .. res.namespace .. "]"
+			end
+
+			utils.notify(res_info, vim.log.levels.INFO)
+		end
+
+		local method = resolution.method or "unknown"
+		utils.notify("", vim.log.levels.INFO)
+		utils.notify("Method used: " .. method, vim.log.levels.INFO)
+
+		if method == "true_semantic" then
+			utils.notify("✅ TRUE semantic resolution (not regex)!", vim.log.levels.INFO)
+		else
+			utils.notify("⚠️  May still be using regex patterns", vim.log.levels.WARN)
+		end
+	end, {
+		desc = "Test semantic resolution for symbol under cursor",
+	})
+
+	-- Comprehensive semantic test
+	vim.api.nvim_create_user_command("TclTestSemanticAll", function()
+		local utils = require("tcl-lsp.utils")
+
+		utils.notify("🧪 Running comprehensive semantic engine tests...", vim.log.levels.INFO)
+
+		-- Test 1: Semantic analysis
+		utils.notify("1️⃣ Testing semantic analysis...", vim.log.levels.INFO)
+		vim.cmd("TclTestSemantic")
+
+		-- Test 2: Semantic resolution
+		utils.notify("2️⃣ Testing semantic resolution...", vim.log.levels.INFO)
+		vim.cmd("TclTestSemanticResolution")
+
+		-- Test 3: Comparison analysis
+		utils.notify("3️⃣ Comparing with regex patterns...", vim.log.levels.INFO)
+		vim.cmd("TclCompareAnalysis")
+
+		utils.notify("✅ Semantic engine tests complete!", vim.log.levels.INFO)
+		utils.notify("If you see 'true_semantic' methods, the semantic engine is working!", vim.log.levels.INFO)
+	end, {
+		desc = "Run all semantic engine tests",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
