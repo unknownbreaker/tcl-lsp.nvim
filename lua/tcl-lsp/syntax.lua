@@ -139,6 +139,13 @@ function M.check_syntax_on_save()
 		return
 	end
 
+	-- Invalidate cache when file is saved
+	local file_path = utils.get_current_file_path()
+	if file_path then
+		local tcl = require("tcl-lsp.tcl")
+		tcl.invalidate_cache(file_path)
+	end
+
 	-- Defer to avoid blocking save
 	vim.defer_fn(function()
 		M.syntax_check_current_buffer()
@@ -153,6 +160,13 @@ function M.check_syntax_on_change()
 
 	if not utils.is_tcl_file() then
 		return
+	end
+
+	-- Invalidate cache when file changes
+	local file_path = utils.get_current_file_path()
+	if file_path then
+		local tcl = require("tcl-lsp.tcl")
+		tcl.invalidate_cache(file_path)
 	end
 
 	-- Debounce to avoid too many checks while typing

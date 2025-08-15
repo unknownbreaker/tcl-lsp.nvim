@@ -1,6 +1,76 @@
 local utils = require("tcl-lsp.utils")
 local M = {}
 
+-- Cache for file analysis results
+local file_cache = {}
+local resolution_cache = {}
+
+-- Cache management functions
+local function get_file_mtime(file_path)
+	return vim.fn.getftime(file_path)
+end
+
+local function is_cache_valid(file_path, cache_entry)
+	if not cache_entry then
+		return false
+	end
+
+	local current_mtime = get_file_mtime(file_path)
+	return cache_entry.mtime == current_mtime
+end
+
+local function cache_file_analysis(file_path, symbols)
+	file_cache[file_path] = {
+		symbols = symbols,
+		mtime = get_file_mtime(file_path),
+		timestamp = os.time(),
+	}
+end
+
+local function get_cached_analysis(file_path)
+	local cache_entry = file_cache[file_path]
+	if is_cache_valid(file_path, cache_entry) then
+		return cache_entry.symbols
+	end
+	return nil
+end
+
+local function cache_resolution(file_path, symbol_name, cursor_line, resolution)
+	local cache_key = file_path .. ":" .. symbol_name .. ":" .. cursor_line
+	resolution_cache[cache_key] = {
+		resolution = resolution,
+		mtime = get_file_mtime(file_path),
+		timestamp = os.time(),
+	}
+end
+
+local function get_cached_resolution(file_path, symbol_name, cursor_line)
+	local cache_key = file_path .. ":" .. symbol_name .. ":" .. cursor_line
+	local cache_entry = resolution_cache[cache_key]
+	if is_cache_valid(file_path, cache_entry) then
+		return cache_entry.resolution
+	end
+	return nil
+end
+
+-- Clean old cache entries (call periodically)
+local function cleanup_cache()
+	local current_time = os.time()
+	local max_age = 300 -- 5 minutes
+
+	for key, entry in pairs(file_cache) do
+		if current_time - entry.timestamp > max_age then
+			file_cache[key] = nil
+		end
+	end
+
+	for key, entry in pairs(resolution_cache) do
+		if current_time - entry.timestamp > max_age then
+			resolution_cache[key] = nil
+		end
+	end
+end
+
 -- Get Tcl system information
 function M.get_tcl_info(tclsh_cmd)
 	local info_script = [[
@@ -81,13 +151,23 @@ if {[catch {set result [json::json2dict $test_data]} err]} {
 	return false, "JSON test failed"
 end
 
--- Use TCL to analyze a file and extract symbols with their locations
+-- Use TCL to analyze a file and extract symbols with their locations (cached)
 function M.analyze_tcl_file(file_path, tclsh_cmd)
+	-- Check cache first
+	local cached_symbols = get_cached_analysis(file_path)
+	if cached_symbols then
+		return cached_symbols
+	end
+
+	-- Periodically clean up old cache entries
+	if math.random(1, 20) == 1 then -- 5% chance
+		cleanup_cache()
+	end
+
 	local analysis_script = string.format(
 		[[
-# TCL Symbol Analysis Script with Semantic Understanding
+# TCL Symbol Analysis Script with Semantic Understanding (Optimized)
 set file_path "%s"
-set symbols [list]
 
 # Read the file
 if {[catch {
@@ -104,11 +184,9 @@ set lines [split $content "\n"]
 set line_num 0
 set current_namespace ""
 set current_proc ""
-set namespace_stack [list]
-set proc_stack [list]
 set brace_depth 0
 
-# Parse each line to find symbols with context
+# Single-pass analysis with context tracking
 foreach line $lines {
     incr line_num
     set trimmed [string trim $line]
@@ -118,7 +196,7 @@ foreach line $lines {
         continue
     }
     
-    # Track brace depth for scope management
+    # Simple brace tracking for context
     set open_braces [regexp -all {\{} $line]
     set close_braces [regexp -all {\}} $line]
     incr brace_depth $open_braces
@@ -126,18 +204,12 @@ foreach line $lines {
     
     # Track namespace context
     if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{} $line match ns_name]} {
-        lappend namespace_stack $current_namespace
-        if {$current_namespace eq ""} {
-            set current_namespace $ns_name
-        } else {
-            set current_namespace "$current_namespace\::$ns_name"
-        }
+        set current_namespace $ns_name
         puts "SYMBOL:namespace:$ns_name:$line_num:$line:CONTEXT:$current_namespace"
     }
     
-    # Track procedure context and find procedure definitions
-    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{(.*)$} $line match proc_name args]} {
-        lappend proc_stack $current_proc
+    # Track procedure context and definitions
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{([^}]*)} $line match proc_name args]} {
         set current_proc $proc_name
         
         # Determine full qualified name
@@ -146,30 +218,32 @@ foreach line $lines {
             set full_proc_name "$current_namespace\::$proc_name"
         }
         
-        puts "SYMBOL:procedure:$full_proc_name:$line_num:$line:CONTEXT:$current_namespace:ARGS:$args"
+        # Determine scope
+        set scope "global"
+        if {$current_namespace ne ""} {
+            set scope "namespace"
+        }
         
-        # Also add the local name for reference within the namespace
+        puts "SYMBOL:procedure:$full_proc_name:$line_num:$line:CONTEXT:$current_namespace:SCOPE:$scope:ARGS:$args"
+        
+        # Also add local reference if in namespace
         if {$current_namespace ne "" && ![string match "*::*" $proc_name]} {
-            puts "SYMBOL:procedure_local:$proc_name:$line_num:$line:CONTEXT:$current_namespace:QUALIFIED:$full_proc_name"
+            puts "SYMBOL:procedure_local:$proc_name:$line_num:$line:CONTEXT:$current_namespace:SCOPE:namespace:QUALIFIED:$full_proc_name"
         }
     }
     
     # Find variable assignments with scope awareness
     if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
-        set scope "local"
+        set scope "global"
         set context_info $current_namespace
         
-        # Determine variable scope
         if {$current_proc ne ""} {
             set scope "proc_local"
             set context_info "$current_namespace\::$current_proc"
         } elseif {$current_namespace ne ""} {
             set scope "namespace"
-        } else {
-            set scope "global"
         }
         
-        # Handle qualified vs unqualified variable names
         set full_var_name $var_name
         if {![string match "*::*" $var_name] && $current_namespace ne ""} {
             set full_var_name "$current_namespace\::$var_name"
@@ -192,14 +266,9 @@ foreach line $lines {
         }
     }
     
-    # Find package requirements
-    if {[regexp {^\s*package\s+require\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match pkg_name]} {
-        puts "SYMBOL:package:$pkg_name:$line_num:$line:CONTEXT:$current_namespace"
-    }
-    
-    # Find package provide statements
-    if {[regexp {^\s*package\s+provide\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match pkg_name]} {
-        puts "SYMBOL:package_provide:$pkg_name:$line_num:$line:CONTEXT:$current_namespace"
+    # Find package requirements/provides
+    if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match cmd pkg_name]} {
+        puts "SYMBOL:package_$cmd:$pkg_name:$line_num:$line:CONTEXT:$current_namespace"
     }
     
     # Find source commands
@@ -208,17 +277,10 @@ foreach line $lines {
         puts "SYMBOL:source:$clean_file:$line_num:$line:CONTEXT:$current_namespace"
     }
     
-    # Handle end of blocks (simplified - proper parsing would track specific block types)
-    if {$brace_depth == 0} {
-        # We're back at top level - reset contexts
-        if {[llength $namespace_stack] > 0} {
-            set current_namespace [lindex $namespace_stack end]
-            set namespace_stack [lrange $namespace_stack 0 end-1]
-        }
-        if {[llength $proc_stack] > 0} {
-            set current_proc [lindex $proc_stack end]
-            set proc_stack [lrange $proc_stack 0 end-1]
-        }
+    # Reset context when back to top level (simplified)
+    if {$brace_depth <= 0} {
+        set current_proc ""
+        # Keep namespace context until explicit end
     }
 }
 
@@ -276,6 +338,9 @@ puts "ANALYSIS_COMPLETE"
 			table.insert(symbols, symbol)
 		end
 	end
+
+	-- Cache the results
+	cache_file_analysis(file_path, symbols)
 
 	return symbols
 end
@@ -544,16 +609,23 @@ function M.get_command_documentation(command)
 	return tcl_docs[command]
 end
 
--- Resolve a symbol using TCL's semantic engine
+-- Resolve a symbol using TCL's semantic engine (cached)
 function M.resolve_symbol(symbol_name, file_path, cursor_line, tclsh_cmd)
+	-- Check cache first
+	local cached_resolution = get_cached_resolution(file_path, symbol_name, cursor_line)
+	if cached_resolution then
+		return cached_resolution
+	end
+
+	-- Simplified resolution script - faster but still smart
 	local resolution_script = string.format(
 		[[
-# Smart Symbol Resolution using TCL's semantic understanding
+# Fast Symbol Resolution
 set symbol_name "%s"
 set file_path "%s"
 set cursor_line %d
 
-# Read and analyze the file to understand context at cursor position
+# Quick context detection (single pass to cursor line)
 if {[catch {
     set fp [open $file_path r]
     set content [read $fp]
@@ -568,66 +640,49 @@ set current_namespace ""
 set current_proc ""
 set line_num 0
 
-# Determine context at cursor position
+# Fast scan to cursor position
 foreach line $lines {
     incr line_num
-    set trimmed [string trim $line]
+    if {$line_num > $cursor_line} break
     
-    if {$trimmed eq "" || [string index $trimmed 0] eq "#"} {
-        continue
-    }
-    
-    # Track namespace context up to cursor
+    # Quick namespace detection
     if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
         set current_namespace $ns_name
     }
     
-    # Track procedure context up to cursor
+    # Quick procedure detection
     if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match proc_name]} {
         set current_proc $proc_name
-    }
-    
-    # Stop when we reach the cursor line
-    if {$line_num >= $cursor_line} {
-        break
     }
 }
 
 puts "CURSOR_CONTEXT:namespace:$current_namespace:proc:$current_proc"
 
-# Now resolve the symbol using TCL's resolution rules
+# Fast resolution priorities
 set candidates [list]
 
-# 1. Check if it's a built-in command
+# 1. Built-in command check
 if {[info commands $symbol_name] ne ""} {
     puts "RESOLUTION:builtin_command:$symbol_name:priority:10"
 }
 
-# 2. Check for qualified name as-is
+# 2. Qualified name as-is
 if {[string match "*::*" $symbol_name]} {
     puts "RESOLUTION:qualified_name:$symbol_name:priority:9"
 } else {
-    # 3. Check in current namespace context
+    # 3. Namespace qualified
     if {$current_namespace ne ""} {
         set ns_qualified "$current_namespace\::$symbol_name"
         puts "RESOLUTION:namespace_qualified:$ns_qualified:priority:8:context:$current_namespace"
     }
     
-    # 4. Check in current procedure context (for local variables)
+    # 4. Procedure local
     if {$current_proc ne ""} {
         puts "RESOLUTION:proc_local:$symbol_name:priority:7:context:$current_proc"
     }
     
-    # 5. Check as global
+    # 5. Global
     puts "RESOLUTION:global:$symbol_name:priority:6"
-}
-
-# 6. Check for package namespaces that might be imported
-# This is a simplified check - real TCL would track package imports
-set common_packages [list "json" "http" "uri" "base64"]
-foreach pkg $common_packages {
-    set pkg_qualified "$pkg\::$symbol_name"
-    puts "RESOLUTION:package_qualified:$pkg_qualified:priority:5:package:$pkg"
 }
 
 puts "RESOLUTION_COMPLETE"
@@ -693,9 +748,43 @@ puts "RESOLUTION_COMPLETE"
 		return a.priority > b.priority
 	end)
 
-	return {
+	local final_resolution = {
 		context = context,
 		resolutions = resolutions,
+	}
+
+	-- Cache the result
+	cache_resolution(file_path, symbol_name, cursor_line, final_resolution)
+
+	return final_resolution
+end
+
+-- Clear cache for a specific file (call when file is saved/modified)
+function M.invalidate_cache(file_path)
+	file_cache[file_path] = nil
+
+	-- Clear resolution cache entries for this file
+	for key, _ in pairs(resolution_cache) do
+		if key:match("^" .. vim.pesc(file_path) .. ":") then
+			resolution_cache[key] = nil
+		end
+	end
+end
+
+-- Clear all caches
+function M.clear_all_caches()
+	file_cache = {}
+	resolution_cache = {}
+end
+
+-- Get cache statistics
+function M.get_cache_stats()
+	return {
+		file_cache_entries = vim.tbl_count(file_cache),
+		resolution_cache_entries = vim.tbl_count(resolution_cache),
+		total_memory_usage = "~"
+			.. math.floor((vim.tbl_count(file_cache) + vim.tbl_count(resolution_cache)) * 0.1)
+			.. "KB",
 	}
 end
 function M.execute_tcl_command(command, tclsh_cmd)

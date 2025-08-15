@@ -79,6 +79,32 @@ local function setup_user_commands()
 	end, {
 		desc = "Reload TCL LSP configuration",
 	})
+
+	vim.api.nvim_create_user_command("TclLspCache", function(opts)
+		if opts.args == "clear" then
+			tcl.clear_all_caches()
+			utils.notify("✅ TCL LSP: All caches cleared", vim.log.levels.INFO)
+		elseif opts.args == "stats" then
+			local stats = tcl.get_cache_stats()
+			local stats_msg = string.format(
+				[[
+TCL LSP Cache Statistics:
+  File cache entries: %d
+  Resolution cache entries: %d
+  Estimated memory usage: %s
+]],
+				stats.file_cache_entries,
+				stats.resolution_cache_entries,
+				stats.total_memory_usage
+			)
+			utils.notify(stats_msg, vim.log.levels.INFO)
+		else
+			utils.notify("Usage: :TclLspCache [clear|stats]", vim.log.levels.INFO)
+		end
+	end, {
+		desc = "Manage TCL LSP caches (clear|stats)",
+		nargs = "?",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
