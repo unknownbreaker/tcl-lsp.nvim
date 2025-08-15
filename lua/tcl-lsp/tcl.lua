@@ -2,9 +2,6 @@ local utils = require("tcl-lsp.utils")
 local semantic = require("tcl-lsp.semantic") -- ADD this line at the top
 local M = {}
 
--- EXISTING code stays the same until analyze_tcl_file function...
-
--- REPLACE the existing analyze_tcl_file function with this enhanced version:
 function M.analyze_tcl_file(file_path, tclsh_cmd)
 	-- Check cache first (existing cache logic)
 	local cached_symbols = get_cached_analysis(file_path)
@@ -17,20 +14,52 @@ function M.analyze_tcl_file(file_path, tclsh_cmd)
 		cleanup_cache()
 	end
 
-	-- TRY SEMANTIC ANALYSIS FIRST
-	local semantic_symbols = semantic.resolve_symbol_semantically("", file_path, 0, tclsh_cmd)
+	-- TRY CROSS-FILE SEMANTIC ANALYSIS FIRST
+	local workspace_symbols = semantic.resolve_symbol_across_workspace("", file_path, 0, tclsh_cmd)
 
-	if semantic_symbols and #semantic_symbols > 0 then
-		print("DEBUG: Using semantic analysis - found", #semantic_symbols, "symbols")
-		-- Cache the semantic results
-		cache_file_analysis(file_path, semantic_symbols)
-		return semantic_symbols
+	if workspace_symbols and #workspace_symbols > 0 then
+		print("DEBUG: Using cross-file semantic analysis - found", #workspace_symbols, "symbols")
+
+		-- Filter to get symbols from current file and imported symbols
+		local file_symbols = {}
+		local imported_symbols = {}
+
+		for _, symbol in ipairs(workspace_symbols) do
+			if symbol.source_file == file_path then
+				table.insert(file_symbols, symbol)
+			elseif symbol.visibility == "public" then
+				-- Include public symbols from other files as imported
+				symbol.is_imported = true
+				table.insert(imported_symbols, symbol)
+			end
+		end
+
+		-- Combine file symbols with accessible imported symbols
+		local all_accessible_symbols = file_symbols
+		for _, imported_symbol in ipairs(imported_symbols) do
+			table.insert(all_accessible_symbols, imported_symbol)
+		end
+
+		print("DEBUG: Found", #file_symbols, "local symbols and", #imported_symbols, "imported symbols")
+
+		-- Cache the results
+		cache_file_analysis(file_path, all_accessible_symbols)
+		return all_accessible_symbols
 	end
 
-	-- FALLBACK TO EXISTING REGEX-BASED ANALYSIS
+	-- FALLBACK: Try single-file semantic analysis
+	local single_file_symbols = semantic.analyze_single_file_symbols(file_path, tclsh_cmd)
+
+	if single_file_symbols and #single_file_symbols > 0 then
+		print("DEBUG: Using single-file semantic analysis - found", #single_file_symbols, "symbols")
+		cache_file_analysis(file_path, single_file_symbols)
+		return single_file_symbols
+	end
+
+	-- FINAL FALLBACK: Use existing regex-based analysis
 	print("DEBUG: Falling back to regex analysis")
 
-	-- Your existing analysis_script code goes here unchanged...
+	-- Your existing analysis_script code (unchanged)...
 	local analysis_script = string.format(
 		[[
 # Simple TCL Symbol Analysis Script (FALLBACK)
@@ -124,7 +153,7 @@ puts "ANALYSIS_COMPLETE"
 	local result, success = utils.execute_tcl_script(analysis_script, tclsh_cmd)
 
 	if not (result and success) then
-		print("DEBUG: Both semantic and regex analysis failed")
+		print("DEBUG: All analysis methods failed")
 		return nil
 	end
 
@@ -153,17 +182,24 @@ puts "ANALYSIS_COMPLETE"
 	return symbols
 end
 
--- REPLACE the existing find_symbol_references function:
 function M.find_symbol_references(file_path, symbol_name, tclsh_cmd)
-	-- TRY SEMANTIC REFERENCE FINDING FIRST
-	local semantic_refs = semantic.find_references_semantically(symbol_name, file_path, tclsh_cmd)
+	-- TRY CROSS-FILE SEMANTIC REFERENCE FINDING FIRST
+	local workspace_refs = semantic.find_references_across_workspace(symbol_name, file_path, tclsh_cmd)
 
-	if semantic_refs and #semantic_refs > 0 then
-		print("DEBUG: Using semantic reference finding - found", #semantic_refs, "references")
-		return semantic_refs
+	if workspace_refs and #workspace_refs > 0 then
+		print("DEBUG: Using cross-file semantic reference finding - found", #workspace_refs, "references")
+		return workspace_refs
 	end
 
-	-- FALLBACK TO EXISTING REGEX-BASED REFERENCE FINDING
+	-- FALLBACK: Try single-file semantic reference finding
+	local single_file_refs = semantic.find_references_in_single_file(symbol_name, file_path, tclsh_cmd)
+
+	if single_file_refs and #single_file_refs > 0 then
+		print("DEBUG: Using single-file semantic reference finding - found", #single_file_refs, "references")
+		return single_file_refs
+	end
+
+	-- FINAL FALLBACK: Use existing regex-based reference finding
 	print("DEBUG: Falling back to regex reference finding")
 
 	-- Your existing reference_script code (unchanged)...
@@ -252,6 +288,8 @@ puts "REFERENCES_COMPLETE"
 				line = tonumber(line_num),
 				text = utils.trim(text),
 				method = "regex", -- Mark as regex-based
+				source_file = file_path,
+				is_external = false,
 			})
 		end
 	end
