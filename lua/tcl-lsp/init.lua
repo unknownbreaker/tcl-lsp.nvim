@@ -1997,6 +1997,247 @@ puts "TOTAL SYMBOLS FOUND: $found_symbols"
 	end, {
 		desc = "Test analysis script step by step",
 	})
+
+	vim.api.nvim_create_user_command("TclTestTrueSemantic", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to analyze: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("🧠 Testing TRUE semantic analysis (NO REGEX PATTERNS)", vim.log.levels.INFO)
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		-- Clear cache to force fresh analysis
+		tcl.invalidate_cache(file_path)
+
+		-- Run the true semantic analysis
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if not symbols then
+			utils.notify("❌ True semantic analysis failed", vim.log.levels.ERROR)
+			utils.notify("Check :messages for debug output", vim.log.levels.INFO)
+			return
+		end
+
+		if #symbols == 0 then
+			utils.notify("❌ True semantic analysis found ZERO symbols", vim.log.levels.ERROR)
+			utils.notify("This suggests the TCL parser evaluation is failing", vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("✅ TRUE semantic analysis found " .. #symbols .. " symbols!", vim.log.levels.INFO)
+
+		-- Show method to verify it's truly semantic
+		local by_method = {}
+		for _, symbol in ipairs(symbols) do
+			local method = symbol.method or "unknown"
+			if not by_method[method] then
+				by_method[method] = 0
+			end
+			by_method[method] = by_method[method] + 1
+		end
+
+		utils.notify("Analysis methods used:", vim.log.levels.INFO)
+		for method, count in pairs(by_method) do
+			local status = (method == "true_semantic_no_regex") and "✅ TRUE SEMANTIC" or "⚠️ " .. method
+			utils.notify("  " .. status .. ": " .. count .. " symbols", vim.log.levels.INFO)
+		end
+
+		-- Group by type and show results
+		local by_type = {}
+		for _, symbol in ipairs(symbols) do
+			if not by_type[symbol.type] then
+				by_type[symbol.type] = {}
+			end
+			table.insert(by_type[symbol.type], symbol)
+		end
+
+		utils.notify("", vim.log.levels.INFO)
+		utils.notify("Symbols found by type:", vim.log.levels.INFO)
+		for type_name, type_symbols in pairs(by_type) do
+			utils.notify(string.format("  %s (%d):", type_name, #type_symbols), vim.log.levels.INFO)
+
+			for i = 1, math.min(3, #type_symbols) do
+				local symbol = type_symbols[i]
+				local qualified_info = symbol.qualified_name and (" → " .. symbol.qualified_name) or ""
+				utils.notify(
+					string.format(
+						"    %d. '%s'%s [%s] line %d",
+						i,
+						symbol.name,
+						qualified_info,
+						symbol.scope,
+						symbol.line
+					),
+					vim.log.levels.INFO
+				)
+			end
+
+			if #type_symbols > 3 then
+				utils.notify(string.format("    ... and %d more", #type_symbols - 3), vim.log.levels.INFO)
+			end
+		end
+
+		utils.notify("", vim.log.levels.INFO)
+		utils.notify("🎯 Now try goto definition - it should work with TRUE semantic analysis!", vim.log.levels.INFO)
+	end, {
+		desc = "Test true semantic analysis (no regex patterns)",
+	})
+
+	-- Compare regex vs true semantic
+	vim.api.nvim_create_user_command("TclCompareRegexVsSemantic", function()
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
+
+		utils.notify("🔬 Comparing REGEX vs TRUE SEMANTIC analysis", vim.log.levels.INFO)
+
+		-- Test 1: Regex approach (what we were doing)
+		local regex_script = string.format(
+			[[
+set file_path "%s"
+set fp [open $file_path r]
+set content [read $fp]
+close $fp
+
+set lines [split $content "\n"]
+set regex_count 0
+
+foreach line $lines {
+    set trimmed [string trim $line]
+    if {$trimmed eq "" || [string match "#*" $trimmed]} continue
+    
+    # REGEX pattern matching
+    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_:][a-zA-Z0-9_:]*)} $trimmed]} {
+        incr regex_count
+    }
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed]} {
+        incr regex_count  
+    }
+    if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed]} {
+        incr regex_count
+    }
+    if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed]} {
+        incr regex_count
+    }
+}
+
+puts "REGEX_FOUND: $regex_count"
+]],
+			escaped_path
+		)
+
+		-- Test 2: Semantic approach using TCL's parser
+		local semantic_script = string.format(
+			[[
+set file_path "%s"
+set fp [open $file_path r]
+set content [read $fp]
+close $fp
+
+set semantic_count 0
+set semantic_interp [interp create -safe]
+
+$semantic_interp alias count_symbol count_symbol
+proc count_symbol {} {
+    global semantic_count
+    incr semantic_count
+}
+
+$semantic_interp eval {
+    rename namespace orig_ns
+    proc namespace {args} { count_symbol; return "" }
+    
+    rename proc orig_proc  
+    proc proc {args} { count_symbol; return "" }
+    
+    rename package orig_pkg
+    proc package {args} { count_symbol; return "" }
+    
+    rename set orig_set
+    proc set {args} { count_symbol; return "" }
+    
+    # Disable side effects
+    proc puts {args} { return "" }
+    proc exec {args} { return "" }
+}
+
+# Use TCL's actual parser
+if {[catch {$semantic_interp eval $content} err]} {
+    # If full eval fails, try command by command
+    set pos 0
+    while {$pos < [string length $content]} {
+        set end $pos
+        while {$end < [string length $content]} {
+            set cmd [string range $content $pos $end]
+            if {[catch {info complete $cmd} complete]} {
+                incr end
+                continue
+            }
+            if {$complete && [string trim $cmd] ne ""} {
+                catch {$semantic_interp eval $cmd}
+                set pos [expr {$end + 1}]
+                break
+            }
+            incr end
+        }
+        if {$end >= [string length $content]} break
+    }
+}
+
+interp delete $semantic_interp
+puts "SEMANTIC_FOUND: $semantic_count"
+]],
+			escaped_path
+		)
+
+		-- Run both tests
+		local regex_result, regex_success = utils.execute_tcl_script(regex_script, tclsh_cmd)
+		local semantic_result, semantic_success = utils.execute_tcl_script(semantic_script, tclsh_cmd)
+
+		local regex_count = 0
+		local semantic_count = 0
+
+		if regex_result and regex_success then
+			regex_count = tonumber(regex_result:match("REGEX_FOUND: (%d+)")) or 0
+		end
+
+		if semantic_result and semantic_success then
+			semantic_count = tonumber(semantic_result:match("SEMANTIC_FOUND: (%d+)")) or 0
+		end
+
+		utils.notify("📊 Analysis Comparison Results:", vim.log.levels.INFO)
+		utils.notify("  REGEX pattern matching: " .. regex_count .. " symbols", vim.log.levels.INFO)
+		utils.notify("  TRUE SEMANTIC parsing: " .. semantic_count .. " symbols", vim.log.levels.INFO)
+
+		if semantic_count > regex_count then
+			utils.notify("✅ Semantic found MORE symbols (catches complex cases)", vim.log.levels.INFO)
+		elseif semantic_count == regex_count then
+			utils.notify("= Both found same count (file may be simple)", vim.log.levels.INFO)
+		else
+			utils.notify("⚠️ Regex found more (semantic may have eval issues)", vim.log.levels.WARN)
+		end
+
+		utils.notify("", vim.log.levels.INFO)
+		utils.notify("The TRUE semantic approach uses TCL's actual parser", vim.log.levels.INFO)
+		utils.notify("instead of fragile regex patterns!", vim.log.levels.INFO)
+	end, {
+		desc = "Compare regex vs true semantic analysis",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
