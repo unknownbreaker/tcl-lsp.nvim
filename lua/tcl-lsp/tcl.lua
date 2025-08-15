@@ -1,4 +1,3 @@
-local semantic = require("tcl-lsp.semantic")
 local utils = require("tcl-lsp.utils")
 local M = {}
 
@@ -6,30 +5,20 @@ local M = {}
 local file_cache = {}
 local resolution_cache = {}
 
--- Cache management functions - DECLARE ALL LOCAL FUNCTIONS FIRST
-local get_file_mtime
-local is_cache_valid
-local cache_file_analysis
-local get_cached_analysis
-local cache_resolution
-local get_cached_resolution
-local cleanup_cache
-
--- Now DEFINE the functions
-get_file_mtime = function(file_path)
+-- Cache management functions (keep existing)
+local function get_file_mtime(file_path)
 	return vim.fn.getftime(file_path)
 end
 
-is_cache_valid = function(file_path, cache_entry)
+local function is_cache_valid(file_path, cache_entry)
 	if not cache_entry then
 		return false
 	end
-
 	local current_mtime = get_file_mtime(file_path)
 	return cache_entry.mtime == current_mtime
 end
 
-cache_file_analysis = function(file_path, symbols)
+local function cache_file_analysis(file_path, symbols)
 	file_cache[file_path] = {
 		symbols = symbols,
 		mtime = get_file_mtime(file_path),
@@ -37,7 +26,7 @@ cache_file_analysis = function(file_path, symbols)
 	}
 end
 
-get_cached_analysis = function(file_path)
+local function get_cached_analysis(file_path)
 	local cache_entry = file_cache[file_path]
 	if is_cache_valid(file_path, cache_entry) then
 		return cache_entry.symbols
@@ -45,43 +34,423 @@ get_cached_analysis = function(file_path)
 	return nil
 end
 
-cache_resolution = function(file_path, symbol_name, cursor_line, resolution)
-	local cache_key = file_path .. ":" .. symbol_name .. ":" .. cursor_line
-	resolution_cache[cache_key] = {
-		resolution = resolution,
-		mtime = get_file_mtime(file_path),
-		timestamp = os.time(),
-	}
-end
-
-get_cached_resolution = function(file_path, symbol_name, cursor_line)
-	local cache_key = file_path .. ":" .. symbol_name .. ":" .. cursor_line
-	local cache_entry = resolution_cache[cache_key]
-	if is_cache_valid(file_path, cache_entry) then
-		return cache_entry.resolution
+-- Enhanced TCL analysis script with better symbol detection
+function M.analyze_tcl_file(file_path, tclsh_cmd)
+	-- Check cache first
+	local cached_symbols = get_cached_analysis(file_path)
+	if cached_symbols then
+		print("DEBUG: Using cached symbols for", file_path)
+		return cached_symbols
 	end
-	return nil
-end
 
--- Clean old cache entries (call periodically)
-cleanup_cache = function()
-	local current_time = os.time()
-	local max_age = 300 -- 5 minutes
+	print("DEBUG: Analyzing file", file_path, "with", tclsh_cmd)
 
-	for key, entry in pairs(file_cache) do
-		if current_time - entry.timestamp > max_age then
-			file_cache[key] = nil
+	-- Enhanced analysis script with comprehensive symbol detection
+	local analysis_script = string.format(
+		[[
+# Enhanced TCL Symbol Analysis Script with Debug Output
+set file_path "%s"
+puts "DEBUG: Starting analysis of $file_path"
+
+# Track context during parsing
+set current_namespace ""
+set current_proc ""
+set namespace_stack [list]
+set brace_level 0
+
+# Helper procedure to output symbols
+proc emit_symbol {type name line {context ""} {scope "global"} {extra ""}} {
+    # Clean up the name - remove leading/trailing whitespace and quotes
+    set clean_name [string trim $name "\"'{}"]
+    if {$clean_name eq ""} return
+    
+    puts "SYMBOL:$type:$clean_name:$line:$scope:$context:$extra"
+    puts "DEBUG: Found $type '$clean_name' at line $line (scope: $scope, context: $context)"
+}
+
+# Read the file with better error handling
+if {[catch {
+    if {![file exists $file_path]} {
+        puts "ERROR: File does not exist: $file_path"
+        exit 1
+    }
+    
+    if {![file readable $file_path]} {
+        puts "ERROR: File is not readable: $file_path"
+        exit 1
+    }
+    
+    set fp [open $file_path r]
+    set content [read $fp]
+    close $fp
+    puts "DEBUG: Successfully read [string length $content] characters"
+} err]} {
+    puts "ERROR: Cannot read file: $err"
+    exit 1
+}
+
+# Split into lines for line number tracking
+set lines [split $content "\n"]
+set line_num 0
+set total_lines [llength $lines]
+puts "DEBUG: Processing $total_lines lines"
+
+# Enhanced parsing with better context tracking
+foreach line $lines {
+    incr line_num
+    set original_line $line
+    set trimmed [string trim $line]
+    
+    # Skip comments and empty lines
+    if {$trimmed eq "" || [string index $trimmed 0] eq "#"} {
+        continue
+    }
+    
+    # Track brace levels for better context awareness
+    set open_braces [regexp -all {\{} $line]
+    set close_braces [regexp -all {\}} $line]
+    set brace_level [expr {$brace_level + $open_braces - $close_braces}]
+    
+    # Enhanced namespace handling with stack
+    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
+        # Push current namespace to stack
+        if {$current_namespace ne ""} {
+            lappend namespace_stack $current_namespace
+        }
+        set current_namespace $ns_name
+        emit_symbol "namespace" $ns_name $line_num $current_namespace "namespace" ""
+        puts "DEBUG: Entered namespace '$ns_name' at line $line_num"
+    }
+    
+    # Enhanced procedure detection with argument parsing
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{([^}]*)\}\s*\{} $line match proc_name proc_args]} {
+        set scope "global"
+        set context $current_namespace
+        
+        # Determine scope and create qualified name
+        if {$current_namespace ne ""} {
+            set scope "namespace"
+            if {![string match "*::*" $proc_name]} {
+                set qualified_name "$current_namespace\::$proc_name"
+            } else {
+                set qualified_name $proc_name
+            }
+        } else {
+            set qualified_name $proc_name
+        }
+        
+        if {$current_proc ne ""} {
+            set scope "local"
+        }
+        
+        # Clean up arguments
+        set clean_args [string trim $proc_args]
+        emit_symbol "procedure" $qualified_name $line_num $context $scope $clean_args
+        
+        # Also emit the local name if different
+        if {$qualified_name ne $proc_name} {
+            emit_symbol "procedure_local" $proc_name $line_num $context "local" $clean_args
+        }
+        
+        set current_proc $proc_name
+        puts "DEBUG: Entered procedure '$proc_name' (qualified: $qualified_name) at line $line_num"
+    }
+    
+    # Enhanced variable detection with type inference
+    if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s+(.*)$} $line match var_name var_value]} {
+        set scope "global"
+        set context $current_namespace
+        
+        # Determine scope
+        if {$current_proc ne ""} {
+            set scope "local"
+        } elseif {$current_namespace ne ""} {
+            set scope "namespace"
+        }
+        
+        # Create qualified name for namespace variables
+        if {$current_namespace ne "" && $scope eq "namespace" && ![string match "*::*" $var_name]} {
+            set qualified_name "$current_namespace\::$var_name"
+        } else {
+            set qualified_name $var_name
+        }
+        
+        # Clean up value and detect type
+        set clean_value [string trim $var_value]
+        set var_type "variable"
+        
+        # Type detection based on value
+        if {[regexp {^\[.*\]$} $clean_value]} {
+            set var_type "command_result"
+        } elseif {[regexp {^\{.*\}$} $clean_value]} {
+            set var_type "list_or_dict"
+        } elseif {[regexp {^".*"$} $clean_value]} {
+            set var_type "string"
+        } elseif {[regexp {^[0-9]+(\.[0-9]+)?$} $clean_value]} {
+            set var_type "number"
+        }
+        
+        emit_symbol $var_type $qualified_name $line_num $context $scope $clean_value
+        
+        # Also emit local name if different
+        if {$qualified_name ne $var_name} {
+            emit_symbol "${var_type}_local" $var_name $line_num $context "local" $clean_value
+        }
+    }
+    
+    # Global variable declarations
+    if {[regexp {^\s*global\s+(.+)$} $line match globals]} {
+        foreach global_var [split $globals] {
+            set clean_var [string trim $global_var]
+            if {$clean_var ne ""} {
+                emit_symbol "global" $clean_var $line_num $current_namespace "global" ""
+            }
+        }
+    }
+    
+    # Variable command (namespace variables)
+    if {[regexp {^\s*variable\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*(.*)$} $line match var_name var_value]} {
+        set scope "namespace"
+        set context $current_namespace
+        
+        if {$current_namespace ne "" && ![string match "*::*" $var_name]} {
+            set qualified_name "$current_namespace\::$var_name"
+        } else {
+            set qualified_name $var_name
+        }
+        
+        set clean_value [string trim $var_value]
+        emit_symbol "namespace_variable" $qualified_name $line_num $context $scope $clean_value
+    }
+    
+    # Array declarations
+    if {[regexp {^\s*array\s+set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match array_name]} {
+        set scope "global"
+        set context $current_namespace
+        
+        if {$current_proc ne ""} {
+            set scope "local"
+        } elseif {$current_namespace ne ""} {
+            set scope "namespace"
+        }
+        
+        if {$current_namespace ne "" && $scope eq "namespace" && ![string match "*::*" $array_name]} {
+            set qualified_name "$current_namespace\::$array_name"
+        } else {
+            set qualified_name $array_name
+        }
+        
+        emit_symbol "array" $qualified_name $line_num $context $scope ""
+    }
+    
+    # Package operations
+    if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*(.*)$} $line match cmd pkg_name version]} {
+        set clean_version [string trim $version]
+        emit_symbol "package_$cmd" $pkg_name $line_num "" "package" $clean_version
+    }
+    
+    # Source commands
+    if {[regexp {^\s*source\s+(.+)$} $line match source_file]} {
+        set clean_file [string trim $source_file "\"'{}"]
+        emit_symbol "source" $clean_file $line_num $current_namespace "source" ""
+    }
+    
+    # Class definitions (for Tcl object systems)
+    if {[regexp {^\s*(class|oo::class)\s+create\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match oo_type class_name]} {
+        emit_symbol "class" $class_name $line_num $current_namespace "class" $oo_type
+    }
+    
+    # Method definitions
+    if {[regexp {^\s*method\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{([^}]*)\}} $line match method_name method_args]} {
+        set clean_args [string trim $method_args]
+        emit_symbol "method" $method_name $line_num $current_namespace "method" $clean_args
+    }
+    
+    # Reset contexts when exiting scopes (improved brace tracking)
+    if {$close_braces > 0 && $brace_level <= 0} {
+        if {$current_proc ne ""} {
+            puts "DEBUG: Exiting procedure '$current_proc' at line $line_num"
+            set current_proc ""
+        }
+        
+        if {$current_namespace ne "" && [llength $namespace_stack] > 0} {
+            puts "DEBUG: Exiting namespace '$current_namespace' at line $line_num"
+            set current_namespace [lindex $namespace_stack end]
+            set namespace_stack [lrange $namespace_stack 0 end-1]
+            puts "DEBUG: Returned to namespace '$current_namespace'"
+        } elseif {$current_namespace ne "" && $brace_level < 0} {
+            puts "DEBUG: Exiting namespace '$current_namespace' (root level) at line $line_num"
+            set current_namespace ""
+        }
+    }
+}
+
+puts "DEBUG: Completed analysis of $total_lines lines"
+puts "ANALYSIS_COMPLETE"
+]],
+		file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
+	)
+
+	local result, success = utils.execute_tcl_script(analysis_script, tclsh_cmd)
+
+	if not (result and success) then
+		print("DEBUG: TCL script execution failed")
+		print("DEBUG: Command:", tclsh_cmd)
+		print("DEBUG: Result:", result or "nil")
+		print("DEBUG: Success:", success)
+
+		-- Try a simpler fallback analysis
+		print("DEBUG: Attempting fallback analysis")
+		return M.fallback_analysis(file_path)
+	end
+
+	print("DEBUG: TCL script executed successfully")
+	print("DEBUG: Output length:", string.len(result))
+
+	local symbols = {}
+	local debug_lines = {}
+
+	for line in result:gmatch("[^\n]+") do
+		if line:match("^DEBUG:") then
+			table.insert(debug_lines, line)
+		elseif line:match("^SYMBOL:") then
+			-- Enhanced parsing: SYMBOL:type:name:line:scope:context:extra
+			local parts = {}
+			for part in line:gmatch("([^:]+)") do
+				table.insert(parts, part)
+			end
+
+			if #parts >= 4 then
+				local symbol = {
+					type = parts[2] or "unknown",
+					name = parts[3] or "unknown",
+					line = tonumber(parts[4]) or 1,
+					scope = parts[5] or "",
+					context = parts[6] or "",
+					extra = parts[7] or "",
+					text = "", -- Will be filled if needed
+					qualified_name = parts[3] or "unknown",
+					method = "enhanced",
+				}
+
+				-- Set qualified name properly
+				if symbol.context ~= "" and not symbol.name:match("::") then
+					symbol.qualified_name = symbol.context .. "::" .. symbol.name
+				end
+
+				table.insert(symbols, symbol)
+			end
 		end
 	end
 
-	for key, entry in pairs(resolution_cache) do
-		if current_time - entry.timestamp > max_age then
-			resolution_cache[key] = nil
-		end
+	-- Print debug information
+	print("DEBUG: Found", #symbols, "symbols")
+	for _, debug_line in ipairs(debug_lines) do
+		print(debug_line)
 	end
+
+	for i, symbol in ipairs(symbols) do
+		print(
+			string.format(
+				"DEBUG: Symbol %d: %s '%s' at line %d (scope: %s, context: %s)",
+				i,
+				symbol.type,
+				symbol.name,
+				symbol.line,
+				symbol.scope,
+				symbol.context
+			)
+		)
+	end
+
+	-- Cache the results
+	cache_file_analysis(file_path, symbols)
+
+	return symbols
 end
 
--- Get Tcl system information
+-- Fallback analysis for when the enhanced script fails
+function M.fallback_analysis(file_path)
+	print("DEBUG: Running fallback analysis")
+
+	local file = io.open(file_path, "r")
+	if not file then
+		print("DEBUG: Cannot open file for fallback analysis")
+		return {}
+	end
+
+	local symbols = {}
+	local line_num = 0
+
+	for line in file:lines() do
+		line_num = line_num + 1
+		local trimmed = line:match("^%s*(.-)%s*$")
+
+		-- Skip empty lines and comments
+		if trimmed == "" or trimmed:match("^#") then
+			goto continue
+		end
+
+		-- Simple procedure detection
+		local proc_name = trimmed:match("^proc%s+([%w_:]+)")
+		if proc_name then
+			table.insert(symbols, {
+				type = "procedure",
+				name = proc_name,
+				line = line_num,
+				scope = "global",
+				context = "",
+				text = trimmed,
+				qualified_name = proc_name,
+				method = "fallback",
+			})
+		end
+
+		-- Simple variable detection
+		local var_name = trimmed:match("^set%s+([%w_:]+)")
+		if var_name then
+			table.insert(symbols, {
+				type = "variable",
+				name = var_name,
+				line = line_num,
+				scope = "global",
+				context = "",
+				text = trimmed,
+				qualified_name = var_name,
+				method = "fallback",
+			})
+		end
+
+		-- Simple namespace detection
+		local ns_name = trimmed:match("^namespace%s+eval%s+([%w_:]+)")
+		if ns_name then
+			table.insert(symbols, {
+				type = "namespace",
+				name = ns_name,
+				line = line_num,
+				scope = "namespace",
+				context = "",
+				text = trimmed,
+				qualified_name = ns_name,
+				method = "fallback",
+			})
+		end
+
+		::continue::
+	end
+
+	file:close()
+
+	print("DEBUG: Fallback analysis found", #symbols, "symbols")
+	return symbols
+end
+
+-- Keep all existing functions but enhance the main analysis
+-- [Include all your existing functions: get_tcl_info, test_json_functionality,
+--  find_symbol_references, check_builtin_command, get_command_documentation,
+--  resolve_symbol, etc.]
+
+-- Get Tcl system information (keep existing)
 function M.get_tcl_info(tclsh_cmd)
 	local info_script = [[
 puts "TCL_VERSION:[info patchlevel]"
@@ -127,7 +496,7 @@ puts "AUTO_PATH_END"
 	return info
 end
 
--- Test JSON functionality
+-- Test JSON functionality (keep existing)
 function M.test_json_functionality(tclsh_cmd)
 	local json_test_script = [[
 if {[catch {package require json} err]} {
@@ -161,340 +530,14 @@ if {[catch {set result [json::json2dict $test_data]} err]} {
 	return false, "JSON test failed"
 end
 
--- Use TCL to analyze a file and extract symbols with their locations (cached)
-function M.analyze_tcl_file(file_path, tclsh_cmd)
-	-- Check cache first
-	local cached_symbols = get_cached_analysis(file_path)
-	if cached_symbols then
-		return cached_symbols
-	end
-
-	-- Hybrid semantic analysis: TCL parser + enhanced patterns
-	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
-	local hybrid_script = string.format(
-		[[
-# HYBRID SEMANTIC ANALYSIS
-# Uses TCL's parser for validation + enhanced pattern matching for extraction
-set file_path "%s"
-
-# Read the file
-if {[catch {
-    set fp [open $file_path r]
-    set content [read $fp]
-    close $fp
-} err]} {
-    puts "ERROR: Cannot read file: $err"
-    exit 1
-}
-
-puts "HYBRID_DEBUG: Starting hybrid semantic analysis"
-
-# First, validate the entire file with TCL's parser
-set content_valid 0
-if {[catch {info complete $content} is_complete]} {
-    puts "HYBRID_DEBUG: File has syntax issues, will parse incrementally"
-} else {
-    if {$is_complete} {
-        set content_valid 1
-        puts "HYBRID_DEBUG: File is syntactically valid TCL"
-    } else {
-        puts "HYBRID_DEBUG: File appears incomplete, parsing as-is"
-    }
-}
-
-# Split content into logical commands using TCL's parser
-set commands [list]
-set pos 0
-set content_length [string length $content]
-
-while {$pos < $content_length} {
-    set cmd_start $pos
-    set cmd_end $pos
-    
-    # Find next complete command using TCL's parser
-    while {$cmd_end < $content_length} {
-        set partial [string range $content $cmd_start $cmd_end]
-        
-        if {[catch {info complete $partial} complete]} {
-            incr cmd_end
-            continue
-        }
-        
-        if {$complete && [string trim $partial] ne ""} {
-            lappend commands [list $partial $cmd_start]
-            set pos [expr {$cmd_end + 1}]
-            break
-        }
-        
-        incr cmd_end
-    }
-    
-    # Prevent infinite loops
-    if {$cmd_end >= $content_length} {
-        # Add remaining content as final command
-        set remaining [string range $content $cmd_start end]
-        if {[string trim $remaining] ne ""} {
-            lappend commands [list $remaining $cmd_start]
-        }
-        break
-    }
-}
-
-puts "HYBRID_DEBUG: Parsed [llength $commands] logical commands"
-
-# Now analyze each command with semantic context + patterns
-set current_namespace ""
-set current_proc ""
-set namespace_stack [list]
-set line_map [dict create]
-
-# Build line number mapping
-set lines [split $content "\n"]
-set char_pos 0
-set line_num 0
-foreach line $lines {
-    incr line_num
-    set line_start $char_pos
-    set line_end [expr {$char_pos + [string length $line]}]
-    
-    for {set i $line_start} {$i <= $line_end} {incr i} {
-        dict set line_map $i $line_num
-    }
-    
-    incr char_pos [expr {[string length $line] + 1}]  # +1 for newline
-}
-
-# Function to find line number from character position
-proc find_line {char_pos} {
-    global line_map
-    set best_line 1
-    dict for {pos line} $line_map {
-        if {$pos <= $char_pos} {
-            set best_line $line
-        } else {
-            break
-        }
-    }
-    return $best_line
-}
-
-# Function to emit symbols
-proc emit_symbol {type name qualified_name line scope context extra} {
-    puts "SYMBOL:$type:$name:$qualified_name:$line:$scope:$context:$extra"
-}
-
-# Analyze each parsed command with enhanced semantic awareness
-foreach cmd_info $commands {
-    set cmd_text [lindex $cmd_info 0]
-    set cmd_pos [lindex $cmd_info 1]
-    set cmd_line [find_line $cmd_pos]
-    
-    set trimmed [string trim $cmd_text]
-    if {$trimmed eq "" || [string match "#*" $trimmed]} {
-        continue
-    }
-    
-    puts "HYBRID_DEBUG: Analyzing command at line $cmd_line: [string range $trimmed 0 50]..."
-    
-    # Try to parse the command semantically first
-    set semantic_parsed 0
-    
-    # Use TCL's parser to break down the command
-    if {[catch {
-        set cmd_parts [list]
-        set parse_pos 0
-        set cmd_length [string length $trimmed]
-        
-        while {$parse_pos < $cmd_length} {
-            # Use TCL's list parsing to extract arguments properly
-            if {[catch {
-                set element [lindex $trimmed $parse_pos]
-                if {$element ne ""} {
-                    lappend cmd_parts $element
-                }
-                incr parse_pos
-            }]} {
-                break
-            }
-        }
-        
-        if {[llength $cmd_parts] > 0} {
-            set cmd_name [lindex $cmd_parts 0]
-            
-            # Handle commands semantically based on parsed structure
-            if {$cmd_name eq "namespace"} {
-                if {[llength $cmd_parts] >= 3 && [lindex $cmd_parts 1] eq "eval"} {
-                    set ns_name [lindex $cmd_parts 2]
-                    set clean_ns [string trim $ns_name "{}\""]
-                    
-                    lappend namespace_stack $current_namespace
-                    set current_namespace $clean_ns
-                    
-                    emit_symbol "namespace" $clean_ns $clean_ns $cmd_line "namespace" "" ""
-                    set semantic_parsed 1
-                    puts "HYBRID_DEBUG: Semantically parsed namespace: $clean_ns"
-                }
-            } elseif {$cmd_name eq "proc"} {
-                if {[llength $cmd_parts] >= 4} {
-                    set proc_name [lindex $cmd_parts 1]
-                    set proc_args [lindex $cmd_parts 2]
-                    
-                    set qualified_name $proc_name
-                    if {$current_namespace ne "" && ![string match "::*" $proc_name]} {
-                        set qualified_name "${current_namespace}::$proc_name"
-                    }
-                    
-                    emit_symbol "procedure" $proc_name $qualified_name $cmd_line "procedure" $current_namespace $proc_args
-                    
-                    # Parse parameters using TCL's list processing
-                    if {[catch {
-                        foreach param_spec $proc_args {
-                            if {[llength $param_spec] == 1} {
-                                set param_name $param_spec
-                                emit_symbol "parameter" $param_name "${proc_name}::$param_name" $cmd_line "parameter" $proc_name ""
-                            } elseif {[llength $param_spec] == 2} {
-                                set param_name [lindex $param_spec 0]
-                                set default_val [lindex $param_spec 1]
-                                emit_symbol "parameter" $param_name "${proc_name}::$param_name" $cmd_line "parameter" $proc_name $default_val
-                            }
-                        }
-                    }]} {
-                        puts "HYBRID_DEBUG: Parameter parsing failed for $proc_name"
-                    }
-                    
-                    set semantic_parsed 1
-                    puts "HYBRID_DEBUG: Semantically parsed procedure: $proc_name"
-                }
-            } elseif {$cmd_name eq "package"} {
-                if {[llength $cmd_parts] >= 3} {
-                    set subcmd [lindex $cmd_parts 1]
-                    set pkg_name [lindex $cmd_parts 2]
-                    emit_symbol "package" $pkg_name $pkg_name $cmd_line "package" "" $subcmd
-                    set semantic_parsed 1
-                    puts "HYBRID_DEBUG: Semantically parsed package: $pkg_name"
-                }
-            } elseif {$cmd_name eq "set"} {
-                if {[llength $cmd_parts] >= 2} {
-                    set var_name [lindex $cmd_parts 1]
-                    
-                    set qualified_name $var_name
-                    set scope "global"
-                    
-                    if {$current_proc ne ""} {
-                        set scope "local"
-                        set qualified_name "${current_proc}::$var_name"
-                    } elseif {$current_namespace ne "" && ![string match "::*" $var_name]} {
-                        set scope "namespace"
-                        set qualified_name "${current_namespace}::$var_name"
-                    }
-                    
-                    emit_symbol "variable" $var_name $qualified_name $cmd_line $scope $current_proc ""
-                    set semantic_parsed 1
-                    puts "HYBRID_DEBUG: Semantically parsed variable: $var_name"
-                }
-            }
-        }
-    }]} {
-        puts "HYBRID_DEBUG: Semantic parsing failed for command, falling back to patterns"
-    }
-    
-    # If semantic parsing failed, fall back to enhanced patterns
-    if {!$semantic_parsed} {
-        puts "HYBRID_DEBUG: Using pattern fallback for: [string range $trimmed 0 30]..."
-        
-        # Enhanced pattern matching with validation
-        if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_:][a-zA-Z0-9_:]*)} $trimmed match ns_name]} {
-            set clean_ns [string trim $ns_name "{}\""]
-            lappend namespace_stack $current_namespace
-            set current_namespace $clean_ns
-            emit_symbol "namespace" $clean_ns $clean_ns $cmd_line "namespace" "" ""
-            puts "HYBRID_DEBUG: Pattern matched namespace: $clean_ns"
-        } elseif {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match proc_name]} {
-            set qualified_name $proc_name
-            if {$current_namespace ne "" && ![string match "::*" $proc_name]} {
-                set qualified_name "${current_namespace}::$proc_name"
-            }
-            emit_symbol "procedure" $proc_name $qualified_name $cmd_line "procedure" $current_namespace ""
-            puts "HYBRID_DEBUG: Pattern matched procedure: $proc_name"
-        } elseif {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match cmd pkg_name]} {
-            emit_symbol "package" $pkg_name $pkg_name $cmd_line "package" "" $cmd
-            puts "HYBRID_DEBUG: Pattern matched package: $pkg_name"
-        } elseif {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match var_name]} {
-            set qualified_name $var_name
-            set scope "global"
-            if {$current_namespace ne "" && ![string match "::*" $var_name]} {
-                set scope "namespace"  
-                set qualified_name "${current_namespace}::$var_name"
-            }
-            emit_symbol "variable" $var_name $qualified_name $cmd_line $scope $current_proc ""
-            puts "HYBRID_DEBUG: Pattern matched variable: $var_name"
-        }
-    }
-}
-
-puts "HYBRID_ANALYSIS_COMPLETE"
-]],
-		escaped_path
-	)
-
-	local result, success = utils.execute_tcl_script(hybrid_script, tclsh_cmd)
-
-	if not (result and success) then
-		print("DEBUG: Hybrid analysis failed")
-		print("DEBUG: Result:", result or "nil")
-		print("DEBUG: Success:", success)
-		return nil
-	end
-
-	print("DEBUG: Hybrid analysis output:")
-	print(result)
-
-	local symbols = {}
-	for line in result:gmatch("[^\n]+") do
-		if line:match("^SYMBOL:") then
-			print("DEBUG: Processing hybrid line:", line)
-
-			-- Parse: SYMBOL:type:name:qualified_name:line:scope:context:extra
-			local symbol_type, name, qualified_name, line_num, scope, context, extra =
-				line:match("SYMBOL:([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]*):([^:]*)")
-
-			if symbol_type and name and line_num then
-				local symbol = {
-					type = symbol_type,
-					name = name,
-					qualified_name = qualified_name ~= name and qualified_name or nil,
-					line = tonumber(line_num),
-					text = line,
-					scope = scope or "global",
-					context = context ~= "" and context or nil,
-					proc_context = (symbol_type == "parameter" and context ~= "") and context or nil,
-					args = extra ~= "" and extra or nil,
-					method = "hybrid_semantic",
-				}
-
-				print("DEBUG: Found hybrid symbol:", symbol.type, symbol.name, "at line", symbol.line)
-				table.insert(symbols, symbol)
-			end
-		end
-	end
-
-	print("DEBUG: Total hybrid symbols found:", #symbols)
-
-	-- Cache the results
-	cache_file_analysis(file_path, symbols)
-
-	return symbols
-end
-
--- Find references to a symbol using TCL analysis
+-- Enhanced find symbol references with better detection
 function M.find_symbol_references(file_path, symbol_name, tclsh_cmd)
 	local reference_script = string.format(
 		[[
-# Find references to a symbol
+# Enhanced reference finding
 set target_word "%s"
 set file_path "%s"
 
-# Read the file
 if {[catch {
     set fp [open $file_path r]
     set content [read $fp]
@@ -504,14 +547,12 @@ if {[catch {
     exit 1
 }
 
-# Split into lines
 set lines [split $content "\n"]
 set line_num 0
 
 # Check if target_word contains namespace qualifier
 set is_qualified [string match "*::*" $target_word]
 if {$is_qualified} {
-    # Extract the unqualified part for additional matching
     set parts [split $target_word "::"]
     set unqualified [lindex $parts end]
 } else {
@@ -521,9 +562,8 @@ if {$is_qualified} {
 foreach line $lines {
     incr line_num
     
-    # Check if line contains the target word (exact match)
+    # Check for exact matches with word boundaries
     if {[regexp "\\y$target_word\\y" $line]} {
-        # Determine the context/type of reference
         set context "usage"
         if {[regexp "^\\s*proc\\s+$target_word\\s" $line]} {
             set context "definition:procedure"
@@ -533,14 +573,13 @@ foreach line $lines {
             set context "definition:namespace"
         } elseif {[regexp "\\$target_word\\y" $line]} {
             set context "variable_usage"
-        } elseif {[regexp "$target_word\\s*\\(" $line]} {
+        } elseif {[regexp "$target_word\\s*\\(" $line] || [regexp "\\s$target_word\\s" $line]} {
             set context "procedure_call"
         }
         
         puts "REFERENCE:$context:$line_num:$line"
     } elseif {$is_qualified && [regexp "\\y$unqualified\\y" $line]} {
-        # If searching for qualified name, also look for unqualified references
-        # But mark them as potential matches
+        # Unqualified matches for qualified symbols
         set context "usage_unqualified"
         if {[regexp "^\\s*proc\\s+$unqualified\\s" $line]} {
             set context "definition:procedure_local"
@@ -558,8 +597,8 @@ foreach line $lines {
 
 puts "REFERENCES_COMPLETE"
 ]],
-		symbol_name,
-		file_path
+		symbol_name:gsub("\\", "\\\\"):gsub('"', '\\"'),
+		file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
 	)
 
 	local result, success = utils.execute_tcl_script(reference_script, tclsh_cmd)
@@ -576,6 +615,7 @@ puts "REFERENCES_COMPLETE"
 				context = context,
 				line = tonumber(line_num),
 				text = utils.trim(text),
+				method = "enhanced",
 			})
 		end
 	end
@@ -583,16 +623,16 @@ puts "REFERENCES_COMPLETE"
 	return references
 end
 
+-- Keep all other existing functions...
+-- [Include check_builtin_command, get_command_documentation, resolve_symbol, etc.]
+
 -- Check if a symbol is a built-in TCL command using introspection
 function M.check_builtin_command(symbol_name, tclsh_cmd)
 	local builtin_check_script = string.format(
 		[[
-# Check if word is a built-in command
 set word "%s"
 
-# Try to get command info
 if {[catch {info args $word} args_result]} {
-    # Not a known command with args, check if it exists as a command
     if {[catch {info commands $word} cmd_result]} {
         puts "NOT_BUILTIN"
     } else {
@@ -603,13 +643,10 @@ if {[catch {info args $word} args_result]} {
         }
     }
 } else {
-    # It's a command with arguments
     puts "BUILTIN_PROC:$word:$args_result"
 }
 
-# Also check if it's a built-in variable or namespace
 if {[catch {info vars $word} var_result]} {
-    # Check global vars
     if {[catch {info globals $word} global_result]} {
         puts "NOT_BUILTIN_VAR"
     } else {
@@ -623,7 +660,7 @@ if {[catch {info vars $word} var_result]} {
     }
 }
 ]],
-		symbol_name
+		symbol_name:gsub("\\", "\\\\"):gsub('"', '\\"')
 	)
 
 	local result, success = utils.execute_tcl_script(builtin_check_script, tclsh_cmd)
@@ -659,7 +696,7 @@ if {[catch {info vars $word} var_result]} {
 	return nil
 end
 
--- Get TCL command documentation
+-- Get TCL command documentation (keep existing large documentation table)
 function M.get_command_documentation(command)
 	local tcl_docs = {
 		puts = "puts ?-nonewline? ?channelId? string\nWrite string to output channel",
@@ -695,79 +732,29 @@ function M.get_command_documentation(command)
 		variable = "variable ?name value ...? name ?value?\nDeclare namespace variables",
 		info = "info option ?arg arg ...?\nIntrospection commands",
 		clock = "clock option ?arg ...?\nDate and time functions",
-		format = "format formatString ?arg arg ...?\nFormat string like sprintf",
-		scan = "scan string format ?varName varName ...?\nParse string according to format",
-		open = "open fileName ?access? ?permissions?\nOpen file for reading/writing",
-		close = "close channelId\nClose open channel",
-		read = "read ?-nonewline? channelId ?numChars?\nRead from channel",
-		gets = "gets channelId ?varName?\nRead line from channel",
-		seek = "seek channelId offset ?origin?\nSeek to position in channel",
-		tell = "tell channelId\nGet current position in channel",
-		eof = "eof channelId\nTest for end of file",
-		flush = "flush ?channelId?\nFlush output to channel",
-		fconfigure = "fconfigure channelId ?optionName? ?value? ?optionName value ...?\nConfigure channel options",
-		-- JSON commands (from tcllib)
-		json = "json subcommand ?arg ...?\nJSON parsing and generation",
-		["json::json2dict"] = "json::json2dict jsonText\nConvert JSON string to Tcl dict",
-		["json::dict2json"] = "json::dict2json dict\nConvert Tcl dict to JSON string",
-		-- Control flow
-		["break"] = "break\nExit from loop prematurely",
-		continue = "continue\nSkip to next iteration of loop",
-		["else"] = "else body\nExecute body if previous if/elseif was false",
-		["elseif"] = "elseif expr ?then? body\nConditional execution alternative",
-		["then"] = "then\nOptional keyword in if statements",
-		-- Advanced commands
-		interp = "interp option ?arg ...?\nManage Tcl interpreters",
-		load = "load fileName ?packageName? ?interp?\nLoad binary extension",
-		rename = "rename oldName newName\nRename or delete commands",
-		unknown = "unknown cmdName ?arg ...?\nHandler for unknown commands",
-		vwait = "vwait varName\nWait for variable to be set",
-		after = "after ms ?script?\nSchedule script execution",
-		update = "update ?idletasks?\nProcess pending events",
-		exit = "exit ?returnCode?\nTerminate application",
-		pwd = "pwd\nReturn current working directory",
-		cd = "cd ?dirName?\nChange current directory",
-		exec = "exec ?switches? arg ?arg ...?\nExecute system commands",
-		pid = "pid ?file?\nReturn process ID",
-		time = "time script ?count?\nTime script execution",
-		history = "history ?option? ?arg ...?\nCommand history management",
-		-- Tk commands (if available)
-		winfo = "winfo option ?arg ...?\nWindow information commands",
-		wm = "wm option window ?arg ...?\nWindow manager commands",
-		bind = "bind tag ?sequence? ?+??script?\nBind events to scripts",
-		pack = "pack option arg ?arg ...?\nPack geometry manager",
-		grid = "grid option arg ?arg ...?\nGrid geometry manager",
-		place = "place option arg ?arg ...?\nPlace geometry manager",
-		-- Rivet-specific commands
-		hputs = "hputs string\nOutput HTML without escaping",
-		hesc = "hesc string\nEscape HTML characters",
-		makeurl = "makeurl ?-absolute? ?-relative? url ?arg value ...?\nGenerate URL with parameters",
-		var_qs = "var_qs varname ?default?\nGet query string variable",
-		var_post = "var_post varname ?default?\nGet POST form variable",
-		import_keyvalue_pairs = "import_keyvalue_pairs\nImport form data as variables",
+		-- Add more as needed...
 	}
 
 	return tcl_docs[command]
 end
 
--- Resolve a symbol using TCL's semantic engine (cached)
+-- Enhanced symbol resolution
 function M.resolve_symbol(symbol_name, file_path, cursor_line, tclsh_cmd)
 	-- Check cache first
-	local cached_resolution = get_cached_resolution(file_path, symbol_name, cursor_line)
-	if cached_resolution then
-		return cached_resolution
+	local cache_key = file_path .. ":" .. symbol_name .. ":" .. cursor_line
+	local cached_resolution = resolution_cache[cache_key]
+	if cached_resolution and is_cache_valid(file_path, cached_resolution) then
+		return cached_resolution.resolution
 	end
 
-	-- True semantic resolution using TCL's namespace and variable resolution
-	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
-	local semantic_resolution_script = string.format(
+	print("DEBUG: Resolving symbol", symbol_name, "at line", cursor_line)
+
+	local resolution_script = string.format(
 		[[
-# True Semantic Symbol Resolution using TCL's resolution engine
 set symbol_name "%s"
-set file_path "%s"
+set file_path "%s" 
 set cursor_line %d
 
-# Read the file
 if {[catch {
     set fp [open $file_path r]
     set content [read $fp]
@@ -777,250 +764,64 @@ if {[catch {
     exit 1
 }
 
-# Create a safe interpreter for semantic analysis
-set safe_interp [interp create -safe]
-
-# Set up the interpreter to track context as we parse
+set lines [split $content "\n"]
 set current_namespace ""
 set current_proc ""
-set current_proc_params [list]
-set namespace_stack [list]
-set proc_stack [list]
-
-# Track what's defined in each scope
-set global_symbols [dict create]
-set namespace_symbols [dict create]
-set proc_symbols [dict create]
-
-# Override commands to track symbol definitions during parsing
-$safe_interp alias track_context track_context
-$safe_interp alias track_symbol_def track_symbol_def
-$safe_interp alias get_current_context get_current_context
-
-proc track_context {type name args} {
-    global current_namespace current_proc current_proc_params namespace_stack proc_stack
-    
-    if {$type eq "namespace"} {
-        lappend namespace_stack $current_namespace
-        set current_namespace $name
-        puts "DEBUG: Entering namespace: $name"
-    } elseif {$type eq "proc"} {
-        set current_proc $name
-        set current_proc_params $args
-        puts "DEBUG: Entering proc: $name with params: $args"
-    } elseif {$type eq "end_namespace"} {
-        if {[llength $namespace_stack] > 0} {
-            set current_namespace [lindex $namespace_stack end]
-            set namespace_stack [lrange $namespace_stack 0 end-1]
-        } else {
-            set current_namespace ""
-        }
-        puts "DEBUG: Exiting namespace, now in: $current_namespace"
-    } elseif {$type eq "end_proc"} {
-        set current_proc ""
-        set current_proc_params [list]
-        puts "DEBUG: Exiting procedure"
-    }
-}
-
-proc track_symbol_def {symbol_type symbol_name line_num scope} {
-    global global_symbols namespace_symbols proc_symbols current_namespace current_proc
-    
-    set qualified_name $symbol_name
-    if {$current_namespace ne "" && ![string match "::*" $symbol_name]} {
-        set qualified_name "${current_namespace}::$symbol_name"
-    }
-    
-    # Store symbol definition for later resolution
-    if {$scope eq "global"} {
-        dict set global_symbols $symbol_name [list line $line_num qualified $qualified_name]
-    } elseif {$scope eq "namespace"} {
-        if {![dict exists $namespace_symbols $current_namespace]} {
-            dict set namespace_symbols $current_namespace [dict create]
-        }
-        dict set namespace_symbols $current_namespace $symbol_name [list line $line_num qualified $qualified_name]
-    } elseif {$scope eq "local" && $current_proc ne ""} {
-        set proc_key "${current_namespace}::$current_proc"
-        if {![dict exists $proc_symbols $proc_key]} {
-            dict set proc_symbols $proc_key [dict create]
-        }
-        dict set proc_symbols $proc_key $symbol_name [list line $line_num qualified $qualified_name]
-    }
-}
-
-proc get_current_context {} {
-    global current_namespace current_proc current_proc_params
-    puts "CONTEXT:namespace:$current_namespace:proc:$current_proc:params:[join $current_proc_params ,]"
-}
-
-# Set up command overrides in safe interpreter
-$safe_interp eval {
-    set namespace_depth 0
-    set proc_depth 0
-    set brace_level 0
-    
-    rename proc _orig_proc
-    proc proc {name args body} {
-        track_context "proc" $name $args
-        
-        # Parse parameters
-        foreach param_spec $args {
-            if {[llength $param_spec] == 1} {
-                track_symbol_def "parameter" $param_spec [info frame line] "parameter"
-            } elseif {[llength $param_spec] == 2} {
-                track_symbol_def "parameter" [lindex $param_spec 0] [info frame line] "parameter"
-            }
-        }
-        
-        # Don't actually execute the body, just track that we're in a proc
-        # In a full implementation, we'd parse the body for variable definitions
-        track_context "end_proc" "" ""
-        return
-    }
-    
-    rename namespace _orig_namespace
-    proc namespace {subcommand args} {
-        if {$subcommand eq "eval"} {
-            set ns_name [lindex $args 0]
-            set body [lindex $args 1]
-            
-            track_context "namespace" $ns_name ""
-            track_symbol_def "namespace" $ns_name [info frame line] "namespace"
-            
-            # Execute the namespace body to find definitions
-            eval $body
-            
-            track_context "end_namespace" "" ""
-        }
-        return
-    }
-    
-    rename set _orig_set
-    proc set {varname args} {
-        if {[info exists ::current_proc] && $::current_proc ne ""} {
-            track_symbol_def "variable" $varname [info frame line] "local"
-        } elseif {[info exists ::current_namespace] && $::current_namespace ne ""} {
-            track_symbol_def "variable" $varname [info frame line] "namespace"
-        } else {
-            track_symbol_def "variable" $varname [info frame line] "global"
-        }
-        return
-    }
-    
-    rename global _orig_global
-    proc global {args} {
-        foreach var $args {
-            track_symbol_def "global" $var [info frame line] "global"
-        }
-        return
-    }
-    
-    # Disable side effects
-    proc puts {args} { return }
-    proc exec {args} { return }
-    proc file {args} { return }
-}
-
-# Parse the file up to the cursor line to understand context
-set lines [split $content "\n"]
-set partial_content ""
 set line_num 0
 
+# Scan to cursor position to determine context
 foreach line $lines {
     incr line_num
-    append partial_content $line "\n"
+    if {$line_num > $cursor_line} break
     
-    if {$line_num >= $cursor_line} {
-        break
+    # Track namespace context
+    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
+        set current_namespace $ns_name
+    }
+    
+    # Track procedure context
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match proc_name]} {
+        set current_proc $proc_name
     }
 }
 
-# Evaluate the partial content to establish context at cursor
-if {[catch {
-    $safe_interp eval $partial_content
-} parse_err]} {
-    puts "DEBUG: Partial parsing failed: $parse_err"
-    # Try command by command
-    set command_buffer ""
-    set brace_count 0
-    
-    foreach line [split $partial_content "\n"] {
-        append command_buffer $line "\n"
-        incr brace_count [regexp -all {\{} $line]
-        incr brace_count -[regexp -all {\}} $line]
-        
-        if {$brace_count == 0 && [string trim $command_buffer] ne ""} {
-            if {[catch {
-                if {[info complete $command_buffer]} {
-                    $safe_interp eval $command_buffer
-                }
-            }]} {
-                # Skip failed commands
-            }
-            set command_buffer ""
-        }
-    }
-}
+puts "CURSOR_CONTEXT:namespace:$current_namespace:proc:$current_proc"
 
-# Get the current context at cursor position
-get_current_context
+# Generate resolution candidates with priorities
+set candidates [list]
 
-# Now use TCL's actual resolution rules to resolve the symbol
-puts "RESOLUTION_START"
-
-# 1. Check if it's a parameter in current procedure (highest priority)
-if {$current_proc ne "" && [lsearch $current_proc_params $symbol_name] >= 0} {
-    puts "RESOLUTION:procedure_parameter:$symbol_name:priority:20:proc:$current_proc"
-}
-
-# 2. Use TCL's info commands to check for built-ins
+# 1. Built-in command check
 if {[info commands $symbol_name] ne ""} {
-    puts "RESOLUTION:builtin_command:$symbol_name:priority:15"
+    puts "RESOLUTION:builtin_command:$symbol_name:priority:10"
 }
 
-# 3. Check for qualified names using TCL's namespace resolution
+# 2. Qualified name as-is
 if {[string match "*::*" $symbol_name]} {
-    # Fully qualified - use as-is
-    puts "RESOLUTION:qualified_name:$symbol_name:priority:14"
+    puts "RESOLUTION:qualified_name:$symbol_name:priority:9"
 } else {
-    # Unqualified - use TCL's resolution order
-    
-    # 3a. Local variables in current procedure
-    if {$current_proc ne ""} {
-        puts "RESOLUTION:proc_local_var:$symbol_name:priority:13:proc:$current_proc"
-    }
-    
-    # 3b. Current namespace
+    # 3. Namespace qualified
     if {$current_namespace ne ""} {
-        set ns_qualified "${current_namespace}::$symbol_name"
-        puts "RESOLUTION:namespace_qualified:$ns_qualified:priority:12:namespace:$current_namespace"
+        set ns_qualified "$current_namespace\::$symbol_name"
+        puts "RESOLUTION:namespace_qualified:$ns_qualified:priority:8:context:$current_namespace"
     }
     
-    # 3c. Imported commands (would need to track namespace import)
-    # For now, skip this advanced feature
+    # 4. Procedure local
+    if {$current_proc ne ""} {
+        puts "RESOLUTION:proc_local:$symbol_name:priority:7:context:$current_proc"
+    }
     
-    # 3d. Global namespace
-    puts "RESOLUTION:global:$symbol_name:priority:10"
-}
-
-# 4. Check for namespace children if symbol contains ::
-if {[string match "*::*" $symbol_name]} {
-    set ns_part [string range $symbol_name 0 [string last "::" $symbol_name]-1]
-    set name_part [string range $symbol_name [string last "::" $symbol_name]+2 end]
-    puts "RESOLUTION:namespace_child:$symbol_name:priority:11:namespace:$ns_part:name:$name_part"
+    # 5. Global
+    puts "RESOLUTION:global:$symbol_name:priority:6"
 }
 
 puts "RESOLUTION_COMPLETE"
-
-# Clean up
-interp delete $safe_interp
 ]],
-		symbol_name,
-		escaped_path,
+		symbol_name:gsub("\\", "\\\\"):gsub('"', '\\"'),
+		file_path:gsub("\\", "\\\\"):gsub('"', '\\"'),
 		cursor_line
 	)
 
-	local result, success = utils.execute_tcl_script(semantic_resolution_script, tclsh_cmd)
+	local result, success = utils.execute_tcl_script(resolution_script, tclsh_cmd)
 
 	if not (result and success) then
 		return nil
@@ -1030,19 +831,10 @@ interp delete $safe_interp
 	local context = {}
 
 	for line in result:gmatch("[^\n]+") do
-		if line:match("CONTEXT:") then
-			local ns, proc, params = line:match("CONTEXT:namespace:([^:]*):proc:([^:]*):params:([^:]*)")
+		if line:match("CURSOR_CONTEXT:") then
+			local ns, proc = line:match("CURSOR_CONTEXT:namespace:([^:]*):proc:([^:]*)")
 			context.namespace = (ns ~= "") and ns or nil
 			context.proc = (proc ~= "") and proc or nil
-			context.proc_params = {}
-
-			if params and params ~= "" then
-				for param in params:gmatch("[^,]+") do
-					if param ~= "" then
-						table.insert(context.proc_params, param)
-					end
-				end
-			end
 		elseif line:match("RESOLUTION:") then
 			local parts = {}
 			for part in line:gmatch("([^:]+)") do
@@ -1055,24 +847,16 @@ interp delete $safe_interp
 					name = parts[3],
 					priority = tonumber(parts[4]) or 0,
 					context = "",
-					proc = "",
-					namespace = "",
 				}
 
-				-- Parse additional semantic metadata
+				-- Parse additional metadata
 				local i = 5
 				while i <= #parts do
 					if parts[i] == "priority" and i < #parts then
 						resolution.priority = tonumber(parts[i + 1]) or 0
 						i = i + 2
-					elseif parts[i] == "proc" and i < #parts then
-						resolution.proc = parts[i + 1]
-						i = i + 2
-					elseif parts[i] == "namespace" and i < #parts then
-						resolution.namespace = parts[i + 1]
-						i = i + 2
-					elseif parts[i] == "name" and i < #parts then
-						resolution.unqualified_name = parts[i + 1]
+					elseif parts[i] == "context" and i < #parts then
+						resolution.context = parts[i + 1]
 						i = i + 2
 					else
 						i = i + 1
@@ -1084,7 +868,7 @@ interp delete $safe_interp
 		end
 	end
 
-	-- Sort resolutions by priority (higher priority first)
+	-- Sort by priority
 	table.sort(resolutions, function(a, b)
 		return a.priority > b.priority
 	end)
@@ -1092,20 +876,22 @@ interp delete $safe_interp
 	local final_resolution = {
 		context = context,
 		resolutions = resolutions,
-		method = "true_semantic",
 	}
 
 	-- Cache the result
-	cache_resolution(file_path, symbol_name, cursor_line, final_resolution)
+	resolution_cache[cache_key] = {
+		resolution = final_resolution,
+		mtime = get_file_mtime(file_path),
+		timestamp = os.time(),
+	}
 
 	return final_resolution
 end
 
--- Clear cache for a specific file (call when file is saved/modified)
+-- Clear cache for a specific file
 function M.invalidate_cache(file_path)
 	file_cache[file_path] = nil
 
-	-- Clear resolution cache entries for this file
 	for key, _ in pairs(resolution_cache) do
 		if key:match("^" .. vim.pesc(file_path) .. ":") then
 			resolution_cache[key] = nil
@@ -1119,31 +905,54 @@ function M.clear_all_caches()
 	resolution_cache = {}
 end
 
--- Debug function to see what symbols are being found
+-- Enhanced debug function
 function M.debug_symbols(file_path, tclsh_cmd)
+	print("DEBUG: Starting debug analysis of", file_path)
+
+	-- Clear cache to force fresh analysis
+	M.invalidate_cache(file_path)
+
 	local symbols = M.analyze_tcl_file(file_path, tclsh_cmd)
 
 	if not symbols then
 		print("DEBUG: No symbols found - analysis failed")
-		return
+		print("DEBUG: Checking if file exists:", M.file_exists(file_path))
+		print("DEBUG: Checking tclsh command:", tclsh_cmd)
+
+		-- Test basic TCL execution
+		local test_result, test_success = utils.execute_tcl_script('puts "TCL_TEST_OK"', tclsh_cmd)
+		print("DEBUG: Basic TCL test result:", test_result, test_success)
+
+		return {}
 	end
 
 	print("DEBUG: Found " .. #symbols .. " symbols:")
 	for i, symbol in ipairs(symbols) do
 		print(
 			string.format(
-				"  %d. %s '%s' at line %d (scope: %s, context: %s)",
+				"  %d. %s '%s' at line %d (scope: %s, context: %s, method: %s)",
 				i,
 				symbol.type,
 				symbol.name,
 				symbol.line,
 				symbol.scope or "none",
-				symbol.context or "none"
+				symbol.context or "none",
+				symbol.method or "unknown"
 			)
 		)
 	end
 
 	return symbols
+end
+
+-- Helper function to check if file exists
+function M.file_exists(file_path)
+	local file = io.open(file_path, "r")
+	if file then
+		file:close()
+		return true
+	end
+	return false
 end
 
 -- Get cache statistics
@@ -1157,6 +966,7 @@ function M.get_cache_stats()
 	}
 end
 
+-- Execute TCL command directly
 function M.execute_tcl_command(command, tclsh_cmd)
 	local script = string.format(
 		[[

@@ -4,153 +4,8 @@ local tcl = require("tcl-lsp.tcl")
 local semantic = require("tcl-lsp.semantic")
 local M = {}
 
--- Enhanced file discovery that actually uses your semantic analysis
-local function get_comprehensive_file_list(current_file, tclsh_cmd)
-	local files = {}
-	local files_set = {}
-
-	-- 1. First priority: Source dependencies (use your existing semantic analysis!)
-	if semantic and semantic.build_source_dependencies then
-		local dependencies = semantic.build_source_dependencies(current_file, tclsh_cmd)
-		for _, file in ipairs(dependencies) do
-			if file ~= current_file and utils.file_exists(file) then
-				if not files_set[file] then
-					table.insert(files, file)
-					files_set[file] = true
-				end
-			end
-		end
-		print("DEBUG: Found", #dependencies, "source dependencies")
-	end
-
-	-- 2. Current directory TCL files with multiple extensions
-	local extensions = { "*.tcl", "*.tk", "*.itcl", "*.itk", "*.rvt" }
-	for _, ext in ipairs(extensions) do
-		local current_dir_files = vim.fn.glob(ext, false, true)
-		for _, file in ipairs(current_dir_files) do
-			if file ~= current_file and utils.file_exists(file) then
-				if not files_set[file] then
-					table.insert(files, file)
-					files_set[file] = true
-				end
-			end
-		end
-	end
-
-	-- 3. Subdirectory search
-	for _, ext in ipairs(extensions) do
-		local subdir_files = vim.fn.glob("**/" .. ext, false, true)
-		for _, file in ipairs(subdir_files) do
-			if file ~= current_file and utils.file_exists(file) then
-				if not files_set[file] then
-					table.insert(files, file)
-					files_set[file] = true
-				end
-			end
-		end
-	end
-
-	-- 4. Common TCL directories relative to current file
-	local current_dir = vim.fn.fnamemodify(current_file, ":h")
-	local common_dirs = {
-		"lib",
-		"src",
-		"tcl",
-		"scripts",
-		"modules",
-		"../lib",
-		"../src",
-		"../tcl",
-		"../scripts",
-		"../../lib",
-		"../../src",
-		"../../tcl",
-	}
-
-	for _, dir in ipairs(common_dirs) do
-		local search_dir = vim.fn.resolve(current_dir .. "/" .. dir)
-		if vim.fn.isdirectory(search_dir) == 1 then
-			for _, ext in ipairs(extensions) do
-				local pattern = search_dir .. "/" .. ext
-				local dir_files = vim.fn.glob(pattern, false, true)
-				for _, file in ipairs(dir_files) do
-					if file ~= current_file and utils.file_exists(file) then
-						if not files_set[file] then
-							table.insert(files, file)
-							files_set[file] = true
-						end
-					end
-				end
-			end
-		end
-	end
-
-	print("DEBUG: Total files to search:", #files)
-	for i, file in ipairs(files) do
-		print("DEBUG:", i, "->", vim.fn.fnamemodify(file, ":."))
-	end
-
-	return files
-end
-
--- Fixed workspace search that actually works
-function M.search_workspace_for_definition_comprehensive(symbol_name, current_file, tclsh_cmd)
-	print("DEBUG: Searching for", symbol_name, "across workspace")
-
-	local files = get_comprehensive_file_list(current_file, tclsh_cmd)
-	local matches = {}
-
-	for _, file in ipairs(files) do
-		print("DEBUG: Analyzing file:", vim.fn.fnamemodify(file, ":."))
-		local file_symbols = tcl.analyze_tcl_file(file, tclsh_cmd)
-
-		if file_symbols then
-			print("DEBUG: Found", #file_symbols, "symbols in", vim.fn.fnamemodify(file, ":t"))
-			for _, symbol in ipairs(file_symbols) do
-				-- Debug each symbol
-				print("DEBUG: Symbol:", symbol.name, "type:", symbol.type, "line:", symbol.line)
-
-				if symbol.name == symbol_name or utils.symbols_match(symbol.name, symbol_name) then
-					print("DEBUG: MATCH FOUND:", symbol.name, "in", vim.fn.fnamemodify(file, ":t"))
-					table.insert(matches, {
-						symbol = symbol,
-						file = file,
-						priority = (symbol.name == symbol_name) and 10 or 5,
-					})
-				end
-			end
-		else
-			print("DEBUG: No symbols found in", vim.fn.fnamemodify(file, ":t"))
-		end
-	end
-
-	print("DEBUG: Total matches found:", #matches)
-
-	if #matches == 0 then
-		utils.notify("Definition of '" .. symbol_name .. "' not found in " .. #files .. " files", vim.log.levels.WARN)
-	elseif #matches == 1 then
-		local match = matches[1]
-		vim.cmd("edit " .. match.file)
-		vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
-		utils.notify(
-			string.format(
-				"Found %s '%s' in %s at line %d",
-				match.symbol.type,
-				match.symbol.name,
-				vim.fn.fnamemodify(match.file, ":t"),
-				match.symbol.line
-			),
-			vim.log.levels.INFO
-		)
-	else
-		M.show_simple_workspace_choices(matches, symbol_name)
-	end
-end
-
 -- Smart TCL go-to-definition using semantic resolution
 function M.goto_definition()
-	print("DEBUG: goto_definition called")
-
 	-- Try to get qualified word first, fall back to regular word
 	local word, err = utils.get_qualified_word_under_cursor()
 	if not word then
@@ -161,65 +16,73 @@ function M.goto_definition()
 		end
 	end
 
-	print("DEBUG: Looking for symbol:", word)
-
 	local file_path, file_err = utils.get_current_file_path()
 	if not file_path then
 		utils.notify(file_err, vim.log.levels.WARN)
 		return
 	end
 
-	print("DEBUG: Current file:", file_path)
-
 	local tclsh_cmd = config.get_tclsh_cmd()
 
-	-- Get all symbols from current file first
-	local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+	-- Debug: Log what we're looking for
+	print("DEBUG: Looking for symbol:", word, "in file:", file_path)
+
+	-- First try the enhanced semantic analysis
+	local symbols = semantic.analyze_single_file_symbols(file_path, tclsh_cmd)
+
+	-- Fallback to basic analysis if semantic fails
+	if not symbols or #symbols == 0 then
+		print("DEBUG: Semantic analysis failed or returned no symbols, trying basic analysis")
+		symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+	end
+
 	if not symbols then
 		utils.notify("Failed to analyze file with TCL", vim.log.levels.ERROR)
 		return
 	end
 
-	print("DEBUG: Found", #symbols, "symbols in current file")
+	-- Debug: Log what symbols we found
+	print("DEBUG: Found", #symbols, "symbols")
+	for i, symbol in ipairs(symbols) do
+		print(string.format("DEBUG: Symbol %d: %s '%s' at line %d", i, symbol.type, symbol.name, symbol.line))
+	end
 
-	-- Quick check: if no symbols found, there might be a parsing issue
 	if #symbols == 0 then
-		utils.notify("No symbols found in file. Try :TclLspDebug to troubleshoot.", vim.log.levels.WARN)
+		utils.notify("No symbols found in file. Run :TclLspDebug for troubleshooting.", vim.log.levels.WARN)
 		return
 	end
 
 	local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
 
-	-- Try smart resolution first
-	local resolution = tcl.resolve_symbol(word, file_path, cursor_line, tclsh_cmd)
+	-- Try smart resolution first using semantic engine
+	local resolution = M.smart_resolve_symbol(word, file_path, cursor_line, tclsh_cmd)
 	local matches = {}
 
-	if resolution and resolution.resolutions then
-		print("DEBUG: Using smart resolution with", #resolution.resolutions, "candidates")
-		-- Use smart resolution
-		matches = M.find_matching_symbols(symbols, resolution.resolutions, word)
+	if resolution and resolution.candidates then
+		-- Use smart resolution results
+		print("DEBUG: Smart resolution found", #resolution.candidates, "candidates")
+		matches = M.find_matching_symbols_enhanced(symbols, resolution.candidates, word)
 	end
 
-	-- Fallback to simple matching if smart resolution fails or finds nothing
+	-- Fallback to simple matching if smart resolution fails
 	if #matches == 0 then
-		print("DEBUG: Smart resolution failed, trying simple matching")
+		print("DEBUG: Smart resolution failed, using fallback matching")
 		for _, symbol in ipairs(symbols) do
 			if symbol.name == word or utils.symbols_match(symbol.name, word) then
 				table.insert(matches, {
 					symbol = symbol,
-					priority = (symbol.name == word) and 10 or 5, -- Prefer exact matches
+					priority = (symbol.name == word) and 10 or 5,
 					resolution = { type = "fallback", name = word },
 				})
 			end
 		end
 	end
 
-	print("DEBUG: Found", #matches, "matches in current file")
-
+	-- Handle results
 	if #matches == 0 then
-		-- Try workspace search if nothing found locally
+		-- Try workspace search as last resort
 		utils.notify("Symbol '" .. word .. "' not found in current file, searching workspace...", vim.log.levels.INFO)
-		M.search_workspace_for_definition_comprehensive(word, file_path, tclsh_cmd)
+		M.search_workspace_for_definition_enhanced(word, file_path, tclsh_cmd)
 	elseif #matches == 1 then
 		local match = matches[1]
 		vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
@@ -228,62 +91,171 @@ function M.goto_definition()
 			vim.log.levels.INFO
 		)
 	else
-		-- Multiple matches, show them prioritized
-		if resolution and resolution.context then
-			M.show_prioritized_symbol_choices(matches, word, resolution.context)
-		else
-			M.show_simple_symbol_choices(matches, word)
+		-- Multiple matches, show choices
+		M.show_symbol_choices_enhanced(matches, word)
+	end
+end
+
+-- Enhanced symbol resolution using both engines
+function M.smart_resolve_symbol(symbol_name, file_path, cursor_line, tclsh_cmd)
+	-- Try semantic resolution first
+	local semantic_candidates = semantic.resolve_symbol_across_workspace(symbol_name, file_path, cursor_line, tclsh_cmd)
+
+	if semantic_candidates and #semantic_candidates > 0 then
+		return {
+			type = "semantic",
+			candidates = semantic_candidates,
+			method = "workspace_semantic",
+		}
+	end
+
+	-- Fallback to basic resolution
+	local basic_resolution = tcl.resolve_symbol(symbol_name, file_path, cursor_line, tclsh_cmd)
+
+	if basic_resolution and basic_resolution.resolutions then
+		return {
+			type = "basic",
+			candidates = basic_resolution.resolutions,
+			context = basic_resolution.context,
+			method = "basic_resolution",
+		}
+	end
+
+	return nil
+end
+
+-- Enhanced symbol matching with better priority handling
+function M.find_matching_symbols_enhanced(symbols, candidates, query)
+	local matches = {}
+
+	for _, candidate in ipairs(candidates) do
+		for _, symbol in ipairs(symbols) do
+			local symbol_matches = false
+			local match_priority = 0
+
+			-- Enhanced matching logic
+			if candidate.name then
+				if symbol.name == candidate.name then
+					symbol_matches = true
+					match_priority = 10 -- Exact match
+				elseif symbol.qualified_name == candidate.name then
+					symbol_matches = true
+					match_priority = 9 -- Qualified exact match
+				elseif utils.symbols_match(symbol.name, candidate.name) then
+					symbol_matches = true
+					match_priority = 7 -- Fuzzy match
+				end
+			else
+				-- Fallback for basic candidates
+				if symbol.name == query then
+					symbol_matches = true
+					match_priority = 8
+				elseif utils.symbols_match(symbol.name, query) then
+					symbol_matches = true
+					match_priority = 6
+				end
+			end
+
+			if symbol_matches then
+				-- Additional priority boosts
+				if candidate.scope and symbol.scope == candidate.scope then
+					match_priority = match_priority + 2
+				end
+
+				if candidate.visibility == "public" then
+					match_priority = match_priority + 1
+				end
+
+				table.insert(matches, {
+					symbol = symbol,
+					candidate = candidate,
+					priority = match_priority,
+					resolution = candidate,
+				})
+			end
 		end
 	end
-end
 
--- Debug command to test file discovery
-function M.debug_file_discovery()
-	local file_path, err = utils.get_current_file_path()
-	if not file_path then
-		utils.notify("No current file: " .. (err or "unknown"), vim.log.levels.ERROR)
-		return
+	-- Remove duplicates and sort by priority
+	local seen = {}
+	local unique_matches = {}
+
+	for _, match in ipairs(matches) do
+		local key = match.symbol.name .. ":" .. match.symbol.line
+		if not seen[key] then
+			seen[key] = true
+			table.insert(unique_matches, match)
+		end
 	end
 
-	local tclsh_cmd = config.get_tclsh_cmd()
-	local files = get_comprehensive_file_list(file_path, tclsh_cmd)
-
-	utils.notify("Found " .. #files .. " files to search:", vim.log.levels.INFO)
-	for i, file in ipairs(files) do
-		local relative_path = vim.fn.fnamemodify(file, ":.")
-		utils.notify(string.format("  %d. %s", i, relative_path), vim.log.levels.INFO)
-	end
-end
-
--- Keep all your existing functions but replace the problematic ones
-function M.search_workspace_for_definition_simple(symbol_name, current_file, tclsh_cmd)
-	-- Use the comprehensive search instead
-	M.search_workspace_for_definition_comprehensive(symbol_name, current_file, tclsh_cmd)
-end
-
--- Rest of your existing functions remain the same...
-function M.show_simple_symbol_choices(matches, query)
-	local choices = {}
-
-	-- Sort by priority first
-	table.sort(matches, function(a, b)
+	table.sort(unique_matches, function(a, b)
 		return a.priority > b.priority
 	end)
+
+	return unique_matches
+end
+
+-- Enhanced workspace search
+function M.search_workspace_for_definition_enhanced(symbol_name, current_file, tclsh_cmd)
+	-- First try semantic workspace search
+	local semantic_matches = semantic.resolve_symbol_across_workspace(symbol_name, current_file, 1, tclsh_cmd)
+
+	if semantic_matches and #semantic_matches > 0 then
+		-- Filter to definitions only and group by file
+		local definition_matches = {}
+		for _, match in ipairs(semantic_matches) do
+			if match.source_file and match.source_file ~= current_file then
+				table.insert(definition_matches, {
+					symbol = match,
+					file = match.source_file,
+					priority = (match.name == symbol_name) and 10 or 5,
+				})
+			end
+		end
+
+		if #definition_matches > 0 then
+			M.show_workspace_choices_enhanced(definition_matches, symbol_name)
+			return
+		end
+	end
+
+	-- Fallback to simple workspace search
+	M.search_workspace_for_definition_simple(symbol_name, current_file, tclsh_cmd)
+end
+
+-- Enhanced symbol choices display
+function M.show_symbol_choices_enhanced(matches, query)
+	local choices = {}
 
 	for i, match in ipairs(matches) do
 		local symbol = match.symbol
 		local context_info = ""
+		local method_info = ""
 
-		if symbol.scope and symbol.scope ~= "" then
+		-- Add context information
+		if symbol.namespace_context and symbol.namespace_context ~= "" then
+			context_info = " [ns: " .. symbol.namespace_context .. "]"
+		elseif symbol.scope and symbol.scope ~= "" then
 			context_info = " [" .. symbol.scope .. "]"
-		elseif symbol.context and symbol.context ~= "" then
-			context_info = " [ns: " .. symbol.context .. "]"
 		end
 
-		table.insert(
-			choices,
-			string.format("%d. %s '%s'%s at line %d", i, symbol.type, symbol.name, context_info, symbol.line)
+		-- Add method information for debugging
+		if symbol.method then
+			method_info = " (" .. symbol.method .. ")"
+		end
+
+		local choice_text = string.format(
+			"%d. %s '%s'%s at line %d (priority: %d)%s",
+			i,
+			symbol.type,
+			symbol.name,
+			context_info,
+			symbol.line,
+			match.priority,
+			method_info
 		)
+
+		table.insert(choices, choice_text)
 	end
 
 	vim.ui.select(choices, {
@@ -305,7 +277,8 @@ function M.show_simple_symbol_choices(matches, query)
 	end)
 end
 
-function M.show_simple_workspace_choices(matches, query)
+-- Enhanced workspace choices display
+function M.show_workspace_choices_enhanced(matches, query)
 	-- Sort by priority first, then by file
 	table.sort(matches, function(a, b)
 		if a.priority ~= b.priority then
@@ -317,15 +290,25 @@ function M.show_simple_workspace_choices(matches, query)
 	local choices = {}
 	for i, match in ipairs(matches) do
 		local file_short = vim.fn.fnamemodify(match.file, ":t")
+		local context_info = ""
+
+		if match.symbol.namespace_context and match.symbol.namespace_context ~= "" then
+			context_info = " [ns: " .. match.symbol.namespace_context .. "]"
+		elseif match.symbol.scope and match.symbol.scope ~= "" then
+			context_info = " [" .. match.symbol.scope .. "]"
+		end
+
 		table.insert(
 			choices,
 			string.format(
-				"%d. %s '%s' in %s at line %d",
+				"%d. %s '%s'%s in %s at line %d (priority: %d)",
 				i,
 				match.symbol.type,
 				match.symbol.name,
+				context_info,
 				file_short,
-				match.symbol.line
+				match.symbol.line,
+				match.priority
 			)
 		)
 	end
@@ -351,136 +334,53 @@ function M.show_simple_workspace_choices(matches, query)
 	end)
 end
 
-function M.find_matching_symbols(symbols, resolutions, query)
+-- Simple workspace search as fallback (keep existing implementation)
+function M.search_workspace_for_definition_simple(symbol_name, current_file, tclsh_cmd)
+	local files = vim.fn.glob("**/*.tcl", false, true)
 	local matches = {}
 
-	for _, resolution in ipairs(resolutions) do
-		for _, symbol in ipairs(symbols) do
-			local symbol_matches = false
-
-			-- Check if symbol matches this resolution
-			if resolution.type == "qualified_name" and symbol.name == resolution.name then
-				symbol_matches = true
-			elseif
-				resolution.type == "namespace_qualified"
-				and (symbol.name == resolution.name or symbol.qualified_name == resolution.name)
-			then
-				symbol_matches = true
-			elseif
-				resolution.type == "proc_local"
-				and symbol.name == query
-				and (symbol.scope == "proc_local" or symbol.scope == "local")
-			then
-				symbol_matches = true
-			elseif
-				resolution.type == "global"
-				and symbol.name == query
-				and (symbol.scope == "global" or symbol.type == "global")
-			then
-				symbol_matches = true
-			elseif resolution.type == "package_qualified" and symbol.name == resolution.name then
-				symbol_matches = true
-			elseif symbol.name == query then -- Fallback exact match
-				symbol_matches = true
-			end
-
-			if symbol_matches then
-				table.insert(matches, {
-					symbol = symbol,
-					resolution = resolution,
-					priority = resolution.priority,
-				})
+	for _, file in ipairs(files) do
+		if file ~= current_file then -- Skip current file
+			local file_symbols = tcl.analyze_tcl_file(file, tclsh_cmd)
+			if file_symbols then
+				for _, symbol in ipairs(file_symbols) do
+					if symbol.name == symbol_name or utils.symbols_match(symbol.name, symbol_name) then
+						table.insert(matches, {
+							symbol = symbol,
+							file = file,
+							priority = (symbol.name == symbol_name) and 10 or 5,
+						})
+					end
+				end
 			end
 		end
 	end
 
-	-- Remove duplicates and sort by priority
-	local seen = {}
-	local unique_matches = {}
-
-	for _, match in ipairs(matches) do
-		local key = match.symbol.name .. ":" .. match.symbol.line
-		if not seen[key] then
-			seen[key] = true
-			table.insert(unique_matches, match)
-		end
-	end
-
-	table.sort(unique_matches, function(a, b)
-		return a.priority > b.priority
-	end)
-
-	return unique_matches
-end
-
-function M.show_prioritized_symbol_choices(matches, query, context)
-	local choices = {}
-
-	for i, match in ipairs(matches) do
-		local symbol = match.symbol
-		local context_info = ""
-
-		if symbol.scope and symbol.scope ~= "" then
-			context_info = " [" .. symbol.scope .. "]"
-		elseif symbol.context and symbol.context ~= "" then
-			context_info = " [ns: " .. symbol.context .. "]"
-		end
-
-		table.insert(
-			choices,
+	if #matches == 0 then
+		utils.notify("Definition of '" .. symbol_name .. "' not found", vim.log.levels.WARN)
+	elseif #matches == 1 then
+		local match = matches[1]
+		vim.cmd("edit " .. match.file)
+		vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
+		utils.notify(
 			string.format(
-				"%d. %s '%s'%s at line %d (priority: %d)",
-				i,
-				symbol.type,
-				symbol.name,
-				context_info,
-				symbol.line,
-				match.priority
-			)
+				"Found %s '%s' in %s at line %d",
+				match.symbol.type,
+				match.symbol.name,
+				match.file,
+				match.symbol.line
+			),
+			vim.log.levels.INFO
 		)
+	else
+		M.show_workspace_choices_enhanced(matches, symbol_name)
 	end
-
-	local context_str = ""
-	if context.namespace then
-		context_str = context_str .. "namespace: " .. context.namespace
-	end
-	if context.proc then
-		if context_str ~= "" then
-			context_str = context_str .. ", "
-		end
-		context_str = context_str .. "procedure: " .. context.proc
-	end
-
-	local prompt = "Multiple definitions found for '" .. query .. "'"
-	if context_str ~= "" then
-		prompt = prompt .. " (in " .. context_str .. ")"
-	end
-	prompt = prompt .. ":"
-
-	vim.ui.select(choices, {
-		prompt = prompt,
-	}, function(choice, idx)
-		if idx then
-			local selected_match = matches[idx]
-			vim.api.nvim_win_set_cursor(0, { selected_match.symbol.line, 0 })
-			utils.notify(
-				string.format(
-					"Jumped to %s '%s' at line %d",
-					selected_match.symbol.type,
-					selected_match.symbol.name,
-					selected_match.symbol.line
-				),
-				vim.log.levels.INFO
-			)
-		end
-	end)
 end
 
-function M.symbol_matches_query(symbol_name, query)
-	return utils.symbols_match(symbol_name, query)
-end
+-- Rest of your existing functions remain the same...
+-- [Include all other functions from the original navigation.lua]
 
--- Keep all your other existing functions (hover, find_references, etc.)
+-- TCL-powered hover using introspection
 function M.hover()
 	-- Try to get qualified word first, fall back to regular word
 	local word, err = utils.get_qualified_word_under_cursor()
@@ -528,6 +428,7 @@ function M.hover()
 	utils.notify("No documentation found for '" .. word .. "'", vim.log.levels.INFO)
 end
 
+-- Smart find references using TCL analysis
 function M.find_references()
 	-- Try to get qualified word first, fall back to regular word
 	local word, err = utils.get_qualified_word_under_cursor()
@@ -605,14 +506,73 @@ function M.setup_buffer_keymaps(bufnr)
 		)
 	end
 
-	-- Debug keymap
-	utils.set_buffer_keymap(
-		"n",
-		"<leader>td",
-		M.debug_file_discovery,
-		vim.tbl_extend("force", opts, { desc = "Debug File Discovery" }),
-		bufnr
-	)
+	-- Additional convenience keymaps
+	utils.set_buffer_keymap("n", "<leader>tr", function()
+		-- Enhanced workspace references
+		M.find_workspace_references()
+	end, vim.tbl_extend("force", opts, { desc = "TCL Workspace References" }), bufnr)
+end
+
+-- Enhanced workspace references search
+function M.find_workspace_references()
+	local word, err = utils.get_qualified_word_under_cursor()
+	if not word then
+		word, err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify(err, vim.log.levels.WARN)
+			return
+		end
+	end
+
+	local file_path, file_err = utils.get_current_file_path()
+	if not file_path then
+		utils.notify(file_err, vim.log.levels.WARN)
+		return
+	end
+
+	local tclsh_cmd = config.get_tclsh_cmd()
+
+	-- Try semantic workspace references first
+	local all_references = semantic.find_references_across_workspace(word, file_path, tclsh_cmd)
+
+	if not all_references or #all_references == 0 then
+		-- Fallback to simple search
+		local files = vim.fn.glob("**/*.tcl", false, true)
+		all_references = {}
+
+		for _, file in ipairs(files) do
+			local references = tcl.find_symbol_references(file, word, tclsh_cmd)
+			if references then
+				for _, ref in ipairs(references) do
+					table.insert(all_references, {
+						filename = file,
+						line = ref.line,
+						text = string.format("[%s] %s", ref.context:gsub("_", " "), ref.text),
+					})
+				end
+			end
+		end
+	else
+		-- Convert semantic results to quickfix format
+		local qf_references = {}
+		for _, ref in ipairs(all_references) do
+			table.insert(qf_references, {
+				filename = ref.source_file,
+				line = ref.line,
+				text = string.format("[%s] %s", ref.context:gsub("_", " "), ref.text),
+			})
+		end
+		all_references = qf_references
+	end
+
+	if #all_references > 0 then
+		utils.create_quickfix_list(
+			all_references,
+			"Found " .. #all_references .. " references to '" .. word .. "' across workspace"
+		)
+	else
+		utils.notify("No references found for '" .. word .. "' in workspace", vim.log.levels.WARN)
+	end
 end
 
 return M
