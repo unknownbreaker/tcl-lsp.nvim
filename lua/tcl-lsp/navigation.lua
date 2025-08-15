@@ -472,7 +472,7 @@ function M.goto_definition()
 
 	-- TRY SEMANTIC CROSS-FILE RESOLUTION FIRST
 	print("DEBUG: Attempting cross-file semantic resolution...")
-	local workspace_symbols = semantic.resolve_symbol_across_workspace(word, file_path, cursor_line, tclsh_cmd)
+	local workspace_symbols = semantic.resolve_symbol_with_workspace_index(word, file_path, cursor_line, tclsh_cmd)
 
 	if workspace_symbols and #workspace_symbols > 0 then
 		print("DEBUG: Semantic engine found", #workspace_symbols, "candidates across workspace")
