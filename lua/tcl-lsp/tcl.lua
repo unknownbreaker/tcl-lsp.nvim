@@ -62,21 +62,21 @@ foreach proc_name [info procs] {
         if {![catch {info args $proc_name} args]} {
             set proc_args [join $args " "]
         }
-        puts "SEMANTIC_PROC:$proc_name:$proc_args:[namespace current]"
+        puts "SEMANTIC_PROC|$proc_name|$proc_args|[namespace current]"
     }
 }
 
 # Get all global variables
 foreach var_name [info globals] {
     if {[info exists ::$var_name]} {
-        puts "SEMANTIC_VAR:$var_name:global::"
+        puts "SEMANTIC_VAR|$var_name|global|::"
     }
 }
 
 # Get all namespaces
 foreach ns [namespace children ::] {
     if {$ns ne "::tcl"} {
-        puts "SEMANTIC_NS:$ns"
+        puts "SEMANTIC_NS|$ns"
         
         # Get procs in this namespace
         foreach ns_proc [info procs ${ns}::*] {
@@ -84,12 +84,12 @@ foreach ns [namespace children ::] {
             if {![catch {info args $ns_proc} args]} {
                 set proc_args [join $args " "]
             }
-            puts "SEMANTIC_PROC:$ns_proc:$proc_args:$ns"
+            puts "SEMANTIC_PROC|$ns_proc|$proc_args|$ns"
         }
         
         # Get vars in this namespace  
         foreach ns_var [info vars ${ns}::*] {
-            puts "SEMANTIC_VAR:$ns_var:namespace:$ns"
+            puts "SEMANTIC_VAR|$ns_var|namespace|$ns"
         }
     }
 }
@@ -113,67 +113,69 @@ puts "SEMANTIC_COMPLETE"
 
 	-- Parse the simpler output format
 	for line in result:gmatch("[^\n]+") do
-		-- For procedures
-		if line:match("^SEMANTIC_PROC:") then
-			local remaining = line:sub(15) -- Remove "SEMANTIC_PROC:"
-			local name, rest = remaining:match("^([^:]+):(.*)")
-			if name and rest then
-				local args, context = rest:match("^([^:]*):(.*)$")
-				if args and context then
-					local symbol = {
-						type = "procedure",
-						name = name,
-						line = 1,
-						args = args,
-						context = context,
-						scope = "semantic",
-						proc_context = "",
-						text = "",
-						qualified_name = name,
-						method = "semantic_simple",
-					}
-					table.insert(symbols, symbol)
-					symbol_count = symbol_count + 1
-					print("DEBUG: Found procedure:", name, "args:", args)
-				end
+		if line:match("^SEMANTIC_PROC|") then
+			local parts = {}
+			for part in line:gmatch("([^|]*)") do
+				table.insert(parts, part)
 			end
-		elseif line:match("^SEMANTIC_VAR:") then
-			local remaining = line:sub(13) -- Remove "SEMANTIC_VAR:"
-			local name, rest = remaining:match("^([^:]+):(.*)")
-			if name and rest then
-				local scope, context = rest:match("^([^:]*):(.*)$")
-				if scope and context then
-					local symbol = {
-						type = "variable",
-						name = name,
-						line = 1,
-						args = "",
-						context = context,
-						scope = scope, -- "global" or "namespace"
-						proc_context = "",
-						text = "",
-						qualified_name = name,
-						method = "semantic_simple",
-					}
 
-					table.insert(symbols, symbol)
-					symbol_count = symbol_count + 1
-				end
+			if #parts >= 4 then
+				local symbol = {
+					type = "procedure",
+					name = parts[2],
+					line = 1, -- We don't have line numbers from introspection
+					args = parts[3],
+					context = parts[4],
+					scope = "semantic",
+					proc_context = "",
+					text = "",
+					qualified_name = parts[2],
+					method = "semantic_simple",
+				}
+
+				table.insert(symbols, symbol)
+				symbol_count = symbol_count + 1
 			end
-		elseif line:match("^SEMANTIC_NS:") then
-			local name = line:sub(12) -- Remove "SEMANTIC_NS:"
+		elseif line:match("^SEMANTIC_VAR|") then
+			local parts = {}
+			for part in line:gmatch("([^|]*)") do
+				table.insert(parts, part)
+			end
 
-			if name then
+			if #parts >= 4 then
+				local symbol = {
+					type = "variable",
+					name = parts[2],
+					line = 1,
+					args = "",
+					context = parts[4],
+					scope = parts[3], -- "global" or "namespace"
+					proc_context = "",
+					text = "",
+					qualified_name = parts[2],
+					method = "semantic_simple",
+				}
+
+				table.insert(symbols, symbol)
+				symbol_count = symbol_count + 1
+			end
+		elseif line:match("^SEMANTIC_NS|") then
+			local parts = {}
+			for part in line:gmatch("([^|]*)") do
+				table.insert(parts, part)
+			end
+
+			if #parts >= 2 then
 				local symbol = {
 					type = "namespace",
-					name = name,
+					name = parts[2],
 					line = 1,
 					args = "",
 					context = "",
 					scope = "namespace",
 					proc_context = "",
 					text = "",
-					qualified_name = name,
+					qualified_name = parts[2],
 					method = "semantic_simple",
 				}
 
@@ -187,37 +189,397 @@ puts "SEMANTIC_COMPLETE"
 	return symbols
 end
 
--- Enhanced analyze_tcl_file that tries semantic analysis first
+-- Enhanced analyze_tcl_file that combines semantic + text analysis
 function M.analyze_tcl_file(file_path, tclsh_cmd)
 	-- Check cache first
 	local cached_symbols = get_cached_analysis(file_path)
 	if cached_symbols then
-		print("DEBUG: Using cached symbols for", file_path)
+		print("DEBUG: Using cached symbols for", file_path, "- found", #cached_symbols, "symbols")
 		return cached_symbols
 	end
 
-	print("DEBUG: Analyzing file", file_path, "with", tclsh_cmd)
+	print("DEBUG: Analyzing file:", file_path)
 
-	-- Try semantic analysis first
-	local symbols = M.semantic_tcl_analysis(file_path, tclsh_cmd)
-
-	if symbols and #symbols > 0 then
-		print("DEBUG: Semantic analysis successful")
-		cache_file_analysis(file_path, symbols)
-		return symbols
+	-- Periodically clean up old cache entries
+	if math.random(1, 20) == 1 then -- 5% chance
+		cleanup_cache()
 	end
 
-	print("DEBUG: Semantic analysis failed, trying text-based fallback")
+	-- Improved analysis script with better error handling
+	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
+	local analysis_script = string.format(
+		[[
+# Enhanced TCL Symbol Analysis Script
+set file_path "%s"
 
-	-- Fallback to text-based analysis
-	symbols = M.fallback_analysis(file_path)
-	if symbols and #symbols > 0 then
-		cache_file_analysis(file_path, symbols)
-		return symbols
+puts "DEBUG: Starting analysis of $file_path"
+
+# Read the file with error handling
+if {[catch {
+    set fp [open $file_path r]
+    set content [read $fp]
+    close $fp
+    puts "DEBUG: Successfully read file, [string length $content] characters"
+} err]} {
+    puts "ERROR: Cannot read file: $err"
+    exit 1
+}
+
+# Check if file is empty
+if {[string length [string trim $content]\] == 0} {
+    puts "DEBUG: File is empty"
+    puts "ANALYSIS_COMPLETE"
+    exit 0
+}
+
+# Split into lines for analysis
+set lines [split $content "\n"]
+set total_lines [llength $lines]
+puts "DEBUG: Processing $total_lines lines"
+
+set line_num 0
+set current_namespace ""
+set symbols_found 0
+
+# Parse each line to find symbols
+foreach line $lines {
+    incr line_num
+    set original_line $line
+    set trimmed [string trim $line]
+    
+    # Skip comments and empty lines
+    if {$trimmed eq "" || [string index $trimmed 0] eq "#"} {
+        continue
+    }
+    
+    # Debug every 10th line to show progress
+    if {$line_num %% 10 == 0} {
+        puts "DEBUG: Processing line $line_num: [string range $trimmed 0 50]..."
+    }
+    
+    # Find namespace definitions (improved regex)
+    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
+        set current_namespace $ns_name
+        puts "SYMBOL:namespace:$ns_name:$line_num:$original_line"
+        incr symbols_found
+        puts "DEBUG: Found namespace '$ns_name' at line $line_num"
+    }
+    
+    # Find procedure definitions (improved to handle multi-line)
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match proc_name]} {
+        # Create qualified name if in namespace
+        if {$current_namespace ne "" && ![string match "*::*" $proc_name]} {
+            set full_name "$current_namespace\::$proc_name"
+        } else {
+            set full_name $proc_name
+        }
+        puts "SYMBOL:procedure:$full_name:$line_num:$original_line"
+        incr symbols_found
+        puts "DEBUG: Found procedure '$full_name' at line $line_num"
+        
+        # Also add local name if different
+        if {$full_name ne $proc_name} {
+            puts "SYMBOL:procedure_local:$proc_name:$line_num:$original_line"
+            incr symbols_found
+        }
+    }
+    
+    # Find variable assignments (improved regex)
+    if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
+        # Create qualified name if in namespace
+        if {$current_namespace ne "" && ![string match "*::*" $var_name]} {
+            set full_name "$current_namespace\::$var_name"
+        } else {
+            set full_name $var_name
+        }
+        puts "SYMBOL:variable:$full_name:$line_num:$original_line"
+        incr symbols_found
+        
+        # Also add local name if different
+        if {$full_name ne $var_name} {
+            puts "SYMBOL:variable_local:$var_name:$line_num:$original_line"
+            incr symbols_found
+        }
+    }
+    
+    # Find global variables
+    if {[regexp {^\s*global\s+([a-zA-Z_][a-zA-Z0-9_:\s]+)} $line match globals]} {
+        foreach global_var [split $globals] {
+            set clean_var [string trim $global_var]
+            if {$clean_var ne "" && [regexp {^[a-zA-Z_][a-zA-Z0-9_:]*$} $clean_var]} {
+                puts "SYMBOL:global:$clean_var:$line_num:$original_line"
+                incr symbols_found
+                puts "DEBUG: Found global variable '$clean_var' at line $line_num"
+            }
+        }
+    }
+    
+    # Find package commands
+    if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match cmd pkg_name]} {
+        puts "SYMBOL:package:$pkg_name:$line_num:$original_line"
+        incr symbols_found
+        puts "DEBUG: Found package '$pkg_name' ($cmd) at line $line_num"
+    }
+    
+    # Find source commands
+    if {[regexp {^\s*source\s+(.+)$} $line match source_file]} {
+        set clean_file [string trim $source_file "\"'\{\}"]
+        puts "SYMBOL:source:$clean_file:$line_num:$original_line"
+        incr symbols_found
+        puts "DEBUG: Found source '$clean_file' at line $line_num"
+    }
+}
+
+puts "DEBUG: Analysis complete. Found $symbols_found symbols total."
+puts "ANALYSIS_COMPLETE"
+]],
+		escaped_path
+	)
+
+	local result, success = utils.execute_tcl_script(analysis_script, tclsh_cmd)
+
+	print("DEBUG: TCL execution result:")
+	print("  Success:", success)
+	print("  Result length:", result and #result or "nil")
+	if result then
+		print("  First 200 chars:", result:sub(1, 200))
 	end
 
-	print("DEBUG: All analysis methods failed")
-	return {}
+	if not (result and success) then
+		print("DEBUG: TCL script execution failed")
+		print("DEBUG: Result:", result or "nil")
+		print("DEBUG: Success:", success)
+		return nil
+	end
+
+	local symbols = {}
+	local debug_lines = {}
+
+	for line in result:gmatch("[^\n]+") do
+		if line:match("^DEBUG:") then
+			table.insert(debug_lines, line)
+		elseif line:match("^SYMBOL:") then
+			-- Parse: SYMBOL:type:name:line:text
+			local symbol_type, name, line_num, text = line:match("SYMBOL:([^:]+):([^:]+):([^:]+):(.+)")
+			if symbol_type and name and line_num and text then
+				local symbol = {
+					type = symbol_type,
+					name = name,
+					line = tonumber(line_num),
+					text = text,
+					context = "",
+					scope = "",
+					args = "",
+					qualified_name = name,
+				}
+				table.insert(symbols, symbol)
+			end
+		end
+	end
+
+	-- Print debug information
+	print("DEBUG: TCL script debug output:")
+	for _, debug_line in ipairs(debug_lines) do
+		print("  " .. debug_line)
+	end
+
+	print("DEBUG: Parsed symbols:", #symbols)
+	for i, symbol in ipairs(symbols) do
+		print("  " .. i .. ": " .. symbol.type .. " '" .. symbol.name .. "' at line " .. symbol.line)
+	end
+
+	-- Cache the results even if empty (but with shorter TTL for empty results)
+	cache_file_analysis(file_path, symbols)
+
+	return symbols
+end
+
+-- Enhanced text analysis that focuses on local variables and parameters
+function M.enhanced_text_analysis(file_path)
+	print("DEBUG: Running enhanced text analysis for local symbols")
+
+	local file = io.open(file_path, "r")
+	if not file then
+		print("DEBUG: Cannot open file for text analysis")
+		return {}
+	end
+
+	local symbols = {}
+	local line_num = 0
+	local current_namespace = ""
+	local current_proc = ""
+	local current_proc_line = 0
+	local brace_level = 0
+	local proc_brace_level = 0
+
+	for line in file:lines() do
+		line_num = line_num + 1
+		local trimmed = line:match("^%s*(.-)%s*$")
+
+		-- Skip empty lines and comments
+		if trimmed == "" or trimmed:match("^#") then
+			goto continue
+		end
+
+		-- Track brace levels
+		local open_braces = 0
+		local close_braces = 0
+		for c in line:gmatch(".") do
+			if c == "{" then
+				open_braces = open_braces + 1
+			elseif c == "}" then
+				close_braces = close_braces + 1
+			end
+		end
+		brace_level = brace_level + open_braces - close_braces
+
+		-- Namespace detection
+		local ns_name = trimmed:match("^namespace%s+eval%s+([%w_:]+)")
+		if ns_name then
+			current_namespace = ns_name
+			table.insert(symbols, {
+				type = "namespace",
+				name = ns_name,
+				line = line_num,
+				scope = "namespace",
+				context = "",
+				proc_context = "",
+				text = trimmed,
+				qualified_name = ns_name,
+				method = "text_analysis",
+			})
+		end
+
+		-- Procedure detection with parameter extraction
+		local proc_name, proc_args = trimmed:match("^proc%s+([%w_:]+)%s*{([^}]*)}")
+		if proc_name then
+			local qualified_name = proc_name
+			if current_namespace ~= "" and not proc_name:match("::") then
+				qualified_name = current_namespace .. "::" .. proc_name
+			end
+
+			table.insert(symbols, {
+				type = "procedure",
+				name = qualified_name,
+				line = line_num,
+				scope = "global",
+				context = current_namespace,
+				proc_context = "",
+				text = trimmed,
+				qualified_name = qualified_name,
+				method = "text_analysis",
+				args = proc_args,
+			})
+
+			-- Extract parameters from the procedure
+			if proc_args and proc_args:match("%S") then
+				-- Simple parameter extraction
+				for param in proc_args:gmatch("[%w_]+") do
+					table.insert(symbols, {
+						type = "parameter",
+						name = param,
+						line = line_num,
+						scope = "local",
+						context = current_namespace,
+						proc_context = qualified_name,
+						text = trimmed,
+						qualified_name = param,
+						method = "text_analysis",
+					})
+					print("DEBUG: Found parameter:", param, "in proc:", qualified_name)
+				end
+			end
+
+			current_proc = qualified_name
+			current_proc_line = line_num
+			proc_brace_level = brace_level
+		end
+
+		-- Variable assignments (local and global)
+		local var_name = trimmed:match("^set%s+([%w_:]+)")
+		if var_name then
+			local scope = "global"
+			local proc_context = ""
+
+			if current_proc ~= "" and brace_level > 0 then
+				scope = "local"
+				proc_context = current_proc
+			end
+
+			local qualified_name = var_name
+			if current_namespace ~= "" and scope ~= "local" and not var_name:match("::") then
+				qualified_name = current_namespace .. "::" .. var_name
+			end
+
+			table.insert(symbols, {
+				type = "variable",
+				name = qualified_name,
+				line = line_num,
+				scope = scope,
+				context = current_namespace,
+				proc_context = proc_context,
+				text = trimmed,
+				qualified_name = qualified_name,
+				method = "text_analysis",
+			})
+
+			if scope == "local" then
+				print("DEBUG: Found local variable:", var_name, "in proc:", current_proc)
+			end
+		end
+
+		-- Variable usage detection (for $varname)
+		if current_proc ~= "" and brace_level > 0 then
+			for var_name in line:gmatch("%$([%w_]+)") do
+				table.insert(symbols, {
+					type = "local_var_usage",
+					name = var_name,
+					line = line_num,
+					scope = "local",
+					context = current_namespace,
+					proc_context = current_proc,
+					text = trimmed,
+					qualified_name = var_name,
+					method = "text_analysis",
+				})
+				print("DEBUG: Found variable usage:", var_name, "in proc:", current_proc, "at line:", line_num)
+			end
+		end
+
+		-- Global variables
+		local globals = trimmed:match("^global%s+(.+)")
+		if globals then
+			for global_var in globals:gmatch("[%w_:]+") do
+				table.insert(symbols, {
+					type = "global",
+					name = global_var,
+					line = line_num,
+					scope = "global",
+					context = "",
+					proc_context = current_proc,
+					text = trimmed,
+					qualified_name = global_var,
+					method = "text_analysis",
+				})
+			end
+		end
+
+		-- Reset procedure context when exiting
+		if close_braces > 0 and current_proc ~= "" then
+			if brace_level <= proc_brace_level then
+				print("DEBUG: Exiting procedure:", current_proc, "at line:", line_num)
+				current_proc = ""
+				current_proc_line = 0
+			end
+		end
+
+		::continue::
+	end
+
+	file:close()
+
+	print("DEBUG: Enhanced text analysis found", #symbols, "symbols")
+	return symbols
 end
 
 -- Improved fallback analysis using pure Lua
@@ -621,31 +983,91 @@ end
 
 -- Enhanced debug function
 function M.debug_symbols(file_path, tclsh_cmd)
-	print("DEBUG: Starting debug analysis of", file_path)
+	print("DEBUG: Starting debug_symbols for:", file_path)
+	print("DEBUG: Using tclsh command:", tclsh_cmd)
 
+	-- Check if file exists and is readable
+	if not utils.file_exists(file_path) then
+		print("DEBUG: File does not exist:", file_path)
+		return nil
+	end
+
+	-- Clear cache for this file to ensure fresh analysis
 	M.invalidate_cache(file_path)
+	print("DEBUG: Cache cleared for file")
 
+	-- Get file info
+	local file_size = vim.fn.getfsize(file_path)
+	print("DEBUG: File size:", file_size, "bytes")
+
+	-- Test tclsh command first
+	local test_result, test_success = utils.execute_tcl_script('puts "TCL_TEST_OK"', tclsh_cmd)
+	print("DEBUG: TCL test result:", test_result, "success:", test_success)
+
+	if not (test_result and test_success and test_result:match("TCL_TEST_OK")) then
+		print("DEBUG: TCL command failed basic test")
+		return nil
+	end
+
+	-- Now analyze the file
 	local symbols = M.analyze_tcl_file(file_path, tclsh_cmd)
 
 	if not symbols then
-		print("DEBUG: No symbols found - analysis failed")
-		return {}
+		print("DEBUG: analyze_tcl_file returned nil")
+		return nil
 	end
 
-	print("DEBUG: Found " .. #symbols .. " symbols:")
-	for i, symbol in ipairs(symbols) do
-		print(
-			string.format(
-				"  %d. %s '%s' at line %d (scope: %s, context: %s, method: %s)",
-				i,
-				symbol.type,
-				symbol.name,
-				symbol.line,
-				symbol.scope or "none",
-				symbol.context or "none",
-				symbol.method or "unknown"
-			)
+	print("DEBUG: Final result: Found " .. #symbols .. " symbols")
+
+	if #symbols == 0 then
+		print("DEBUG: No symbols found. Possible issues:")
+		print("  1. File might be empty or contain only comments")
+		print("  2. File might have syntax errors preventing parsing")
+		print("  3. File might not contain standard TCL constructs")
+		print("  4. TCL script regex patterns might not match the code style")
+
+		-- Try a simple content check
+		local content_check = string.format(
+			[[
+set fp [open "%s" r]
+set content [read $fp]
+close $fp
+set lines [split $content "\n"]
+puts "CONTENT_LINES:[llength $lines]"
+set non_empty 0
+foreach line $lines {
+    if {[string trim $line] ne "" && [string index [string trim $line] 0] ne "#"} {
+        incr non_empty
+    }
+}
+puts "NON_EMPTY_LINES:$non_empty"
+if {$non_empty > 0} {
+    set first_non_empty ""
+    foreach line $lines {
+        set trimmed [string trim $line]
+        if {$trimmed ne "" && [string index $trimmed 0] ne "#"} {
+            set first_non_empty $trimmed
+            break
+        }
+    }
+    puts "FIRST_NON_EMPTY:$first_non_empty"
+}
+]],
+			file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
 		)
+
+		local content_result, content_success = utils.execute_tcl_script(content_check, tclsh_cmd)
+		if content_result then
+			print("DEBUG: Content analysis:")
+			for line in content_result:gmatch("[^\n]+") do
+				print("  " .. line)
+			end
+		end
+	else
+		-- Show detailed symbol information
+		for i, symbol in ipairs(symbols) do
+			print(string.format("  %d. %s '%s' at line %d", i, symbol.type, symbol.name, symbol.line))
+		end
 	end
 
 	return symbols

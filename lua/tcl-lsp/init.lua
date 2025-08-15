@@ -3585,6 +3585,51 @@ if {[catch {
 	end, {
 		desc = "Debug scoring and auto-jump logic",
 	})
+
+	vim.api.nvim_create_user_command("TclLspDebug", function()
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify(err or "No file to debug", vim.log.levels.WARN)
+			return
+		end
+
+		print("=== TCL LSP Debug Analysis ===")
+		print("File:", file_path)
+		print("File type:", vim.bo.filetype)
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		print("TCL command:", tclsh_cmd)
+
+		-- Clear messages to see fresh output
+		vim.cmd("messages clear")
+
+		local symbols = tcl.debug_symbols(file_path, tclsh_cmd)
+
+		if symbols and #symbols > 0 then
+			utils.notify("✅ Found " .. #symbols .. " symbols. Check :messages for details.", vim.log.levels.INFO)
+
+			-- Also show in quickfix for easy navigation
+			local qflist = {}
+			for _, symbol in ipairs(symbols) do
+				table.insert(qflist, {
+					bufnr = 0,
+					lnum = symbol.line,
+					text = string.format("[%s] %s", symbol.type, symbol.name),
+				})
+			end
+			vim.fn.setqflist(qflist)
+			vim.cmd("copen")
+		else
+			utils.notify("❌ No symbols found! Check :messages for debug info.", vim.log.levels.WARN)
+			print("\n=== Troubleshooting Tips ===")
+			print("1. Make sure file contains TCL code (proc, set, namespace, etc.)")
+			print("2. Check that file is saved and readable")
+			print("3. Try a simple test file with just: proc test {} { puts hello }")
+			print("4. Run :checkhealth tcl-lsp to verify TCL installation")
+		end
+	end, {
+		desc = "Debug TCL symbol analysis with detailed output",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
