@@ -3453,6 +3453,138 @@ if {[catch {
 	end, {
 		desc = "Show what word is detected under cursor",
 	})
+
+	-- Debug command to see exact scores and auto-jump logic
+	vim.api.nvim_create_user_command("TclDebugScores", function()
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+		local tcl = require("tcl-lsp.tcl")
+		local navigation = require("tcl-lsp.navigation")
+
+		-- Get word under cursor
+		local word, err = utils.get_qualified_word_under_cursor()
+		if not word then
+			word, err = utils.get_word_under_cursor()
+			if not word then
+				print("ERROR: Cannot get word under cursor:", err)
+				return
+			end
+		end
+
+		local file_path, file_err = utils.get_current_file_path()
+		if not file_path then
+			print("ERROR: Cannot get file path:", file_err)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+		if not symbols then
+			print("ERROR: No symbols found")
+			return
+		end
+
+		print("=== Score Debug for '" .. word .. "' ===")
+
+		-- Get current context
+		local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+		local current_context = navigation.get_current_context(cursor_line, symbols)
+
+		print("Current line:", cursor_line)
+		print("Current context:", vim.inspect(current_context))
+
+		-- Calculate scores for all matching symbols
+		local matches = {}
+
+		for _, symbol in ipairs(symbols) do
+			local match_score = 0
+			local match_type = "none"
+
+			-- Basic matching
+			if symbol.name == word then
+				match_score = 100
+				match_type = "exact"
+			elseif symbol.qualified_name == word then
+				match_score = 95
+				match_type = "qualified_exact"
+			elseif utils.symbols_match(symbol.name, word) then
+				match_score = 80
+				match_type = "fuzzy"
+			elseif symbol.name:match("::" .. word .. "$") then
+				match_score = 75
+				match_type = "unqualified"
+			end
+
+			if match_score > 0 then
+				local base_score = match_score
+				local final_score = navigation.apply_scope_bonus(symbol, word, current_context, match_score)
+				local bonus = final_score - base_score
+
+				table.insert(matches, {
+					symbol = symbol,
+					base_score = base_score,
+					bonus = bonus,
+					final_score = final_score,
+					match_type = match_type,
+				})
+			end
+		end
+
+		-- Sort by final score
+		table.sort(matches, function(a, b)
+			return a.final_score > b.final_score
+		end)
+
+		print("\n=== All Matches (sorted by score) ===")
+		for i, match in ipairs(matches) do
+			print(string.format("%d. %s '%s' (line %d)", i, match.symbol.type, match.symbol.name, match.symbol.line))
+			print(
+				string.format(
+					"   Scope: %s, Context: %s, Proc: %s",
+					match.symbol.scope or "none",
+					match.symbol.context or "none",
+					match.symbol.proc_context or "none"
+				)
+			)
+			print(
+				string.format(
+					"   Base: %d, Bonus: %+d, Final: %d (%s match)",
+					match.base_score,
+					match.bonus,
+					match.final_score,
+					match.match_type
+				)
+			)
+			print()
+		end
+
+		if #matches >= 2 then
+			local best_score = matches[1].final_score
+			local second_best_score = matches[2].final_score
+			local score_diff = best_score - second_best_score
+
+			print("=== Auto-Jump Analysis ===")
+			print("Best score:", best_score)
+			print("Second best score:", second_best_score)
+			print("Score difference:", score_diff)
+			print("Auto-jump threshold: 50")
+
+			if score_diff > 50 then
+				print("✅ SHOULD AUTO-JUMP to:", matches[1].symbol.name)
+			else
+				print("❌ Will show menu (score difference too small)")
+				print("Need difference > 50, got", score_diff)
+			end
+		elseif #matches == 1 then
+			print("=== Single Match ===")
+			print("✅ Should auto-jump (only one match)")
+		else
+			print("=== No Matches ===")
+			print("❌ No matches found")
+		end
+	end, {
+		desc = "Debug scoring and auto-jump logic",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
