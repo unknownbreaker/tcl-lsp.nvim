@@ -194,59 +194,38 @@ function M.analyze_tcl_file(file_path, tclsh_cmd)
 	-- Check cache first
 	local cached_symbols = get_cached_analysis(file_path)
 	if cached_symbols then
-		print("DEBUG: Using cached symbols for", file_path, "- found", #cached_symbols, "symbols")
 		return cached_symbols
 	end
-
-	print("DEBUG: Analyzing file:", file_path)
 
 	-- Periodically clean up old cache entries
 	if math.random(1, 20) == 1 then -- 5% chance
 		cleanup_cache()
 	end
 
-	-- Improved analysis script with better error handling and more flexible regex
-	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
+	-- Fixed analysis script with proper global variable handling
 	local analysis_script = string.format(
 		[[
-# Enhanced TCL Symbol Analysis Script  
+# Simple TCL Symbol Analysis Script
 set file_path "%s"
 
-puts "DEBUG: Starting analysis of $file_path"
-
-# Read the file with error handling
+# Read the file
 if {[catch {
     set fp [open $file_path r]
     set content [read $fp]
     close $fp
-    puts "DEBUG: Successfully read file, [string length $content] characters"
 } err]} {
     puts "ERROR: Cannot read file: $err"
     exit 1
 }
 
-# Check if file is empty
-if {[string length [string trim $content] ] == 0} {
-    puts "DEBUG: File is empty"
-    puts "ANALYSIS_COMPLETE"
-    exit 0
-}
-
-# Split into lines for analysis
+# Split into lines for line number tracking
 set lines [split $content "\n"]
-set total_lines [llength $lines]
-puts "DEBUG: Processing $total_lines lines"
-
 set line_num 0
 set current_namespace ""
-set symbols_found 0
-set in_proc 0
-set brace_depth 0
 
 # Parse each line to find symbols
 foreach line $lines {
     incr line_num
-    set original_line $line
     set trimmed [string trim $line]
     
     # Skip comments and empty lines
@@ -254,50 +233,29 @@ foreach line $lines {
         continue
     }
     
-    # Track brace depth for better context awareness
-    set open_braces [regexp -all {\{} $line]
-    set close_braces [regexp -all {\}} $line]
-    set brace_depth [expr {$brace_depth + $open_braces - $close_braces}]
-    
-    # Debug every 50th line to show progress
-    if {$line_num %% 50 == 0} {
-        puts "DEBUG: Processing line $line_num: [string range $trimmed 0 50]..."
-    }
-    
-    # Find namespace definitions (improved regex)
+    # Find namespace definitions
     if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
         set current_namespace $ns_name
-        puts "SYMBOL:namespace:$ns_name:$line_num:$original_line"
-        incr symbols_found
-        puts "DEBUG: Found namespace '$ns_name' at line $line_num"
+        puts "SYMBOL:namespace:$ns_name:$line_num:$line"
     }
     
-    # Find procedure definitions (improved to handle multi-line and various styles)
+    # Find procedure definitions
     if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match proc_name]} {
-        set in_proc 1
         # Create qualified name if in namespace
         if {$current_namespace ne "" && ![string match "*::*" $proc_name]} {
             set full_name "$current_namespace\::$proc_name"
         } else {
             set full_name $proc_name
         }
-        puts "SYMBOL:procedure:$full_name:$line_num:$original_line"
-        incr symbols_found
-        puts "DEBUG: Found procedure '$full_name' at line $line_num"
+        puts "SYMBOL:procedure:$full_name:$line_num:$line"
         
         # Also add local name if different
         if {$full_name ne $proc_name} {
-            puts "SYMBOL:procedure_local:$proc_name:$line_num:$original_line"
-            incr symbols_found
+            puts "SYMBOL:procedure_local:$proc_name:$line_num:$line"
         }
     }
     
-    # End of procedure (when we hit closing brace at appropriate level)
-    if {$in_proc && $brace_depth <= 0} {
-        set in_proc 0
-    }
-    
-    # Find variable assignments (improved regex to handle more cases)
+    # Find variable assignments
     if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
         # Create qualified name if in namespace
         if {$current_namespace ne "" && ![string match "*::*" $var_name]} {
@@ -305,72 +263,41 @@ foreach line $lines {
         } else {
             set full_name $var_name
         }
-        puts "SYMBOL:variable:$full_name:$line_num:$original_line"
-        incr symbols_found
+        puts "SYMBOL:variable:$full_name:$line_num:$line"
         
         # Also add local name if different
         if {$full_name ne $var_name} {
-            puts "SYMBOL:variable_local:$var_name:$line_num:$original_line"
-            incr symbols_found
+            puts "SYMBOL:variable_local:$var_name:$line_num:$line"
         }
     }
     
-    # Find global variables (improved to handle multiple globals on one line)
+    # Find global variables - FIXED VERSION
     if {[regexp {^\s*global\s+(.+)} $line match globals]} {
-        # Split on whitespace and process each variable
-        foreach global_var [regexp -all -inline {[a-zA-Z_][a-zA-Z0-9_:]*} $globals]} {
-            if {$global_var ne ""} {
-                puts "SYMBOL:global:$global_var:$line_num:$original_line"
-                incr symbols_found
-                puts "DEBUG: Found global variable '$global_var' at line $line_num"
-            }
+        # Use regexp to find all valid variable names instead of split
+        set global_vars [regexp -all -inline {[a-zA-Z_][a-zA-Z0-9_:]*} $globals]
+        foreach gvar $global_vars {
+            puts "SYMBOL:global:$gvar:$line_num:$line"
         }
     }
     
-    # Find package commands (improved regex to handle more package names)
+    # Find package commands - IMPROVED REGEX FOR PACKAGES WITH UNDERSCORES/DOTS
     if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_.-]*)} $line match cmd pkg_name]} {
-        puts "SYMBOL:package:$pkg_name:$line_num:$original_line"
-        incr symbols_found
-        puts "DEBUG: Found package '$pkg_name' ($cmd) at line $line_num"
+        puts "SYMBOL:package:$pkg_name:$line_num:$line"
     }
     
-    # Find source commands (improved to handle various quote styles)
+    # Find source commands
     if {[regexp {^\s*source\s+(.+)$} $line match source_file]} {
         set clean_file [string trim $source_file "\"'\{\}"]
-        puts "SYMBOL:source:$clean_file:$line_num:$original_line"
-        incr symbols_found
-        puts "DEBUG: Found source '$clean_file' at line $line_num"
-    }
-    
-    # Find array definitions
-    if {[regexp {^\s*array\s+set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match array_name]} {
-        puts "SYMBOL:array:$array_name:$line_num:$original_line"
-        incr symbols_found
-        puts "DEBUG: Found array '$array_name' at line $line_num"
-    }
-    
-    # Find upvar commands (variable aliasing)
-    if {[regexp {^\s*upvar\s+.*\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
-        puts "SYMBOL:upvar:$var_name:$line_num:$original_line"
-        incr symbols_found
-        puts "DEBUG: Found upvar '$var_name' at line $line_num"
+        puts "SYMBOL:source:$clean_file:$line_num:$line"
     }
 }
 
-puts "DEBUG: Analysis complete. Found $symbols_found symbols total."
 puts "ANALYSIS_COMPLETE"
 ]],
-		escaped_path
+		file_path
 	)
 
 	local result, success = utils.execute_tcl_script(analysis_script, tclsh_cmd)
-
-	print("DEBUG: TCL execution result:")
-	print("  Success:", success)
-	print("  Result length:", result and #result or "nil")
-	if result then
-		print("  First 500 chars:", result:sub(1, 500))
-	end
 
 	if not (result and success) then
 		print("DEBUG: TCL script execution failed")
@@ -379,45 +306,33 @@ puts "ANALYSIS_COMPLETE"
 		return nil
 	end
 
-	local symbols = {}
-	local debug_lines = {}
+	print("DEBUG: TCL script output:")
+	print(result)
 
-	-- More robust parsing
+	local symbols = {}
 	for line in result:gmatch("[^\n]+") do
-		if line:match("^DEBUG:") then
-			table.insert(debug_lines, line)
-		elseif line:match("^SYMBOL:") then
-			-- Parse: SYMBOL:type:name:line:text
-			local symbol_type, name, line_num, text = line:match("SYMBOL:([^:]+):([^:]+):([^:]+):(.+)")
-			if symbol_type and name and line_num and text then
-				local symbol = {
-					type = symbol_type,
-					name = name,
-					line = tonumber(line_num),
-					text = text,
-					context = "",
-					scope = "",
-					args = "",
-					qualified_name = name,
-				}
-				table.insert(symbols, symbol)
-				print("DEBUG: Parsed symbol:", symbol.type, symbol.name, "at line", symbol.line)
-			else
-				print("DEBUG: Failed to parse symbol line:", line)
-			end
+		print("DEBUG: Processing line:", line)
+
+		-- Simple parsing: SYMBOL:type:name:line:text
+		local symbol_type, name, line_num, text = line:match("SYMBOL:([^:]+):([^:]+):([^:]+):(.+)")
+		if symbol_type and name and line_num and text then
+			local symbol = {
+				type = symbol_type,
+				name = name,
+				line = tonumber(line_num),
+				text = text,
+				context = "",
+				scope = "",
+				args = "",
+				qualified_name = "",
+			}
+
+			print("DEBUG: Found symbol:", symbol.type, symbol.name, "at line", symbol.line)
+			table.insert(symbols, symbol)
 		end
 	end
 
-	-- Print debug information
-	print("DEBUG: TCL script debug output:")
-	for _, debug_line in ipairs(debug_lines) do
-		print("  " .. debug_line)
-	end
-
-	print("DEBUG: Final parsed symbols:", #symbols)
-	for i, symbol in ipairs(symbols) do
-		print("  " .. i .. ": " .. symbol.type .. " '" .. symbol.name .. "' at line " .. symbol.line)
-	end
+	print("DEBUG: Total symbols found:", #symbols)
 
 	-- Cache the results
 	cache_file_analysis(file_path, symbols)
