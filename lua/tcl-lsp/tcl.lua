@@ -1,4 +1,3 @@
--- Fixed and simplified tcl.lua with working symbol detection
 local utils = require("tcl-lsp.utils")
 local M = {}
 
