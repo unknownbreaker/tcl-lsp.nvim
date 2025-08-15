@@ -34,7 +34,7 @@ local function get_cached_analysis(file_path)
 	return nil
 end
 
--- Enhanced TCL analysis script with procedure parameters and local variables
+-- Fixed TCL analysis script (corrected syntax errors)
 function M.analyze_tcl_file(file_path, tclsh_cmd)
 	-- Check cache first
 	local cached_symbols = get_cached_analysis(file_path)
@@ -45,11 +45,11 @@ function M.analyze_tcl_file(file_path, tclsh_cmd)
 
 	print("DEBUG: Analyzing file", file_path, "with", tclsh_cmd)
 
-	-- Enhanced analysis script that detects local variables and parameters
+	-- Fixed analysis script with corrected syntax
 	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
 	local analysis_script = string.format(
 		[[
-# Enhanced TCL Symbol Analysis with Local Variables
+# Fixed TCL Symbol Analysis with Local Variables
 set file_path "%s"
 
 # Read the file safely
@@ -102,22 +102,24 @@ foreach line $lines {
         # Extract and register procedure parameters
         set clean_args [string trim $proc_args]
         if {$clean_args ne ""} {
-            # Split parameters by whitespace
-            foreach param [split $clean_args] {
-                set param [string trim $param]
-                if {$param ne ""} {
-                    # Handle default values (param {default value})
-                    if {[string index $param 0] eq "\{" && [string index $param end] eq "\}"} {
-                        set param [string trim $param "{}"]
-                        set param [lindex [split $param] 0]
-                    }
-                    # Handle list parameters {param1 param2}
-                    if {[string index $param 0] eq "\{" || [string index $param end] eq "\}"} {
-                        set param [string trim $param "{}"]
+            # Split parameters by whitespace - FIXED: proper list handling
+            set param_list [split $clean_args]
+            foreach param_item $param_list {
+                set param_item [string trim $param_item]
+                if {$param_item ne ""} {
+                    # Handle default values {param default}
+                    if {[string index $param_item 0] eq "\{" && [string index $param_item end] eq "\}"} {
+                        set param_item [string trim $param_item "{}"]
+                        # Take first word as parameter name
+                        set param_parts [split $param_item]
+                        if {[llength $param_parts] > 0} {
+                            set param_item [lindex $param_parts 0]
+                        }
                     }
                     
-                    if {$param ne "" && [regexp {^[a-zA-Z_][a-zA-Z0-9_]*$} $param]} {
-                        puts "SYMBOL|parameter|$param|$line_num|local|$current_namespace|$qualified_name"
+                    # Validate parameter name
+                    if {$param_item ne "" && [regexp {^[a-zA-Z_][a-zA-Z0-9_]*$} $param_item]} {
+                        puts "SYMBOL|parameter|$param_item|$line_num|local|$current_namespace|$qualified_name"
                     }
                 }
             }
@@ -148,24 +150,19 @@ foreach line $lines {
         puts "SYMBOL|variable|$qualified_name|$line_num|$scope|$context|$proc_context"
     }
     
-    # Find variable usage (for local variable detection)
+    # Find variable usage (for local variable detection) - FIXED: simpler approach
     if {$current_proc ne ""} {
-        # Look for variable usage patterns: $varname
-        set var_matches [regexp -all -inline {\$([a-zA-Z_][a-zA-Z0-9_]*)} $line]
-        set i 0
-        while {$i < [llength $var_matches]} {
-            set full_match [lindex $var_matches $i]
-            set var_name \[lindex $var_matches [expr {$i + 1}]\]
-            if {$var_name ne ""} {
-                puts "SYMBOL|local_var|$var_name|$line_num|local|$current_namespace|$current_proc"
-            }
-            incr i 2
+        # Simple variable usage detection: $varname
+        if {[regexp {\$([a-zA-Z_][a-zA-Z0-9_]*)} $line match var_name]} {
+            puts "SYMBOL|local_var|$var_name|$line_num|local|$current_namespace|$current_proc"
         }
     }
     
     # Find global variables
-    if {[regexp {^\s*global\s+([a-zA-Z_][a-zA-Z0-9_:\s]+)} $line match globals]} {
-        foreach global_var [split $globals] {
+    if {[regexp {^\s*global\s+(.+)$} $line match globals]} {
+        # Split globals properly
+        set global_list [split $globals]
+        foreach global_var $global_list {
             set clean_var [string trim $global_var]
             if {$clean_var ne ""} {
                 puts "SYMBOL|global|$clean_var|$line_num|global||"
@@ -178,8 +175,9 @@ foreach line $lines {
         puts "SYMBOL|package|$pkg_name|$line_num|package||"
     }
     
-    # Reset procedure context when exiting
+    # Reset procedure context when exiting - FIXED: better brace tracking
     if {$close_braces > 0 && $current_proc ne ""} {
+        # Simple heuristic: if we're back to base level, exit procedure
         if {$brace_level <= 0} {
             set current_proc ""
             set current_proc_start 0
@@ -195,19 +193,24 @@ puts "ANALYSIS_COMPLETE"
 	local result, success = utils.execute_tcl_script(analysis_script, tclsh_cmd)
 
 	if not (result and success) then
-		print("DEBUG: TCL script execution failed")
-		print("DEBUG: Command:", tclsh_cmd)
-		print("DEBUG: Result:", result or "nil")
-		print("DEBUG: Success:", success)
+		print("DEBUG: Enhanced TCL script failed, using fallback")
+		print("DEBUG: Error:", result or "nil")
 
 		-- Try fallback analysis
-		print("DEBUG: Attempting fallback analysis")
 		return M.fallback_analysis(file_path)
 	end
 
-	print("DEBUG: TCL script executed successfully")
-	print("DEBUG: Raw output:")
-	print(result)
+	print("DEBUG: Enhanced TCL script executed successfully")
+	-- Only show first few lines of output to avoid spam
+	local output_lines = {}
+	for line in result:gmatch("[^\n]+") do
+		table.insert(output_lines, line)
+		if #output_lines > 10 then
+			table.insert(output_lines, "... (truncated)")
+			break
+		end
+	end
+	print("DEBUG: Output sample:", table.concat(output_lines, "\n"))
 
 	local symbols = {}
 	local symbol_count = 0
@@ -215,8 +218,6 @@ puts "ANALYSIS_COMPLETE"
 
 	-- Parse the format: SYMBOL|type|name|line|scope|context|proc_context
 	for line in result:gmatch("[^\n]+") do
-		print("DEBUG: Processing line:", line)
-
 		if line:match("^SYMBOL|") then
 			local parts = {}
 			for part in line:gmatch("([^|]*)") do
@@ -233,7 +234,7 @@ puts "ANALYSIS_COMPLETE"
 					proc_context = parts[7] or "",
 					text = "", -- Will be filled if needed
 					qualified_name = parts[3] or "unknown",
-					method = "enhanced_with_locals",
+					method = "enhanced_fixed",
 				}
 
 				-- Create unique key to avoid duplicates
@@ -243,25 +244,12 @@ puts "ANALYSIS_COMPLETE"
 					seen_symbols[key] = true
 					table.insert(symbols, symbol)
 					symbol_count = symbol_count + 1
-					print(
-						"DEBUG: Added symbol:",
-						symbol.type,
-						symbol.name,
-						"at line",
-						symbol.line,
-						"scope:",
-						symbol.scope
-					)
-				else
-					print("DEBUG: Skipped duplicate:", symbol.type, symbol.name)
 				end
-			else
-				print("DEBUG: Malformed symbol line:", line)
 			end
 		end
 	end
 
-	print("DEBUG: Total unique symbols parsed:", symbol_count)
+	print("DEBUG: Enhanced script found", symbol_count, "unique symbols")
 
 	-- If we still got no symbols, try the fallback
 	if symbol_count == 0 then
