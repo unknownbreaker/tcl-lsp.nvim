@@ -34,7 +34,7 @@ local function get_cached_analysis(file_path)
 	return nil
 end
 
--- Simplified but robust TCL analysis script
+-- Enhanced TCL analysis script with procedure parameters and local variables
 function M.analyze_tcl_file(file_path, tclsh_cmd)
 	-- Check cache first
 	local cached_symbols = get_cached_analysis(file_path)
@@ -45,11 +45,11 @@ function M.analyze_tcl_file(file_path, tclsh_cmd)
 
 	print("DEBUG: Analyzing file", file_path, "with", tclsh_cmd)
 
-	-- Simplified analysis script that definitely works
+	-- Enhanced analysis script that detects local variables and parameters
 	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
 	local analysis_script = string.format(
 		[[
-# Simplified but robust TCL Symbol Analysis
+# Enhanced TCL Symbol Analysis with Local Variables
 set file_path "%s"
 
 # Read the file safely
@@ -66,6 +66,9 @@ if {[catch {
 set lines [split $content "\n"]
 set line_num 0
 set current_namespace ""
+set current_proc ""
+set current_proc_start 0
+set brace_level 0
 
 foreach line $lines {
     incr line_num
@@ -76,30 +79,88 @@ foreach line $lines {
         continue
     }
     
+    # Track brace levels
+    set open_braces [regexp -all {\{} $line]
+    set close_braces [regexp -all {\}} $line]
+    set brace_level [expr {$brace_level + $open_braces - $close_braces}]
+    
     # Find namespace definitions
     if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
         set current_namespace $ns_name
         puts "SYMBOL|namespace|$ns_name|$line_num|namespace||"
     }
     
-    # Find procedure definitions - simplified regex
-    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match proc_name]} {
+    # Find procedure definitions with parameters
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{([^}]*)\}} $line match proc_name proc_args]} {
         if {$current_namespace ne "" && ![string match "*::*" $proc_name]} {
             set qualified_name "$current_namespace\::$proc_name"
         } else {
             set qualified_name $proc_name
         }
         puts "SYMBOL|procedure|$qualified_name|$line_num|global|$current_namespace|"
+        
+        # Extract and register procedure parameters
+        set clean_args [string trim $proc_args]
+        if {$clean_args ne ""} {
+            # Split parameters by whitespace
+            foreach param [split $clean_args] {
+                set param [string trim $param]
+                if {$param ne ""} {
+                    # Handle default values (param {default value})
+                    if {[string index $param 0] eq "\{" && [string index $param end] eq "\}"} {
+                        set param [string trim $param "{}"]
+                        set param [lindex [split $param] 0]
+                    }
+                    # Handle list parameters {param1 param2}
+                    if {[string index $param 0] eq "\{" || [string index $param end] eq "\}"} {
+                        set param [string trim $param "{}"]
+                    }
+                    
+                    if {$param ne "" && [regexp {^[a-zA-Z_][a-zA-Z0-9_]*$} $param]} {
+                        puts "SYMBOL|parameter|$param|$line_num|local|$current_namespace|$qualified_name"
+                    }
+                }
+            }
+        }
+        
+        set current_proc $qualified_name
+        set current_proc_start $line_num
     }
     
-    # Find variable assignments - simplified
+    # Find variable assignments (global and local)
     if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
-        if {$current_namespace ne "" && ![string match "*::*" $var_name]} {
+        set scope "global"
+        set context $current_namespace
+        set proc_context ""
+        
+        if {$current_proc ne ""} {
+            set scope "local"
+            set proc_context $current_proc
+        } elseif {$current_namespace ne ""} {
+            set scope "namespace"
+        }
+        
+        if {$current_namespace ne "" && $scope ne "local" && ![string match "*::*" $var_name]} {
             set qualified_name "$current_namespace\::$var_name"
         } else {
             set qualified_name $var_name
         }
-        puts "SYMBOL|variable|$qualified_name|$line_num|global|$current_namespace|"
+        puts "SYMBOL|variable|$qualified_name|$line_num|$scope|$context|$proc_context"
+    }
+    
+    # Find variable usage (for local variable detection)
+    if {$current_proc ne ""} {
+        # Look for variable usage patterns: $varname
+        set var_matches [regexp -all -inline {\$([a-zA-Z_][a-zA-Z0-9_]*)} $line]
+        set i 0
+        while {$i < [llength $var_matches]} {
+            set full_match [lindex $var_matches $i]
+            set var_name \[lindex $var_matches [expr {$i + 1}]\]
+            if {$var_name ne ""} {
+                puts "SYMBOL|local_var|$var_name|$line_num|local|$current_namespace|$current_proc"
+            }
+            incr i 2
+        }
     }
     
     # Find global variables
@@ -115,6 +176,14 @@ foreach line $lines {
     # Find package commands
     if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match cmd pkg_name]} {
         puts "SYMBOL|package|$pkg_name|$line_num|package||"
+    }
+    
+    # Reset procedure context when exiting
+    if {$close_braces > 0 && $current_proc ne ""} {
+        if {$brace_level <= 0} {
+            set current_proc ""
+            set current_proc_start 0
+        }
     }
 }
 
@@ -142,8 +211,9 @@ puts "ANALYSIS_COMPLETE"
 
 	local symbols = {}
 	local symbol_count = 0
+	local seen_symbols = {} -- Avoid duplicates
 
-	-- Parse the simpler format: SYMBOL|type|name|line|scope|context|
+	-- Parse the format: SYMBOL|type|name|line|scope|context|proc_context
 	for line in result:gmatch("[^\n]+") do
 		print("DEBUG: Processing line:", line)
 
@@ -160,25 +230,42 @@ puts "ANALYSIS_COMPLETE"
 					line = tonumber(parts[4]) or 1,
 					scope = parts[5] or "global",
 					context = parts[6] or "",
+					proc_context = parts[7] or "",
 					text = "", -- Will be filled if needed
 					qualified_name = parts[3] or "unknown",
-					method = "simplified",
+					method = "enhanced_with_locals",
 				}
 
-				table.insert(symbols, symbol)
-				symbol_count = symbol_count + 1
-				print("DEBUG: Added symbol:", symbol.type, symbol.name, "at line", symbol.line)
+				-- Create unique key to avoid duplicates
+				local key = symbol.type .. ":" .. symbol.name .. ":" .. symbol.line .. ":" .. symbol.scope
+
+				if not seen_symbols[key] then
+					seen_symbols[key] = true
+					table.insert(symbols, symbol)
+					symbol_count = symbol_count + 1
+					print(
+						"DEBUG: Added symbol:",
+						symbol.type,
+						symbol.name,
+						"at line",
+						symbol.line,
+						"scope:",
+						symbol.scope
+					)
+				else
+					print("DEBUG: Skipped duplicate:", symbol.type, symbol.name)
+				end
 			else
 				print("DEBUG: Malformed symbol line:", line)
 			end
 		end
 	end
 
-	print("DEBUG: Total symbols parsed:", symbol_count)
+	print("DEBUG: Total unique symbols parsed:", symbol_count)
 
 	-- If we still got no symbols, try the fallback
 	if symbol_count == 0 then
-		print("DEBUG: No symbols found with main script, trying fallback")
+		print("DEBUG: No symbols found with enhanced script, trying fallback")
 		return M.fallback_analysis(file_path)
 	end
 
