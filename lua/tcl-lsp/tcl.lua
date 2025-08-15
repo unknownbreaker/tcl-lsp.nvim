@@ -164,9 +164,10 @@ function M.analyze_tcl_file(file_path, tclsh_cmd)
 		cleanup_cache()
 	end
 
+	-- Simplified analysis script that should definitely work
 	local analysis_script = string.format(
 		[[
-# TCL Symbol Analysis Script with Semantic Understanding (Optimized)
+# Simple TCL Symbol Analysis Script
 set file_path "%s"
 
 # Read the file
@@ -183,10 +184,8 @@ if {[catch {
 set lines [split $content "\n"]
 set line_num 0
 set current_namespace ""
-set current_proc ""
-set brace_depth 0
 
-# Single-pass analysis with context tracking
+# Parse each line to find symbols
 foreach line $lines {
     incr line_num
     set trimmed [string trim $line]
@@ -196,91 +195,62 @@ foreach line $lines {
         continue
     }
     
-    # Simple brace tracking for context
-    set open_braces [regexp -all {\{} $line]
-    set close_braces [regexp -all {\}} $line]
-    incr brace_depth $open_braces
-    incr brace_depth -$close_braces
-    
-    # Track namespace context
-    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{} $line match ns_name]} {
+    # Find namespace definitions
+    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
         set current_namespace $ns_name
-        puts "SYMBOL:namespace:$ns_name:$line_num:$line:CONTEXT:$current_namespace"
+        puts "SYMBOL:namespace:$ns_name:$line_num:$line"
     }
     
-    # Track procedure context and definitions
-    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{([^}]*)} $line match proc_name args]} {
-        set current_proc $proc_name
-        
-        # Determine full qualified name
-        set full_proc_name $proc_name
-        if {![string match "*::*" $proc_name] && $current_namespace ne ""} {
-            set full_proc_name "$current_namespace\::$proc_name"
-        }
-        
-        # Determine scope
-        set scope "global"
-        if {$current_namespace ne ""} {
-            set scope "namespace"
-        }
-        
-        puts "SYMBOL:procedure:$full_proc_name:$line_num:$line:CONTEXT:$current_namespace:SCOPE:$scope:ARGS:$args"
-        
-        # Also add local reference if in namespace
+    # Find procedure definitions
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match proc_name]} {
+        # Create qualified name if in namespace
         if {$current_namespace ne "" && ![string match "*::*" $proc_name]} {
-            puts "SYMBOL:procedure_local:$proc_name:$line_num:$line:CONTEXT:$current_namespace:SCOPE:namespace:QUALIFIED:$full_proc_name"
+            set full_name "$current_namespace\::$proc_name"
+        } else {
+            set full_name $proc_name
+        }
+        puts "SYMBOL:procedure:$full_name:$line_num:$line"
+        
+        # Also add local name if different
+        if {$full_name ne $proc_name} {
+            puts "SYMBOL:procedure_local:$proc_name:$line_num:$line"
         }
     }
     
-    # Find variable assignments with scope awareness
+    # Find variable assignments
     if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
-        set scope "global"
-        set context_info $current_namespace
-        
-        if {$current_proc ne ""} {
-            set scope "proc_local"
-            set context_info "$current_namespace\::$current_proc"
-        } elseif {$current_namespace ne ""} {
-            set scope "namespace"
-        }
-        
-        set full_var_name $var_name
-        if {![string match "*::*" $var_name] && $current_namespace ne ""} {
-            set full_var_name "$current_namespace\::$var_name"
-        }
-        
-        puts "SYMBOL:variable:$full_var_name:$line_num:$line:SCOPE:$scope:CONTEXT:$context_info"
-        
-        # Add local reference if in namespace
+        # Create qualified name if in namespace
         if {$current_namespace ne "" && ![string match "*::*" $var_name]} {
-            puts "SYMBOL:variable_local:$var_name:$line_num:$line:SCOPE:$scope:CONTEXT:$context_info:QUALIFIED:$full_var_name"
+            set full_name "$current_namespace\::$var_name"
+        } else {
+            set full_name $var_name
+        }
+        puts "SYMBOL:variable:$full_name:$line_num:$line"
+        
+        # Also add local name if different
+        if {$full_name ne $var_name} {
+            puts "SYMBOL:variable_local:$var_name:$line_num:$line"
         }
     }
     
-    # Find global variable declarations
+    # Find global variables
     if {[regexp {^\s*global\s+([a-zA-Z_][a-zA-Z0-9_:\s]*)} $line match globals]} {
         foreach global_var [split $globals] {
             if {$global_var ne ""} {
-                puts "SYMBOL:global:$global_var:$line_num:$line:SCOPE:global:CONTEXT:$current_namespace"
+                puts "SYMBOL:global:$global_var:$line_num:$line"
             }
         }
     }
     
-    # Find package requirements/provides
+    # Find package commands
     if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match cmd pkg_name]} {
-        puts "SYMBOL:package_$cmd:$pkg_name:$line_num:$line:CONTEXT:$current_namespace"
+        puts "SYMBOL:package:$pkg_name:$line_num:$line"
     }
     
     # Find source commands
     if {[regexp {^\s*source\s+(.+)$} $line match source_file]} {
         set clean_file [string trim $source_file "\"'\{\}"]
-        puts "SYMBOL:source:$clean_file:$line_num:$line:CONTEXT:$current_namespace"
-    }
-    
-    # Reset context when back to top level (simplified)
-    if {$brace_depth <= 0} {
-        set current_proc ""
-        # Keep namespace context until explicit end
+        puts "SYMBOL:source:$clean_file:$line_num:$line"
     }
 }
 
@@ -292,52 +262,39 @@ puts "ANALYSIS_COMPLETE"
 	local result, success = utils.execute_tcl_script(analysis_script, tclsh_cmd)
 
 	if not (result and success) then
+		print("DEBUG: TCL script execution failed")
+		print("DEBUG: Result:", result or "nil")
+		print("DEBUG: Success:", success)
 		return nil
 	end
 
+	print("DEBUG: TCL script output:")
+	print(result)
+
 	local symbols = {}
 	for line in result:gmatch("[^\n]+") do
-		-- Parse enhanced symbol format with better error handling
-		local parts = {}
-		for part in line:gmatch("([^:]+)") do
-			table.insert(parts, part)
-		end
+		print("DEBUG: Processing line:", line)
 
-		if parts[1] == "SYMBOL" and #parts >= 5 then
+		-- Simple parsing: SYMBOL:type:name:line:text
+		local symbol_type, name, line_num, text = line:match("SYMBOL:([^:]+):([^:]+):([^:]+):(.+)")
+		if symbol_type and name and line_num and text then
 			local symbol = {
-				type = parts[2],
-				name = parts[3],
-				line = tonumber(parts[4]),
-				text = parts[5],
+				type = symbol_type,
+				name = name,
+				line = tonumber(line_num),
+				text = text,
 				context = "",
 				scope = "",
 				args = "",
 				qualified_name = "",
 			}
 
-			-- Parse additional metadata with more robust parsing
-			local i = 6
-			while i <= #parts do
-				if parts[i] == "CONTEXT" and i < #parts then
-					symbol.context = parts[i + 1] or ""
-					i = i + 2
-				elseif parts[i] == "SCOPE" and i < #parts then
-					symbol.scope = parts[i + 1] or ""
-					i = i + 2
-				elseif parts[i] == "ARGS" and i < #parts then
-					symbol.args = parts[i + 1] or ""
-					i = i + 2
-				elseif parts[i] == "QUALIFIED" and i < #parts then
-					symbol.qualified_name = parts[i + 1] or ""
-					i = i + 2
-				else
-					i = i + 1
-				end
-			end
-
+			print("DEBUG: Found symbol:", symbol.type, symbol.name, "at line", symbol.line)
 			table.insert(symbols, symbol)
 		end
 	end
+
+	print("DEBUG: Total symbols found:", #symbols)
 
 	-- Cache the results
 	cache_file_analysis(file_path, symbols)
