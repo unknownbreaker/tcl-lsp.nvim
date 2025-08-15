@@ -452,6 +452,203 @@ Performance Assessment:
 	end, {
 		desc = "Benchmark cross-file analysis performance",
 	})
+
+	-- Test symbol analysis in current file
+	vim.api.nvim_create_user_command("TclDebugSymbols", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to analyze: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if not symbols then
+			utils.notify("Failed to analyze file", vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("Found " .. #symbols .. " symbols in current file:", vim.log.levels.INFO)
+		for i, symbol in ipairs(symbols) do
+			local qualified_info = symbol.qualified_name and (" -> " .. symbol.qualified_name) or ""
+			local scope_info = symbol.scope and (" [" .. symbol.scope .. "]") or ""
+			local namespace_info = symbol.namespace_context and (" {" .. symbol.namespace_context .. "}") or ""
+
+			utils.notify(
+				string.format(
+					"  %d. %s '%s'%s%s%s at line %d",
+					i,
+					symbol.type,
+					symbol.name,
+					qualified_info,
+					scope_info,
+					namespace_info,
+					symbol.line
+				),
+				vim.log.levels.INFO
+			)
+		end
+	end, {
+		desc = "Debug symbols in current file",
+	})
+
+	-- Test file discovery
+	vim.api.nvim_create_user_command("TclDebugFiles", function()
+		local navigation = require("tcl-lsp.navigation")
+		navigation.debug_file_discovery()
+	end, {
+		desc = "Debug file discovery for workspace search",
+	})
+
+	-- Test workspace search for a specific symbol
+	vim.api.nvim_create_user_command("TclDebugSearch", function(opts)
+		local symbol_name = opts.args
+		if not symbol_name or symbol_name == "" then
+			vim.ui.input({ prompt = "Symbol to search for: " }, function(input)
+				if input and input ~= "" then
+					M.debug_workspace_search(input)
+				end
+			end)
+			return
+		end
+
+		local function debug_workspace_search(search_symbol)
+			local utils = require("tcl-lsp.utils")
+			local navigation = require("tcl-lsp.navigation")
+			local config = require("tcl-lsp.config")
+
+			local file_path, err = utils.get_current_file_path()
+			if not file_path then
+				utils.notify("No file to search from: " .. (err or "unknown"), vim.log.levels.ERROR)
+				return
+			end
+
+			local tclsh_cmd = config.get_tclsh_cmd()
+
+			utils.notify("DEBUG: Searching workspace for '" .. search_symbol .. "'", vim.log.levels.INFO)
+			navigation.search_workspace_for_definition_comprehensive(search_symbol, file_path, tclsh_cmd)
+		end
+
+		debug_workspace_search(symbol_name)
+	end, {
+		desc = "Debug workspace search for specific symbol",
+		nargs = "?",
+	})
+
+	-- Test symbol matching
+	vim.api.nvim_create_user_command("TclDebugMatch", function()
+		local utils = require("tcl-lsp.utils")
+
+		local word, err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify("No symbol under cursor: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		-- Test different symbol matching scenarios
+		local test_symbols = {
+			word, -- exact
+			"myns::" .. word, -- namespace qualified
+			word .. "_test", -- partial
+			"other::" .. word, -- different namespace
+			string.upper(word), -- case different
+		}
+
+		utils.notify("Testing symbol matching for '" .. word .. "':", vim.log.levels.INFO)
+
+		for i, test_symbol in ipairs(test_symbols) do
+			local matches = utils.symbols_match(test_symbol, word)
+			utils.notify(
+				string.format("  %d. '%s' matches '%s': %s", i, test_symbol, word, matches and "YES" or "NO"),
+				vim.log.levels.INFO
+			)
+		end
+	end, {
+		desc = "Debug symbol matching logic",
+	})
+
+	-- Test semantic dependency analysis
+	vim.api.nvim_create_user_command("TclDebugDeps", function()
+		local utils = require("tcl-lsp.utils")
+		local semantic = require("tcl-lsp.semantic")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to analyze: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		if semantic and semantic.build_source_dependencies then
+			local dependencies = semantic.build_source_dependencies(file_path, tclsh_cmd)
+
+			utils.notify("Source dependencies for " .. vim.fn.fnamemodify(file_path, ":t") .. ":", vim.log.levels.INFO)
+			for i, dep in ipairs(dependencies) do
+				local relative_path = vim.fn.fnamemodify(dep, ":.")
+				local exists = utils.file_exists(dep) and "✓" or "✗"
+				utils.notify(string.format("  %d. %s %s", i, exists, relative_path), vim.log.levels.INFO)
+			end
+		else
+			utils.notify("Semantic dependency analysis not available", vim.log.levels.WARN)
+		end
+	end, {
+		desc = "Debug source dependencies",
+	})
+
+	-- All-in-one comprehensive test
+	vim.api.nvim_create_user_command("TclDebugAll", function()
+		local utils = require("tcl-lsp.utils")
+
+		utils.notify("🔍 Starting comprehensive TCL LSP debug...", vim.log.levels.INFO)
+
+		-- Test 1: Current file symbols
+		vim.cmd("TclDebugSymbols")
+
+		-- Test 2: File discovery
+		vim.cmd("TclDebugFiles")
+
+		-- Test 3: Dependencies
+		vim.cmd("TclDebugDeps")
+
+		-- Test 4: Symbol under cursor
+		local word, err = utils.get_word_under_cursor()
+		if word then
+			utils.notify("🎯 Testing workspace search for '" .. word .. "'...", vim.log.levels.INFO)
+			vim.cmd("TclDebugSearch " .. word)
+		else
+			utils.notify("No symbol under cursor to test search", vim.log.levels.WARN)
+		end
+
+		utils.notify("✅ Debug complete!", vim.log.levels.INFO)
+	end, {
+		desc = "Run all TCL LSP debug tests",
+	})
+
+	-- Quick goto definition with debug output
+	vim.api.nvim_create_user_command("TclGotoDebug", function()
+		local utils = require("tcl-lsp.utils")
+		local navigation = require("tcl-lsp.navigation")
+
+		local word, err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify("No symbol under cursor: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("🎯 Debug goto definition for '" .. word .. "'", vim.log.levels.INFO)
+
+		-- This will use the fixed navigation with debug output
+		navigation.goto_definition()
+	end, {
+		desc = "Go to definition with debug output",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings

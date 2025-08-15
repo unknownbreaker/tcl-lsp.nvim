@@ -163,38 +163,21 @@ end
 
 -- Use TCL to analyze a file and extract symbols with their locations (cached)
 function M.analyze_tcl_file(file_path, tclsh_cmd)
-	print("DEBUG: analyze_tcl_file called for:", file_path)
-
 	-- Check cache first
 	local cached_symbols = get_cached_analysis(file_path)
 	if cached_symbols then
-		print("DEBUG: Using cached symbols")
 		return cached_symbols
 	end
 
-	-- TRY SEMANTIC ANALYSIS FIRST
-	print("DEBUG: Attempting semantic analysis...")
-	local semantic_symbols = semantic.analyze_single_file_symbols(file_path, tclsh_cmd)
-
-	if semantic_symbols and #semantic_symbols > 0 then
-		print("DEBUG: Semantic analysis found", #semantic_symbols, "symbols")
-		-- Cache the semantic results
-		cache_file_analysis(file_path, semantic_symbols)
-		return semantic_symbols
-	end
-
-	print("DEBUG: Semantic analysis failed, falling back to regex")
-
-	-- FALLBACK TO REGEX ANALYSIS (existing code)
 	-- Periodically clean up old cache entries
 	if math.random(1, 20) == 1 then -- 5% chance
 		cleanup_cache()
 	end
 
-	-- Your existing regex-based analysis script
+	-- Fixed analysis script with proper namespace and scope tracking
 	local analysis_script = string.format(
 		[[
-# Simple TCL Symbol Analysis Script (FALLBACK)
+# Enhanced TCL Symbol Analysis Script
 set file_path "%s"
 
 # Read the file
@@ -211,6 +194,8 @@ if {[catch {
 set lines [split $content "\n"]
 set line_num 0
 set current_namespace ""
+set namespace_stack [list]
+set brace_level 0
 
 # Parse each line to find symbols
 foreach line $lines {
@@ -222,62 +207,114 @@ foreach line $lines {
         continue
     }
     
-    # Find namespace definitions
-    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
+    # Track brace levels for proper scope management
+    set open_braces [regexp -all {\{} $line]
+    set close_braces [regexp -all {\}} $line]
+    set brace_level [expr {$brace_level + $open_braces - $close_braces}]
+    
+    # Find namespace definitions with proper stack management
+    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{} $line match ns_name]} {
+        lappend namespace_stack $current_namespace
         set current_namespace $ns_name
-        puts "SYMBOL:namespace:$ns_name:$line_num:$line"
+        puts "SYMBOL:namespace:$ns_name:$ns_name:$line_num:namespace:$current_namespace::$line"
     }
     
-    # Find procedure definitions
-    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match proc_name]} {
-        # Create qualified name if in namespace
+    # Find procedure definitions with proper qualified names
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{([^}]*)\}} $line match proc_name proc_args]} {
+        set qualified_name $proc_name
+        set scope "global"
+        
+        # Create qualified name if in namespace and proc is not already qualified
         if {$current_namespace ne "" && ![string match "*::*" $proc_name]} {
-            set full_name "$current_namespace\::$proc_name"
-        } else {
-            set full_name $proc_name
+            set qualified_name "$current_namespace\::$proc_name"
+            set scope "namespace"
         }
-        puts "SYMBOL:procedure:$full_name:$line_num:$line"
         
-        # Also add local name if different
-        if {$full_name ne $proc_name} {
-            puts "SYMBOL:procedure_local:$proc_name:$line_num:$line"
+        # Clean up arguments
+        set clean_args [string trim $proc_args]
+        
+        puts "SYMBOL:procedure:$proc_name:$qualified_name:$line_num:$scope:$current_namespace:$clean_args:$line"
+        
+        # Also add qualified version as separate symbol if different
+        if {$qualified_name ne $proc_name} {
+            puts "SYMBOL:procedure_qualified:$qualified_name:$qualified_name:$line_num:$scope:$current_namespace:$clean_args:$line"
         }
     }
     
-    # Find variable assignments
-    if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
-        # Create qualified name if in namespace
-        if {$current_namespace ne "" && ![string match "*::*" $var_name]} {
-            set full_name "$current_namespace\::$var_name"
-        } else {
-            set full_name $var_name
-        }
-        puts "SYMBOL:variable:$full_name:$line_num:$line"
+    # Find variable assignments with proper scoping
+    if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s+(.*)$} $line match var_name var_value]} {
+        set qualified_name $var_name
+        set scope "global"
         
-        # Also add local name if different
-        if {$full_name ne $var_name} {
-            puts "SYMBOL:variable_local:$var_name:$line_num:$line"
+        # Create qualified name if in namespace and var is not already qualified
+        if {$current_namespace ne "" && ![string match "*::*" $var_name]} {
+            set qualified_name "$current_namespace\::$var_name"
+            set scope "namespace"
+        }
+        
+        # Clean up value for context
+        set clean_value [string range $var_value 0 50]
+        if {[string length $var_value] > 50} {
+            set clean_value "$clean_value..."
+        }
+        
+        puts "SYMBOL:variable:$var_name:$qualified_name:$line_num:$scope:$current_namespace:$clean_value:$line"
+        
+        # Also add qualified version if different
+        if {$qualified_name ne $var_name} {
+            puts "SYMBOL:variable_qualified:$qualified_name:$qualified_name:$line_num:$scope:$current_namespace:$clean_value:$line"
         }
     }
     
     # Find global variables
     if {[regexp {^\s*global\s+([a-zA-Z_][a-zA-Z0-9_:\s]*)} $line match globals]} {
         foreach global_var [split $globals] {
-            if {$global_var ne ""} {
-                puts "SYMBOL:global:$global_var:$line_num:$line"
+            set clean_var [string trim $global_var]
+            if {$clean_var ne ""} {
+                puts "SYMBOL:global:$clean_var:$clean_var:$line_num:global:$current_namespace::$line"
             }
         }
     }
     
-    # Find package commands
-    if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match cmd pkg_name]} {
-        puts "SYMBOL:package:$pkg_name:$line_num:$line"
+    # Find array definitions
+    if {[regexp {^\s*array\s+set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match array_name]} {
+        set qualified_name $array_name
+        set scope "global"
+        
+        if {$current_namespace ne "" && ![string match "*::*" $array_name]} {
+            set qualified_name "$current_namespace\::$array_name"
+            set scope "namespace"
+        }
+        
+        puts "SYMBOL:array:$array_name:$qualified_name:$line_num:$scope:$current_namespace::$line"
     }
     
-    # Find source commands
+    # Find package commands
+    if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*(.*)$} $line match cmd pkg_name version]} {
+        set clean_version [string trim $version]
+        puts "SYMBOL:package:$pkg_name:$pkg_name:$line_num:package:$current_namespace:$cmd $clean_version:$line"
+    }
+    
+    # Find source commands with path resolution
     if {[regexp {^\s*source\s+(.+)$} $line match source_file]} {
         set clean_file [string trim $source_file "\"'\{\}"]
-        puts "SYMBOL:source:$clean_file:$line_num:$line"
+        puts "SYMBOL:source:$clean_file:$clean_file:$line_num:source:$current_namespace::$line"
+    }
+    
+    # Find namespace import commands
+    if {[regexp {^\s*namespace\s+import\s+(.+)$} $line match import_pattern]} {
+        set clean_pattern [string trim $import_pattern]
+        puts "SYMBOL:import:$clean_pattern:$clean_pattern:$line_num:import:$current_namespace::$line"
+    }
+    
+    # Handle namespace scope exits when braces close
+    if {$close_braces > 0 && $brace_level <= 0} {
+        if {[llength $namespace_stack] > 0} {
+            set current_namespace [lindex $namespace_stack end]
+            set namespace_stack [lrange $namespace_stack 0 end-1]
+        } else {
+            set current_namespace ""
+        }
     }
 }
 
@@ -289,32 +326,64 @@ puts "ANALYSIS_COMPLETE"
 	local result, success = utils.execute_tcl_script(analysis_script, tclsh_cmd)
 
 	if not (result and success) then
-		print("DEBUG: Regex analysis also failed")
+		print("DEBUG: TCL script execution failed")
+		print("DEBUG: Result:", result or "nil")
+		print("DEBUG: Success:", success)
 		return nil
 	end
 
-	print("DEBUG: Regex analysis succeeded")
+	print("DEBUG: TCL script output:")
+	print(result)
+
 	local symbols = {}
 	for line in result:gmatch("[^\n]+") do
-		local symbol_type, name, line_num, text = line:match("SYMBOL:([^:]+):([^:]+):([^:]+):(.+)")
+		print("DEBUG: Processing line:", line)
+
+		-- Enhanced parsing: SYMBOL:type:name:qualified_name:line:scope:namespace:context:text
+		local symbol_type, name, qualified_name, line_num, scope, namespace, context, text =
+			line:match("SYMBOL:([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]*):([^:]*):(.+)")
+
 		if symbol_type and name and line_num and text then
 			local symbol = {
 				type = symbol_type,
 				name = name,
+				qualified_name = qualified_name ~= name and qualified_name or nil,
 				line = tonumber(line_num),
 				text = text,
-				context = "",
-				scope = "",
-				args = "",
-				qualified_name = "",
-				method = "regex", -- Mark as regex-based
+				scope = scope ~= "" and scope or "global",
+				context = context ~= "" and context or nil,
+				namespace_context = namespace ~= "" and namespace or nil,
+				args = nil, -- Will be filled from context for procedures
+				method = "semantic_enhanced",
 			}
+
+			-- Extract arguments for procedures
+			if symbol.type == "procedure" or symbol.type == "procedure_qualified" then
+				if context and context ~= "" then
+					symbol.args = context
+				end
+			end
+
+			print(
+				"DEBUG: Found symbol:",
+				symbol.type,
+				symbol.name,
+				"at line",
+				symbol.line,
+				"qualified:",
+				symbol.qualified_name or "none",
+				"scope:",
+				symbol.scope
+			)
 			table.insert(symbols, symbol)
 		end
 	end
 
+	print("DEBUG: Total symbols found:", #symbols)
+
 	-- Cache the results
 	cache_file_analysis(file_path, symbols)
+
 	return symbols
 end
 
