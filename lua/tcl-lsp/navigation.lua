@@ -3,7 +3,7 @@ local config = require("tcl-lsp.config")
 local tcl = require("tcl-lsp.tcl")
 local M = {}
 
--- Simple and reliable go-to-definition
+-- Smart and reliable go-to-definition with scope awareness
 function M.goto_definition()
 	-- Get word under cursor
 	local word, err = utils.get_qualified_word_under_cursor()
@@ -39,43 +39,54 @@ function M.goto_definition()
 		return
 	end
 
-	-- Find matching symbols
+	-- Get current context for smart scope resolution
+	local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+	local current_context = M.get_current_context(cursor_line, symbols)
+
+	print("DEBUG: Current context:", vim.inspect(current_context))
+
+	-- Find matching symbols with scope-aware scoring
 	local matches = {}
 	for _, symbol in ipairs(symbols) do
 		local match_score = 0
 		local match_type = "none"
 
-		-- Exact name match
+		-- Basic name matching
 		if symbol.name == word then
 			match_score = 100
 			match_type = "exact"
-		-- Qualified name match
 		elseif symbol.qualified_name == word then
 			match_score = 95
 			match_type = "qualified_exact"
-		-- Symbol matches using the utility function
 		elseif utils.symbols_match(symbol.name, word) then
 			match_score = 80
 			match_type = "fuzzy"
-		-- Unqualified match (symbol ends with ::word)
 		elseif symbol.name:match("::" .. word .. "$") then
 			match_score = 75
 			match_type = "unqualified"
 		end
 
 		if match_score > 0 then
+			-- Apply scope-aware bonus scoring
+			match_score = M.apply_scope_bonus(symbol, word, current_context, match_score)
+
 			table.insert(matches, {
 				symbol = symbol,
 				score = match_score,
 				match_type = match_type,
 			})
-			print("DEBUG: Found match:", symbol.type, symbol.name, "score:", match_score)
+			print("DEBUG: Found match:", symbol.type, symbol.name, "scope:", symbol.scope, "final score:", match_score)
 		end
 	end
 
+	-- Sort by score (highest first)
+	table.sort(matches, function(a, b)
+		return a.score > b.score
+	end)
+
 	print("DEBUG: Total matches found:", #matches)
 
-	-- Handle results
+	-- Handle results with smarter logic
 	if #matches == 0 then
 		-- Try workspace search as fallback
 		utils.notify("Symbol '" .. word .. "' not found in current file, searching workspace...", vim.log.levels.INFO)
@@ -89,9 +100,103 @@ function M.goto_definition()
 			vim.log.levels.INFO
 		)
 	else
-		-- Multiple matches - show choices
-		M.show_symbol_choices(matches, word)
+		-- Multiple matches - check if there's a clear winner
+		local best_score = matches[1].score
+		local second_best_score = matches[2] and matches[2].score or 0
+
+		-- If the best match is significantly better than the second best, auto-jump
+		if best_score > second_best_score + 50 then
+			local match = matches[1]
+			vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
+			utils.notify(
+				string.format(
+					"Found %s '%s' at line %d (scope: %s)",
+					match.symbol.type,
+					match.symbol.name,
+					match.symbol.line,
+					match.symbol.scope
+				),
+				vim.log.levels.INFO
+			)
+		else
+			-- Show choices for ambiguous matches
+			M.show_symbol_choices(matches, word)
+		end
 	end
+end
+
+-- Get the current context (which procedure/namespace we're in)
+function M.get_current_context(cursor_line, symbols)
+	local context = {
+		namespace = "",
+		procedure = "",
+		procedure_line = 0,
+	}
+
+	-- Find the most recent procedure/namespace before cursor line
+	for _, symbol in ipairs(symbols) do
+		if symbol.line <= cursor_line then
+			if symbol.type == "procedure" and symbol.line > context.procedure_line then
+				context.procedure = symbol.name
+				context.procedure_line = symbol.line
+			elseif symbol.type == "namespace" then
+				context.namespace = symbol.name
+			end
+		end
+	end
+
+	return context
+end
+
+-- Apply scope-aware bonus scoring
+function M.apply_scope_bonus(symbol, target_word, current_context, base_score)
+	local bonus = 0
+
+	-- Strong preference for local scope when inside a procedure
+	if current_context.procedure ~= "" then
+		if symbol.scope == "local" then
+			-- Local variables/parameters get highest priority
+			if symbol.type == "parameter" then
+				bonus = bonus + 200 -- Parameters are most likely
+			elseif symbol.type == "local_var" then
+				bonus = bonus + 150 -- Local variables are very likely
+			elseif symbol.type == "variable" and symbol.scope == "local" then
+				bonus = bonus + 100 -- Local scope variables
+			end
+
+			-- Bonus if it's in the same procedure context
+			if symbol.proc_context == current_context.procedure then
+				bonus = bonus + 100
+			end
+		else
+			-- Penalty for non-local symbols when inside a procedure
+			bonus = bonus - 50
+		end
+	end
+
+	-- Namespace context bonuses
+	if current_context.namespace ~= "" then
+		if symbol.context == current_context.namespace then
+			bonus = bonus + 30
+		end
+	end
+
+	-- Proximity bonus - closer symbols are more likely
+	if current_context.procedure_line > 0 then
+		local distance = math.abs(symbol.line - current_context.procedure_line)
+		if distance < 10 then
+			bonus = bonus + (10 - distance) * 5 -- Closer = higher bonus
+		end
+	end
+
+	-- Symbol type preferences
+	if symbol.type == "parameter" then
+		bonus = bonus + 50 -- Parameters are often what we're looking for
+	elseif symbol.type == "procedure" then
+		bonus = bonus + 20 -- Procedures are common targets
+	end
+
+	return base_score + bonus
 end
 
 -- Simple workspace search
