@@ -226,7 +226,7 @@ if {[catch {
 }
 
 # Check if file is empty
-if {[string length [string trim $content]\] == 0} {
+if {[string length [string trim $content] ] == 0} {
     puts "DEBUG: File is empty"
     puts "ANALYSIS_COMPLETE"
     exit 0
