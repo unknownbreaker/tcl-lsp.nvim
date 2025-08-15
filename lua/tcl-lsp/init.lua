@@ -1159,6 +1159,581 @@ source [file join $config_dir $config_file]
 	end, {
 		desc = "Run all semantic engine tests",
 	})
+
+	-- Step-by-step goto definition debug
+	vim.api.nvim_create_user_command("TclDebugGotoDef", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+		local navigation = require("tcl-lsp.navigation")
+
+		utils.notify("🔍 Step-by-step goto definition debug", vim.log.levels.INFO)
+
+		-- Step 1: Get symbol under cursor
+		local word, err = utils.get_qualified_word_under_cursor()
+		if not word then
+			word, err = utils.get_word_under_cursor()
+			if not word then
+				utils.notify("❌ Step 1 FAILED: " .. (err or "No word under cursor"), vim.log.levels.ERROR)
+				return
+			end
+		end
+		utils.notify("✅ Step 1: Found symbol '" .. word .. "'", vim.log.levels.INFO)
+
+		-- Step 2: Get current file
+		local file_path, file_err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("❌ Step 2 FAILED: " .. (file_err or "No current file"), vim.log.levels.ERROR)
+			return
+		end
+		utils.notify("✅ Step 2: Current file " .. vim.fn.fnamemodify(file_path, ":t"), vim.log.levels.INFO)
+
+		-- Step 3: Analyze current file symbols
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+		if not symbols then
+			utils.notify("❌ Step 3 FAILED: Symbol analysis returned nil", vim.log.levels.ERROR)
+			return
+		end
+		utils.notify("✅ Step 3: Found " .. #symbols .. " symbols in current file", vim.log.levels.INFO)
+
+		if #symbols == 0 then
+			utils.notify("⚠️  Step 3 WARNING: Zero symbols found - this is the problem!", vim.log.levels.WARN)
+			utils.notify("Try :TclTestSemantic to debug symbol analysis", vim.log.levels.INFO)
+			return
+		end
+
+		-- Step 4: Show symbols for debugging
+		utils.notify("📋 Step 4: Symbols found:", vim.log.levels.INFO)
+		for i = 1, math.min(10, #symbols) do
+			local symbol = symbols[i]
+			utils.notify(
+				string.format(
+					"  %d. %s '%s' at line %d [%s]",
+					i,
+					symbol.type,
+					symbol.name,
+					symbol.line,
+					symbol.scope or "unknown"
+				),
+				vim.log.levels.INFO
+			)
+		end
+		if #symbols > 10 then
+			utils.notify(string.format("  ... and %d more symbols", #symbols - 10), vim.log.levels.INFO)
+		end
+
+		-- Step 5: Check if our target symbol exists in symbols
+		local target_found = false
+		local target_matches = {}
+		for _, symbol in ipairs(symbols) do
+			if symbol.name == word then
+				target_found = true
+				table.insert(target_matches, symbol)
+			elseif utils.symbols_match and utils.symbols_match(symbol.name, word) then
+				table.insert(target_matches, symbol)
+			end
+		end
+
+		if target_found then
+			utils.notify("✅ Step 5: Target symbol '" .. word .. "' found in symbols!", vim.log.levels.INFO)
+			utils.notify("Exact matches:", vim.log.levels.INFO)
+			for _, match in ipairs(target_matches) do
+				utils.notify(
+					string.format("  %s '%s' at line %d", match.type, match.name, match.line),
+					vim.log.levels.INFO
+				)
+			end
+		else
+			utils.notify("❌ Step 5 FAILED: Target symbol '" .. word .. "' NOT found in symbols", vim.log.levels.ERROR)
+			utils.notify("This is why goto definition fails!", vim.log.levels.ERROR)
+
+			-- Show similar symbols for debugging
+			local similar = {}
+			for _, symbol in ipairs(symbols) do
+				if symbol.name:lower():find(word:lower(), 1, true) then
+					table.insert(similar, symbol)
+				end
+			end
+
+			if #similar > 0 then
+				utils.notify("Similar symbols found:", vim.log.levels.INFO)
+				for _, sim in ipairs(similar) do
+					utils.notify(
+						string.format("  %s '%s' at line %d", sim.type, sim.name, sim.line),
+						vim.log.levels.INFO
+					)
+				end
+			end
+			return
+		end
+
+		-- Step 6: Test symbol resolution
+		local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+		local resolution = tcl.resolve_symbol(word, file_path, cursor_line, tclsh_cmd)
+
+		if not resolution then
+			utils.notify("❌ Step 6 FAILED: Symbol resolution returned nil", vim.log.levels.ERROR)
+			return
+		end
+		utils.notify("✅ Step 6: Symbol resolution succeeded", vim.log.levels.INFO)
+
+		if not resolution.resolutions or #resolution.resolutions == 0 then
+			utils.notify("⚠️  Step 6 WARNING: No resolutions found", vim.log.levels.WARN)
+		else
+			utils.notify("Resolutions found:", vim.log.levels.INFO)
+			for i, res in ipairs(resolution.resolutions) do
+				utils.notify(
+					string.format("  %d. %s '%s' priority %d", i, res.type, res.name, res.priority),
+					vim.log.levels.INFO
+				)
+			end
+		end
+
+		-- Step 7: Test find_matching_symbols
+		if navigation.find_matching_symbols then
+			local matches = navigation.find_matching_symbols(symbols, resolution.resolutions or {}, word)
+
+			if #matches == 0 then
+				utils.notify("❌ Step 7 FAILED: find_matching_symbols returned no matches", vim.log.levels.ERROR)
+				utils.notify("This is likely where goto definition fails!", vim.log.levels.ERROR)
+
+				-- Debug the matching logic
+				utils.notify("Debugging symbol matching:", vim.log.levels.INFO)
+				for _, symbol in ipairs(symbols) do
+					if symbol.name == word then
+						utils.notify(
+							string.format("  Symbol '%s' SHOULD match query '%s'", symbol.name, word),
+							vim.log.levels.INFO
+						)
+					end
+				end
+			else
+				utils.notify("✅ Step 7: find_matching_symbols found " .. #matches .. " matches", vim.log.levels.INFO)
+				for _, match in ipairs(matches) do
+					utils.notify(
+						string.format(
+							"  Match: %s '%s' at line %d",
+							match.symbol.type,
+							match.symbol.name,
+							match.symbol.line
+						),
+						vim.log.levels.INFO
+					)
+				end
+			end
+		else
+			utils.notify("❌ Step 7 FAILED: find_matching_symbols function not found", vim.log.levels.ERROR)
+		end
+
+		utils.notify("🎯 Debug complete! Check the failed steps above.", vim.log.levels.INFO)
+	end, {
+		desc = "Debug goto definition step by step",
+	})
+
+	-- Test symbol matching logic specifically
+	vim.api.nvim_create_user_command("TclDebugMatching", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+
+		local word, err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify("No symbol under cursor: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local file_path, file_err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file: " .. (file_err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if not symbols or #symbols == 0 then
+			utils.notify("No symbols to test matching against", vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("🔍 Testing symbol matching for '" .. word .. "'", vim.log.levels.INFO)
+
+		-- Test different matching approaches
+		local exact_matches = {}
+		local fuzzy_matches = {}
+		local utils_matches = {}
+
+		for _, symbol in ipairs(symbols) do
+			-- Exact match
+			if symbol.name == word then
+				table.insert(exact_matches, symbol)
+			end
+
+			-- Fuzzy match (contains)
+			if symbol.name:lower():find(word:lower(), 1, true) then
+				table.insert(fuzzy_matches, symbol)
+			end
+
+			-- Utils.symbols_match (if available)
+			if utils.symbols_match and utils.symbols_match(symbol.name, word) then
+				table.insert(utils_matches, symbol)
+			end
+		end
+
+		utils.notify("Exact matches (" .. #exact_matches .. "):", vim.log.levels.INFO)
+		for _, match in ipairs(exact_matches) do
+			utils.notify(string.format("  %s '%s' at line %d", match.type, match.name, match.line), vim.log.levels.INFO)
+		end
+
+		utils.notify("Fuzzy matches (" .. #fuzzy_matches .. "):", vim.log.levels.INFO)
+		for i = 1, math.min(5, #fuzzy_matches) do
+			local match = fuzzy_matches[i]
+			utils.notify(string.format("  %s '%s' at line %d", match.type, match.name, match.line), vim.log.levels.INFO)
+		end
+
+		if utils.symbols_match then
+			utils.notify("Utils.symbols_match (" .. #utils_matches .. "):", vim.log.levels.INFO)
+			for _, match in ipairs(utils_matches) do
+				utils.notify(
+					string.format("  %s '%s' at line %d", match.type, match.name, match.line),
+					vim.log.levels.INFO
+				)
+			end
+		else
+			utils.notify("⚠️  utils.symbols_match function not available", vim.log.levels.WARN)
+		end
+
+		if #exact_matches == 0 and #fuzzy_matches == 0 and #utils_matches == 0 then
+			utils.notify("❌ NO MATCHES FOUND - this explains goto definition failure!", vim.log.levels.ERROR)
+
+			-- Show all symbols for reference
+			utils.notify("All available symbols:", vim.log.levels.INFO)
+			for i = 1, math.min(20, #symbols) do
+				local symbol = symbols[i]
+				utils.notify(string.format("  %s '%s'", symbol.type, symbol.name), vim.log.levels.INFO)
+			end
+		end
+	end, {
+		desc = "Debug symbol matching logic",
+	})
+
+	-- Test the complete goto definition flow with detailed logging
+	vim.api.nvim_create_user_command("TclDebugGotoFlow", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+		local navigation = require("tcl-lsp.navigation")
+
+		-- Override the goto_definition function temporarily with debug version
+		local original_goto_definition = navigation.goto_definition
+
+		navigation.goto_definition = function()
+			utils.notify("🎯 DEBUG GOTO DEFINITION START", vim.log.levels.INFO)
+
+			-- Step 1: Get word
+			local word, err = utils.get_qualified_word_under_cursor()
+			if not word then
+				word, err = utils.get_word_under_cursor()
+				if not word then
+					utils.notify("DEBUG: No word found - " .. (err or "unknown"), vim.log.levels.ERROR)
+					return
+				end
+			end
+			utils.notify("DEBUG: Target word = '" .. word .. "'", vim.log.levels.INFO)
+
+			-- Step 2: Get file
+			local file_path, file_err = utils.get_current_file_path()
+			if not file_path then
+				utils.notify("DEBUG: No file - " .. (file_err or "unknown"), vim.log.levels.ERROR)
+				return
+			end
+			utils.notify("DEBUG: File = " .. vim.fn.fnamemodify(file_path, ":t"), vim.log.levels.INFO)
+
+			-- Step 3: Analyze symbols
+			local tclsh_cmd = config.get_tclsh_cmd()
+			local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+			if not symbols then
+				utils.notify("DEBUG: Symbol analysis FAILED", vim.log.levels.ERROR)
+				return
+			end
+			utils.notify("DEBUG: Found " .. #symbols .. " symbols", vim.log.levels.INFO)
+
+			if #symbols == 0 then
+				utils.notify("DEBUG: ZERO SYMBOLS - goto definition will fail here", vim.log.levels.ERROR)
+				return
+			end
+
+			-- Step 4: Get cursor and resolve
+			local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+			local resolution = tcl.resolve_symbol(word, file_path, cursor_line, tclsh_cmd)
+			local matches = {}
+
+			if resolution and resolution.resolutions then
+				utils.notify(
+					"DEBUG: Using smart resolution with " .. #resolution.resolutions .. " candidates",
+					vim.log.levels.INFO
+				)
+				matches = navigation.find_matching_symbols(symbols, resolution.resolutions, word)
+				utils.notify("DEBUG: Smart resolution found " .. #matches .. " matches", vim.log.levels.INFO)
+			else
+				utils.notify("DEBUG: Smart resolution failed or returned nil", vim.log.levels.WARN)
+			end
+
+			-- Step 5: Fallback matching
+			if #matches == 0 then
+				utils.notify("DEBUG: Trying fallback simple matching", vim.log.levels.INFO)
+				for _, symbol in ipairs(symbols) do
+					if symbol.name == word or (utils.symbols_match and utils.symbols_match(symbol.name, word)) then
+						table.insert(matches, {
+							symbol = symbol,
+							priority = (symbol.name == word) and 10 or 5,
+							resolution = { type = "fallback", name = word },
+						})
+					end
+				end
+				utils.notify("DEBUG: Fallback found " .. #matches .. " matches", vim.log.levels.INFO)
+			end
+
+			-- Step 6: Results
+			if #matches == 0 then
+				utils.notify("DEBUG: FINAL RESULT - NO MATCHES FOUND", vim.log.levels.ERROR)
+				utils.notify("This is why goto definition says 'not found'", vim.log.levels.ERROR)
+			else
+				utils.notify("DEBUG: FINAL RESULT - " .. #matches .. " matches found", vim.log.levels.INFO)
+				for _, match in ipairs(matches) do
+					utils.notify(
+						"DEBUG: Match - "
+							.. match.symbol.type
+							.. " '"
+							.. match.symbol.name
+							.. "' at line "
+							.. match.symbol.line,
+						vim.log.levels.INFO
+					)
+				end
+			end
+
+			utils.notify("🎯 DEBUG GOTO DEFINITION END", vim.log.levels.INFO)
+
+			-- Now call the original function
+			return original_goto_definition()
+		end
+
+		utils.notify("🔧 Goto definition override installed. Try 'gd' now.", vim.log.levels.INFO)
+		utils.notify("The debug version will show exactly what's happening.", vim.log.levels.INFO)
+	end, {
+		desc = "Install debug version of goto definition",
+	})
+
+	-- Create a minimal working goto definition
+	vim.api.nvim_create_user_command("TclSimpleGoto", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+
+		-- Get basics
+		local word, err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify("No word under cursor", vim.log.levels.ERROR)
+			return
+		end
+
+		local file_path, file_err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No current file", vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("🎯 Simple goto for '" .. word .. "'", vim.log.levels.INFO)
+
+		-- Get symbols
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if not symbols then
+			utils.notify("❌ No symbols returned from analysis", vim.log.levels.ERROR)
+			return
+		end
+
+		if #symbols == 0 then
+			utils.notify("❌ Zero symbols found in file", vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("Found " .. #symbols .. " symbols, searching for '" .. word .. "'", vim.log.levels.INFO)
+
+		-- Simple exact match search
+		local matches = {}
+		for _, symbol in ipairs(symbols) do
+			if symbol.name == word then
+				table.insert(matches, symbol)
+			end
+		end
+
+		if #matches == 0 then
+			utils.notify("❌ No exact matches for '" .. word .. "'", vim.log.levels.ERROR)
+
+			-- Show available symbols
+			utils.notify("Available symbols:", vim.log.levels.INFO)
+			for i = 1, math.min(10, #symbols) do
+				utils.notify("  " .. symbols[i].type .. ": " .. symbols[i].name, vim.log.levels.INFO)
+			end
+			return
+		end
+
+		-- Found matches!
+		if #matches == 1 then
+			local match = matches[1]
+			utils.notify(
+				"✅ Found " .. match.type .. " '" .. match.name .. "' at line " .. match.line,
+				vim.log.levels.INFO
+			)
+			vim.api.nvim_win_set_cursor(0, { match.line, 0 })
+		else
+			utils.notify("Found " .. #matches .. " matches:", vim.log.levels.INFO)
+			for i, match in ipairs(matches) do
+				utils.notify(
+					"  " .. i .. ". " .. match.type .. " '" .. match.name .. "' at line " .. match.line,
+					vim.log.levels.INFO
+				)
+			end
+
+			-- Jump to first match
+			vim.api.nvim_win_set_cursor(0, { matches[1].line, 0 })
+		end
+	end, {
+		desc = "Simple goto definition test",
+	})
+
+	-- Test if symbols_match function is working
+	vim.api.nvim_create_user_command("TclTestSymbolsMatch", function()
+		local utils = require("tcl-lsp.utils")
+
+		if not utils.symbols_match then
+			utils.notify("❌ utils.symbols_match function not found!", vim.log.levels.ERROR)
+			utils.notify("This could be why goto definition fails", vim.log.levels.ERROR)
+			return
+		end
+
+		local word, err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify("No word under cursor", vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("Testing symbols_match function with '" .. word .. "'", vim.log.levels.INFO)
+
+		-- Test various symbol patterns
+		local test_symbols = {
+			word, -- exact
+			"test::" .. word, -- namespace qualified
+			word .. "_var", -- similar
+			"my_" .. word, -- similar
+			string.upper(word), -- case different
+			"::" .. word, -- global qualified
+		}
+
+		for _, test_symbol in ipairs(test_symbols) do
+			local matches = utils.symbols_match(test_symbol, word)
+			local status = matches and "✅ MATCHES" or "❌ no match"
+			utils.notify(string.format("  '%s' vs '%s': %s", test_symbol, word, status), vim.log.levels.INFO)
+		end
+	end, {
+		desc = "Test symbols_match function",
+	})
+
+	-- Create a minimal test file for goto definition
+	vim.api.nvim_create_user_command("TclCreateGotoTest", function()
+		local test_content = [[
+# Simple test file for goto definition
+proc test_proc {arg1 arg2} {
+    set local_var "hello"
+    puts $local_var
+    puts $arg1
+    return $arg2
+}
+
+set global_var "world"
+set another_var $global_var
+
+test_proc "first" "second"
+]]
+
+		vim.cmd("new")
+		vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.split(test_content, "\n"))
+		vim.bo.filetype = "tcl"
+
+		local utils = require("tcl-lsp.utils")
+		utils.notify("Created simple test file for goto definition", vim.log.levels.INFO)
+		utils.notify("Try these tests:", vim.log.levels.INFO)
+		utils.notify("1. Put cursor on 'test_proc' in line 11 and run :TclSimpleGoto", vim.log.levels.INFO)
+		utils.notify("2. Put cursor on 'local_var' in line 4 and run :TclSimpleGoto", vim.log.levels.INFO)
+		utils.notify("3. Put cursor on 'global_var' in line 9 and run :TclSimpleGoto", vim.log.levels.INFO)
+		utils.notify("4. Put cursor on 'arg1' in line 5 and run :TclSimpleGoto", vim.log.levels.INFO)
+	end, {
+		desc = "Create simple test file for goto definition",
+	})
+
+	-- Quick analysis of current file
+	vim.api.nvim_create_user_command("TclQuickAnalysis", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No current file: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("📊 Quick analysis of " .. vim.fn.fnamemodify(file_path, ":t"), vim.log.levels.INFO)
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if not symbols then
+			utils.notify("❌ Analysis returned nil", vim.log.levels.ERROR)
+			return
+		end
+
+		if #symbols == 0 then
+			utils.notify("❌ Zero symbols found", vim.log.levels.ERROR)
+			utils.notify("This is why goto definition fails!", vim.log.levels.ERROR)
+
+			-- Show first few lines of file for debugging
+			local lines = vim.api.nvim_buf_get_lines(0, 0, 5, false)
+			utils.notify("First lines of file:", vim.log.levels.INFO)
+			for i, line in ipairs(lines) do
+				if line:gsub("%s", "") ~= "" then
+					utils.notify("  " .. i .. ": " .. line, vim.log.levels.INFO)
+				end
+			end
+			return
+		end
+
+		-- Group by type
+		local by_type = {}
+		for _, symbol in ipairs(symbols) do
+			if not by_type[symbol.type] then
+				by_type[symbol.type] = {}
+			end
+			table.insert(by_type[symbol.type], symbol)
+		end
+
+		utils.notify("✅ Found " .. #symbols .. " symbols:", vim.log.levels.INFO)
+		for type_name, type_symbols in pairs(by_type) do
+			utils.notify("  " .. type_name .. ": " .. #type_symbols, vim.log.levels.INFO)
+
+			-- Show first few examples
+			for i = 1, math.min(3, #type_symbols) do
+				local sym = type_symbols[i]
+				utils.notify("    '" .. sym.name .. "' at line " .. sym.line, vim.log.levels.INFO)
+			end
+		end
+	end, {
+		desc = "Quick analysis of current file",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
