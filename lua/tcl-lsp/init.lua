@@ -1734,6 +1734,269 @@ test_proc "first" "second"
 	end, {
 		desc = "Quick analysis of current file",
 	})
+
+	vim.api.nvim_create_user_command("TclTestRobust", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to analyze: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("🔧 Testing ROBUST analysis on " .. vim.fn.fnamemodify(file_path, ":t"), vim.log.levels.INFO)
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		-- Clear cache to force fresh analysis
+		tcl.invalidate_cache(file_path)
+
+		-- Run the robust analysis
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if not symbols then
+			utils.notify("❌ Robust analysis STILL failed", vim.log.levels.ERROR)
+			utils.notify("Check :messages for debug output", vim.log.levels.INFO)
+			return
+		end
+
+		if #symbols == 0 then
+			utils.notify("❌ Robust analysis found ZERO symbols", vim.log.levels.ERROR)
+			utils.notify("This suggests the TCL script itself is failing", vim.log.levels.ERROR)
+
+			-- Show file info for debugging
+			local file_size = vim.fn.getfsize(file_path)
+			local line_count = vim.api.nvim_buf_line_count(0)
+			utils.notify("File size: " .. file_size .. " bytes, " .. line_count .. " lines", vim.log.levels.INFO)
+
+			return
+		end
+
+		utils.notify("✅ Robust analysis found " .. #symbols .. " symbols!", vim.log.levels.INFO)
+
+		-- Group by type and show results
+		local by_type = {}
+		for _, symbol in ipairs(symbols) do
+			if not by_type[symbol.type] then
+				by_type[symbol.type] = {}
+			end
+			table.insert(by_type[symbol.type], symbol)
+		end
+
+		for type_name, type_symbols in pairs(by_type) do
+			utils.notify(string.format("  %s (%d):", type_name, #type_symbols), vim.log.levels.INFO)
+
+			for i = 1, math.min(5, #type_symbols) do
+				local symbol = type_symbols[i]
+				local qualified_info = symbol.qualified_name and (" → " .. symbol.qualified_name) or ""
+				utils.notify(
+					string.format(
+						"    %d. '%s'%s [%s] line %d",
+						i,
+						symbol.name,
+						qualified_info,
+						symbol.scope,
+						symbol.line
+					),
+					vim.log.levels.INFO
+				)
+			end
+
+			if #type_symbols > 5 then
+				utils.notify(string.format("    ... and %d more", #type_symbols - 5), vim.log.levels.INFO)
+			end
+		end
+
+		utils.notify("🎯 Now try goto definition - it should work!", vim.log.levels.INFO)
+	end, {
+		desc = "Test robust analysis on current file",
+	})
+
+	-- Test if the TCL script execution is working at all
+	vim.api.nvim_create_user_command("TclTestExecution", function()
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		utils.notify("Testing basic TCL script execution with: " .. tclsh_cmd, vim.log.levels.INFO)
+
+		-- Simple test script
+		local test_script = [[
+puts "TCL_TEST_START"
+puts "TCL version: [info patchlevel]"
+puts "Working directory: [pwd]"
+
+# Test basic functionality
+set test_var "hello world"
+puts "Test variable: $test_var"
+
+# Test file operations
+set temp_file "/tmp/tcl_test_[clock seconds].txt"
+if {[catch {
+    set fp [open $temp_file w]
+    puts $fp "test content"
+    close $fp
+    puts "File write: SUCCESS"
+    file delete $temp_file
+} err]} {
+    puts "File operations: FAILED - $err"
+} else {
+    puts "File operations: SUCCESS"
+}
+
+puts "TCL_TEST_COMPLETE"
+]]
+
+		local result, success = utils.execute_tcl_script(test_script, tclsh_cmd)
+
+		if not result then
+			utils.notify("❌ TCL script execution completely failed", vim.log.levels.ERROR)
+			utils.notify("Check if tclsh is installed: " .. tclsh_cmd, vim.log.levels.ERROR)
+			return
+		end
+
+		if not success then
+			utils.notify("❌ TCL script had errors:", vim.log.levels.ERROR)
+			utils.notify(result, vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("✅ TCL script execution works!", vim.log.levels.INFO)
+		utils.notify("Output:", vim.log.levels.INFO)
+		for line in result:gmatch("[^\n]+") do
+			utils.notify("  " .. line, vim.log.levels.INFO)
+		end
+	end, {
+		desc = "Test basic TCL script execution",
+	})
+
+	-- Test the analysis script step by step
+	vim.api.nvim_create_user_command("TclTestAnalysisSteps", function()
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to analyze: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		utils.notify("🔍 Testing analysis script step by step", vim.log.levels.INFO)
+
+		-- Step 1: Test file reading
+		local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
+		local file_read_test = string.format(
+			[[
+set file_path "%s"
+puts "Testing file: $file_path"
+
+if {[catch {
+    set fp [open $file_path r]
+    set content [read $fp]
+    close $fp
+} err]} {
+    puts "ERROR: Cannot read file: $err"
+    exit 1
+}
+
+puts "SUCCESS: File read, length: [string length $content] characters"
+set lines [split $content "\n"]
+puts "Lines: [llength $lines]"
+
+# Show first few lines
+set count 0
+foreach line $lines {
+    if {[incr count] > 5} break
+    set trimmed [string trim $line]
+    if {$trimmed ne ""} {
+        puts "Line $count: $trimmed"
+    }
+}
+]],
+			escaped_path
+		)
+
+		local result, success = utils.execute_tcl_script(file_read_test, tclsh_cmd)
+
+		if not (result and success) then
+			utils.notify("❌ Step 1 FAILED: Cannot read file", vim.log.levels.ERROR)
+			utils.notify("Result: " .. (result or "nil"), vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("✅ Step 1: File reading works", vim.log.levels.INFO)
+		for line in result:gmatch("[^\n]+") do
+			utils.notify("  " .. line, vim.log.levels.INFO)
+		end
+
+		-- Step 2: Test pattern matching
+		local pattern_test = string.format(
+			[[
+set file_path "%s"
+set fp [open $file_path r]
+set content [read $fp]
+close $fp
+
+set lines [split $content "\n"]
+set line_num 0
+set found_symbols 0
+
+foreach line $lines {
+    incr line_num
+    set trimmed [string trim $line]
+    
+    if {$trimmed eq "" || [string match "#*" $trimmed]} {
+        continue
+    }
+    
+    # Test namespace pattern
+    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_:][a-zA-Z0-9_:]*)} $trimmed match ns_name]} {
+        puts "FOUND: namespace '$ns_name' at line $line_num"
+        incr found_symbols
+    }
+    
+    # Test proc pattern  
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match proc_name]} {
+        puts "FOUND: procedure '$proc_name' at line $line_num"
+        incr found_symbols
+    }
+    
+    # Test package pattern
+    if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match cmd pkg_name]} {
+        puts "FOUND: package '$pkg_name' ($cmd) at line $line_num"
+        incr found_symbols
+    }
+    
+    # Test variable pattern
+    if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match var_name]} {
+        puts "FOUND: variable '$var_name' at line $line_num"
+        incr found_symbols
+    }
+}
+
+puts "TOTAL SYMBOLS FOUND: $found_symbols"
+]],
+			escaped_path
+		)
+
+		result, success = utils.execute_tcl_script(pattern_test, tclsh_cmd)
+
+		if not (result and success) then
+			utils.notify("❌ Step 2 FAILED: Pattern matching failed", vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("✅ Step 2: Pattern matching results", vim.log.levels.INFO)
+		for line in result:gmatch("[^\n]+") do
+			utils.notify("  " .. line, vim.log.levels.INFO)
+		end
+	end, {
+		desc = "Test analysis script step by step",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
