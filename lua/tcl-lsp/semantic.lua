@@ -1,11 +1,13 @@
+-- Enhanced semantic.lua with better cross-file symbol resolution
 local utils = require("tcl-lsp.utils")
 local M = {}
 
 -- Cache for cross-file analysis
 local workspace_cache = {}
 local source_dependency_cache = {}
+local symbol_index_cache = {}
 
--- Build a dependency graph of source files
+-- Enhanced dependency graph building with better path resolution
 function M.build_source_dependencies(file_path, tclsh_cmd, visited)
 	visited = visited or {}
 
@@ -15,14 +17,19 @@ function M.build_source_dependencies(file_path, tclsh_cmd, visited)
 	end
 	visited[file_path] = true
 
-	-- Check cache
-	if source_dependency_cache[file_path] then
-		return source_dependency_cache[file_path]
+	-- Check cache first
+	local cache_key = file_path .. ":" .. (tclsh_cmd or "default")
+	if source_dependency_cache[cache_key] then
+		local cached = source_dependency_cache[cache_key]
+		-- Check if cache is still valid (file not modified)
+		if vim.fn.getftime(file_path) <= cached.timestamp then
+			return cached.dependencies
+		end
 	end
 
 	local dependencies = { file_path } -- Include self
 
-	-- Analyze the file to find source commands
+	-- Enhanced source analysis with better path resolution
 	local source_script = string.format(
 		[[
 set file_path "%s"
@@ -38,6 +45,8 @@ if {[catch {
 }
 
 set lines [split $content "\n"]
+set current_dir [file dirname $file_path]
+
 foreach line $lines {
     set trimmed [string trim $line]
     
@@ -46,25 +55,66 @@ foreach line $lines {
         continue
     }
     
-    # Find source commands
+    # Enhanced source command detection
     if {[regexp {^\s*source\s+(.+)$} $line match source_file]} {
+        # Clean up the filename (remove quotes, braces, etc.)
         set clean_file [string trim $source_file "\"'{}"]
         
-        # Handle relative paths
-        if {![string match "/*" $clean_file]} {
-            set dir [file dirname $file_path]
-            set clean_file [file join $dir $clean_file]
+        # Handle variable substitution in filenames (basic)
+        if {[string match "*$*" $clean_file]} {
+            # Try common variable patterns
+            set clean_file [string map [list {$::env(HOME)} $::env(HOME)] $clean_file]
+            # Add more substitutions as needed
         }
         
-        # Normalize the path
-        set clean_file [file normalize $clean_file]
+        # Resolve relative paths
+        if {![string match "/*" $clean_file]} {
+            set clean_file [file join $current_dir $clean_file]
+        }
         
-        puts "SOURCE_DEPENDENCY:$clean_file"
+        # Normalize and check if file exists
+        set clean_file [file normalize $clean_file]
+        if {[file exists $clean_file]} {
+            puts "SOURCE_DEPENDENCY:$clean_file"
+        } else {
+            # Try common alternative locations
+            set alternatives [list]
+            lappend alternatives \[file join $current_dir "lib" [file tail $clean_file]\]
+            lappend alternatives \[file join $current_dir "src" [file tail $clean_file]\]
+            lappend alternatives \[file join $current_dir "tcl" [file tail $clean_file]\]
+            lappend alternatives \[file join [file dirname $current_dir] [file tail $clean_file]\]
+            
+            foreach alt $alternatives {
+                set alt [file normalize $alt]
+                if {[file exists $alt]} {
+                    puts "SOURCE_DEPENDENCY:$alt"
+                    break
+                }
+            }
+        }
     }
     
-    # Find package require commands (for tcllib, custom packages)
+    # Package require commands (for finding package files)
     if {[regexp {^\s*package\s+require\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match pkg_name]} {
         puts "PACKAGE_DEPENDENCY:$pkg_name"
+        
+        # Try to find package files in common locations
+        set pkg_paths [list]
+        lappend pkg_paths [file join $current_dir "$pkg_name.tcl"]
+        lappend pkg_paths [file join $current_dir "lib" "$pkg_name.tcl"]
+        lappend pkg_paths [file join $current_dir "packages" "$pkg_name.tcl"]
+        
+        foreach pkg_path $pkg_paths {
+            if {[file exists $pkg_path]} {
+                puts "SOURCE_DEPENDENCY:$pkg_path"
+                break
+            }
+        }
+    }
+    
+    # namespace import commands (helps track cross-namespace dependencies)
+    if {[regexp {^\s*namespace\s+import\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match import_pattern]} {
+        puts "NAMESPACE_IMPORT:$import_pattern"
     }
 }
 
@@ -78,7 +128,7 @@ puts "DEPENDENCIES_COMPLETE"
 	if result and success then
 		for line in result:gmatch("[^\n]+") do
 			local dep_file = line:match("SOURCE_DEPENDENCY:(.+)")
-			if dep_file and utils.file_exists(dep_file) then
+			if dep_file and utils.file_exists(dep_file) and dep_file ~= file_path then
 				table.insert(dependencies, dep_file)
 
 				-- Recursively find dependencies of dependencies
@@ -93,47 +143,212 @@ puts "DEPENDENCIES_COMPLETE"
 	end
 
 	-- Cache the result
-	source_dependency_cache[file_path] = dependencies
+	source_dependency_cache[cache_key] = {
+		dependencies = dependencies,
+		timestamp = vim.fn.getftime(file_path),
+	}
+
 	return dependencies
 end
 
--- Analyze multiple files and build a comprehensive symbol database
-function M.analyze_workspace_symbols(file_path, tclsh_cmd)
-	-- Get all related files through source dependencies
-	local related_files = M.build_source_dependencies(file_path, tclsh_cmd)
+-- Build a comprehensive workspace symbol index
+function M.build_workspace_symbol_index(root_file, tclsh_cmd)
+	local cache_key = root_file .. ":" .. (tclsh_cmd or "default")
 
-	-- Also include common TCL files in the same directory
-	local current_dir = vim.fn.fnamemodify(file_path, ":h")
-	local tcl_files = vim.fn.glob(current_dir .. "/*.tcl", false, true)
+	-- Check if we have a valid cached index
+	if symbol_index_cache[cache_key] then
+		local cached = symbol_index_cache[cache_key]
+		local current_time = os.time()
 
-	for _, tcl_file in ipairs(tcl_files) do
-		if not vim.tbl_contains(related_files, tcl_file) then
-			table.insert(related_files, tcl_file)
+		-- Cache valid for 5 minutes or until any indexed file changes
+		if (current_time - cached.created_time) < 300 then
+			local cache_valid = true
+			for file_path, file_mtime in pairs(cached.file_mtimes) do
+				if vim.fn.getftime(file_path) > file_mtime then
+					cache_valid = false
+					break
+				end
+			end
+
+			if cache_valid then
+				return cached.index
+			end
 		end
 	end
 
-	print("DEBUG: Analyzing", #related_files, "related files for workspace symbols")
+	-- Get all related files
+	local related_files = M.build_source_dependencies(root_file, tclsh_cmd)
 
-	local all_symbols = {}
+	-- Add common workspace files
+	local workspace_files = vim.fn.glob("**/*.tcl", false, true)
+	for _, file in ipairs(workspace_files) do
+		if not vim.tbl_contains(related_files, file) and utils.file_exists(file) then
+			table.insert(related_files, file)
+		end
+	end
 
-	for _, analyze_file in ipairs(related_files) do
-		if utils.file_exists(analyze_file) then
-			local file_symbols = M.analyze_single_file_symbols(analyze_file, tclsh_cmd)
+	local index = {
+		files = {},
+		symbols = {},
+		by_name = {},
+		by_type = {},
+		by_namespace = {},
+		qualified_names = {},
+		cross_references = {},
+		total_symbols = 0,
+		file_count = #related_files,
+	}
+
+	local file_mtimes = {}
+
+	for _, file_path in ipairs(related_files) do
+		if utils.file_exists(file_path) then
+			local file_symbols = M.analyze_single_file_symbols(file_path, tclsh_cmd)
+			file_mtimes[file_path] = vim.fn.getftime(file_path)
+
 			if file_symbols then
+				index.files[file_path] = {
+					path = file_path,
+					symbols = file_symbols,
+					symbol_count = #file_symbols,
+				}
+
 				for _, symbol in ipairs(file_symbols) do
-					symbol.source_file = analyze_file
-					symbol.is_imported = (analyze_file ~= file_path)
-					table.insert(all_symbols, symbol)
+					-- Add file reference
+					symbol.source_file = file_path
+					symbol.is_external = (file_path ~= root_file)
+
+					-- Add to main symbol list
+					table.insert(index.symbols, symbol)
+
+					-- Index by name
+					if not index.by_name[symbol.name] then
+						index.by_name[symbol.name] = {}
+					end
+					table.insert(index.by_name[symbol.name], symbol)
+
+					-- Index by qualified name if different
+					if symbol.qualified_name and symbol.qualified_name ~= symbol.name then
+						if not index.qualified_names[symbol.qualified_name] then
+							index.qualified_names[symbol.qualified_name] = {}
+						end
+						table.insert(index.qualified_names[symbol.qualified_name], symbol)
+					end
+
+					-- Index by type
+					if not index.by_type[symbol.type] then
+						index.by_type[symbol.type] = {}
+					end
+					table.insert(index.by_type[symbol.type], symbol)
+
+					-- Index by namespace
+					if symbol.namespace_context then
+						if not index.by_namespace[symbol.namespace_context] then
+							index.by_namespace[symbol.namespace_context] = {}
+						end
+						table.insert(index.by_namespace[symbol.namespace_context], symbol)
+					end
+
+					index.total_symbols = index.total_symbols + 1
 				end
 			end
 		end
 	end
 
-	print("DEBUG: Found", #all_symbols, "total symbols across workspace")
-	return all_symbols
+	-- Cache the index
+	symbol_index_cache[cache_key] = {
+		index = index,
+		file_mtimes = file_mtimes,
+		created_time = os.time(),
+	}
+
+	return index
 end
 
--- Enhanced single file analysis
+-- Enhanced symbol resolution using the workspace index
+function M.resolve_symbol_with_workspace_index(symbol_name, root_file, cursor_line, tclsh_cmd)
+	local index = M.build_workspace_symbol_index(root_file, tclsh_cmd)
+
+	local candidates = {}
+
+	-- 1. Look for exact name matches
+	if index.by_name[symbol_name] then
+		for _, symbol in ipairs(index.by_name[symbol_name]) do
+			table.insert(candidates, {
+				symbol = symbol,
+				score = symbol.is_external and 80 or 100, -- Prefer local symbols
+				match_type = "exact_name",
+			})
+		end
+	end
+
+	-- 2. Look for qualified name matches
+	if index.qualified_names[symbol_name] then
+		for _, symbol in ipairs(index.qualified_names[symbol_name]) do
+			table.insert(candidates, {
+				symbol = symbol,
+				score = symbol.is_external and 85 or 95,
+				match_type = "exact_qualified",
+			})
+		end
+	end
+
+	-- 3. Look for unqualified matches of qualified symbols
+	if symbol_name:match("::") then
+		local unqualified = symbol_name:match("([^:]+)$")
+		if index.by_name[unqualified] then
+			for _, symbol in ipairs(index.by_name[unqualified]) do
+				if symbol.qualified_name and symbol.qualified_name:match("::" .. unqualified .. "$") then
+					table.insert(candidates, {
+						symbol = symbol,
+						score = symbol.is_external and 70 or 90,
+						match_type = "unqualified_of_qualified",
+					})
+				end
+			end
+		end
+	else
+		-- 4. Look for qualified versions of unqualified search
+		for qualified_name, symbols in pairs(index.qualified_names) do
+			if qualified_name:match("::" .. symbol_name .. "$") then
+				for _, symbol in ipairs(symbols) do
+					table.insert(candidates, {
+						symbol = symbol,
+						score = symbol.is_external and 60 or 75,
+						match_type = "qualified_of_unqualified",
+					})
+				end
+			end
+		end
+	end
+
+	-- 5. Type-specific bonuses
+	for _, candidate in ipairs(candidates) do
+		local symbol = candidate.symbol
+
+		-- Boost procedures and namespaces
+		if symbol.type == "procedure" or symbol.type == "namespace" then
+			candidate.score = candidate.score + 10
+		end
+
+		-- Boost public symbols
+		if symbol.visibility == "public" then
+			candidate.score = candidate.score + 5
+		end
+
+		-- Boost symbols in same namespace context
+		-- (You'd need to track current namespace from cursor position)
+	end
+
+	-- Sort by score
+	table.sort(candidates, function(a, b)
+		return a.score > b.score
+	end)
+
+	return candidates
+end
+
+-- Enhanced single file analysis with better context tracking
 function M.analyze_single_file_symbols(file_path, tclsh_cmd)
 	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
 
@@ -157,6 +372,7 @@ set current_namespace ""
 set current_proc ""
 set current_line 0
 set namespace_stack [list]
+set brace_level 0
 
 if {[catch {
     set fp [open $file_path r]
@@ -170,7 +386,6 @@ if {[catch {
 # Enhanced parsing with better context tracking
 set lines [split $content "\n"]
 set line_num 0
-set brace_level 0
 
 foreach line $lines {
     incr line_num
@@ -271,6 +486,11 @@ foreach line $lines {
         track_symbol "source" $clean_file $line_num $current_namespace $current_proc "" "" "source" "public"
     }
     
+    # Namespace import tracking
+    if {[regexp {^\s*namespace\s+import\s+(.+)$} $line match import_pattern]} {
+        track_symbol "import" $import_pattern $line_num $current_namespace $current_proc "" "" "import" "public"
+    }
+    
     # Reset contexts when exiting scopes
     if {$close_braces > 0} {
         if {$current_proc ne "" && $brace_level <= 0} {
@@ -303,7 +523,7 @@ puts "SEMANTIC_ANALYSIS_COMPLETE"
 			table.insert(symbols, {
 				type = type,
 				name = name,
-				qualified_name = qualified_name,
+				qualified_name = qualified_name ~= "" and qualified_name or nil,
 				line = tonumber(line_num),
 				scope = scope,
 				namespace_context = ns_context ~= "" and ns_context or nil,
@@ -319,100 +539,19 @@ puts "SEMANTIC_ANALYSIS_COMPLETE"
 	return symbols
 end
 
--- Smart symbol resolution across files
-function M.resolve_symbol_across_workspace(symbol_name, file_path, cursor_line, tclsh_cmd)
-	print("DEBUG: Resolving symbol", symbol_name, "across workspace")
+-- Find all symbols that could match a query across workspace
+function M.find_workspace_symbol_candidates(symbol_name, root_file, tclsh_cmd)
+	local index = M.build_workspace_symbol_index(root_file, tclsh_cmd)
+	local candidates = M.resolve_symbol_with_workspace_index(symbol_name, root_file, 0, tclsh_cmd)
 
-	-- Get all workspace symbols
-	local all_symbols = M.analyze_workspace_symbols(file_path, tclsh_cmd)
-
-	if not all_symbols or #all_symbols == 0 then
-		print("DEBUG: No workspace symbols found")
-		return nil
-	end
-
-	local candidates = {}
-
-	-- Find matching symbols with priority scoring
-	for _, symbol in ipairs(all_symbols) do
-		local score = 0
-		local match_type = "none"
-
-		-- Exact name match
-		if symbol.name == symbol_name then
-			score = score + 100
-			match_type = "exact"
-		elseif symbol.qualified_name == symbol_name then
-			score = score + 95
-			match_type = "qualified_exact"
-		end
-
-		-- Partial matches (unqualified name matches qualified symbol)
-		if match_type == "none" then
-			if symbol.qualified_name and symbol.qualified_name:match("::" .. symbol_name .. "$") then
-				score = score + 80
-				match_type = "unqualified_match"
-			end
-
-			if symbol.name:match("^" .. symbol_name) then
-				score = score + 60
-				match_type = "prefix_match"
-			end
-		end
-
-		-- Skip if no match
-		if score == 0 then
-			goto continue
-		end
-
-		-- Boost score based on file proximity
-		if symbol.source_file == file_path then
-			score = score + 50 -- Same file
-		elseif not symbol.is_imported then
-			score = score + 20 -- Local workspace
-		end
-
-		-- Boost score based on visibility and scope
-		if symbol.visibility == "public" then
-			score = score + 10
-		end
-
-		if symbol.scope == "global" then
-			score = score + 5
-		end
-
-		table.insert(candidates, {
-			symbol = symbol,
-			score = score,
-			match_type = match_type,
-		})
-
-		::continue::
-	end
-
-	-- Sort by score (highest first)
-	table.sort(candidates, function(a, b)
-		return a.score > b.score
-	end)
-
-	-- Return top candidates
-	local results = {}
-	for i = 1, math.min(#candidates, 10) do
-		table.insert(results, candidates[i].symbol)
-	end
-
-	print("DEBUG: Found", #results, "symbol candidates")
-	return results
+	return candidates, index
 end
 
--- Cross-file reference finding
+-- Enhanced cross-file reference finding with better scope resolution
 function M.find_references_across_workspace(symbol_name, file_path, tclsh_cmd)
-	print("DEBUG: Finding references for", symbol_name, "across workspace")
-
-	-- Get all related files
 	local related_files = M.build_source_dependencies(file_path, tclsh_cmd)
 
-	-- Also search common TCL files in workspace
+	-- Also search broader workspace
 	local workspace_files = vim.fn.glob("**/*.tcl", false, true)
 	for _, tcl_file in ipairs(workspace_files) do
 		if not vim.tbl_contains(related_files, tcl_file) then
@@ -424,7 +563,7 @@ function M.find_references_across_workspace(symbol_name, file_path, tclsh_cmd)
 
 	for _, search_file in ipairs(related_files) do
 		if utils.file_exists(search_file) then
-			local file_refs = M.find_references_in_single_file(symbol_name, search_file, tclsh_cmd)
+			local file_refs = M.find_references_in_single_file_enhanced(symbol_name, search_file, tclsh_cmd)
 			if file_refs then
 				for _, ref in ipairs(file_refs) do
 					ref.source_file = search_file
@@ -435,12 +574,11 @@ function M.find_references_across_workspace(symbol_name, file_path, tclsh_cmd)
 		end
 	end
 
-	print("DEBUG: Found", #all_references, "references across", #related_files, "files")
 	return all_references
 end
 
--- Find references in a single file
-function M.find_references_in_single_file(symbol_name, file_path, tclsh_cmd)
+-- Enhanced single-file reference finding with better context awareness
+function M.find_references_in_single_file_enhanced(symbol_name, file_path, tclsh_cmd)
 	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
 	local escaped_symbol = symbol_name:gsub("\\", "\\\\"):gsub('"', '\\"')
 
@@ -460,32 +598,86 @@ if {[catch {
 
 set lines [split $content "\n"]
 set line_num 0
+set current_namespace ""
+set current_proc ""
+
+# Check if target_symbol contains namespace qualifier
+set is_qualified [string match "*::*" $target_symbol]
+if {$is_qualified} {
+    set parts [split $target_symbol "::"]
+    set unqualified [lindex $parts end]
+    set target_namespace [join [lrange $parts 0 end-1] "::"]
+} else {
+    set unqualified $target_symbol
+    set target_namespace ""
+}
 
 foreach line $lines {
     incr line_num
     
-    # Variable usage: $symbol_name
-    if {[regexp "\\$$target_symbol\\y" $line]} {
-        puts "WORKSPACE_REF:variable:$target_symbol:$line_num:usage:$line"
+    # Track current context
+    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
+        set current_namespace $ns_name
+    }
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match proc_name]} {
+        set current_proc $proc_name
     }
     
-    # Procedure calls
-    if {[regexp "(^|\\s)$target_symbol\\s*\\(" $line] || [regexp "(^|\\s)$target_symbol\\s+[^=]" $line]} {
-        puts "WORKSPACE_REF:procedure:$target_symbol:$line_num:call:$line"
+    # Enhanced reference detection
+    set found_reference 0
+    set ref_type "usage"
+    set context_info ""
+    
+    # 1. Exact symbol match
+    if {[regexp "\\y$target_symbol\\y" $line]} {
+        set found_reference 1
+        set context_info "exact:$current_namespace:$current_proc"
+        
+        # Determine reference type
+        if {[regexp "^\\s*proc\\s+$target_symbol\\s" $line]} {
+            set ref_type "definition:procedure"
+        } elseif {[regexp "^\\s*set\\s+$target_symbol\\s" $line]} {
+            set ref_type "definition:variable"
+        } elseif {[regexp "^\\s*namespace\\s+eval\\s+$target_symbol\\s" $line]} {
+            set ref_type "definition:namespace"
+        } elseif {[regexp "\\$target_symbol\\y" $line]} {
+            set ref_type "variable_usage"
+        } elseif {[regexp "$target_symbol\\s*\\(" $line] || [regexp "$target_symbol\\s+\[^=\]" $line]} {
+            set ref_type "procedure_call"
+        }
     }
     
-    # Definitions
-    if {[regexp "^\\s*proc\\s+$target_symbol\\s" $line]} {
-        puts "WORKSPACE_REF:procedure:$target_symbol:$line_num:definition:$line"
+    # 2. Unqualified match (if target is qualified)
+    if {!$found_reference && $is_qualified && [regexp "\\y$unqualified\\y" $line]} {
+        # Check if we're in the right namespace context
+        if {$current_namespace eq $target_namespace || $target_namespace eq ""} {
+            set found_reference 1
+            set context_info "unqualified:$current_namespace:$current_proc"
+            set ref_type "usage_unqualified"
+            
+            if {[regexp "^\\s*proc\\s+$unqualified\\s" $line]} {
+                set ref_type "definition:procedure_local"
+            } elseif {[regexp "^\\s*set\\s+$unqualified\\s" $line]} {
+                set ref_type "definition:variable_local"
+            } elseif {[regexp "\\$unqualified\\y" $line]} {
+                set ref_type "variable_usage_local"
+            } elseif {[regexp "$unqualified\\s*\\(" $line]} {
+                set ref_type "procedure_call_local"
+            }
+        }
     }
     
-    if {[regexp "^\\s*set\\s+$target_symbol\\s" $line]} {
-        puts "WORKSPACE_REF:variable:$target_symbol:$line_num:definition:$line"
+    # 3. Qualified match (if target is unqualified but line has qualified reference)
+    if {!$found_reference && !$is_qualified} {
+        if {[regexp "(\\w+::)*$target_symbol\\y" $line match_qualified]} {
+            set found_reference 1
+            set context_info "qualified:$current_namespace:$current_proc"
+            set ref_type "usage_qualified"
+        }
     }
     
-    # Namespace qualified references
-    if {[regexp "::$target_symbol\\y" $line]} {
-        puts "WORKSPACE_REF:qualified:$target_symbol:$line_num:qualified_usage:$line"
+    if {$found_reference} {
+        puts "WORKSPACE_REF:$ref_type:$target_symbol:$line_num:$context_info:$line"
     }
 }
 
@@ -512,7 +704,7 @@ puts "WORKSPACE_REFERENCES_COMPLETE"
 				line = tonumber(line_num),
 				context = context,
 				text = utils.trim(text),
-				method = "workspace_semantic",
+				method = "workspace_semantic_enhanced",
 			})
 		end
 	end
@@ -524,6 +716,20 @@ end
 function M.invalidate_workspace_cache()
 	workspace_cache = {}
 	source_dependency_cache = {}
+	symbol_index_cache = {}
+end
+
+-- Get statistics about the workspace analysis
+function M.get_workspace_stats(root_file, tclsh_cmd)
+	local index = M.build_workspace_symbol_index(root_file, tclsh_cmd)
+
+	return {
+		total_files = index.file_count,
+		total_symbols = index.total_symbols,
+		symbols_by_type = {},
+		namespaces = vim.tbl_count(index.by_namespace),
+		external_dependencies = vim.tbl_count(M.build_source_dependencies(root_file, tclsh_cmd)) - 1,
+	}
 end
 
 return M

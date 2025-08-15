@@ -124,6 +124,334 @@ TCL LSP Cache Statistics:
 	end, {
 		desc = "Debug TCL symbol analysis",
 	})
+
+	-- Test cross-file definition finding
+	vim.api.nvim_create_user_command("TclTestCrossFile", function()
+		local navigation = require("tcl-lsp.navigation")
+		local semantic = require("tcl-lsp.semantic")
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to test: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local word, word_err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify("No symbol under cursor: " .. (word_err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("Testing cross-file analysis for '" .. word .. "'...", vim.log.levels.INFO)
+
+		-- Test 1: Build source dependencies
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local dependencies = semantic.build_source_dependencies(file_path, tclsh_cmd)
+
+		utils.notify(string.format("Found %d dependent files:", #dependencies), vim.log.levels.INFO)
+		for i, dep in ipairs(dependencies) do
+			utils.notify(string.format("  %d. %s", i, dep), vim.log.levels.INFO)
+		end
+
+		-- Test 2: Workspace symbol index
+		if config.should_index_workspace_symbols() then
+			local candidates, index = semantic.find_workspace_symbol_candidates(word, file_path, tclsh_cmd)
+
+			utils.notify(
+				string.format("Workspace index: %d files, %d total symbols", index.file_count, index.total_symbols),
+				vim.log.levels.INFO
+			)
+
+			if #candidates > 0 then
+				utils.notify(string.format("Found %d candidates for '%s':", #candidates, word), vim.log.levels.INFO)
+				for i, candidate in ipairs(candidates) do
+					local symbol = candidate.symbol
+					local file_short = vim.fn.fnamemodify(symbol.source_file, ":t")
+					utils.notify(
+						string.format(
+							"  %d. %s '%s' in %s at line %d (score: %d, %s)",
+							i,
+							symbol.type,
+							symbol.name,
+							file_short,
+							symbol.line,
+							candidate.score,
+							candidate.match_type
+						),
+						vim.log.levels.INFO
+					)
+				end
+			else
+				utils.notify("No candidates found in workspace index", vim.log.levels.WARN)
+			end
+		end
+
+		-- Test 3: Enhanced navigation
+		local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+		local workspace_matches, searched_files =
+			navigation.find_definition_across_workspace(word, file_path, cursor_line)
+
+		utils.notify(
+			string.format(
+				"Enhanced navigation searched %d files and found %d matches",
+				#searched_files,
+				#workspace_matches
+			),
+			vim.log.levels.INFO
+		)
+
+		if #workspace_matches > 0 then
+			for i, match in ipairs(workspace_matches) do
+				local file_short = vim.fn.fnamemodify(match.file, ":t")
+				utils.notify(
+					string.format(
+						"  %d. %s '%s' in %s at line %d (priority: %d, %s)",
+						i,
+						match.symbol.type,
+						match.symbol.name,
+						file_short,
+						match.symbol.line,
+						match.priority,
+						match.method
+					),
+					vim.log.levels.INFO
+				)
+			end
+		end
+
+		-- Test 4: Cross-file references
+		local references = semantic.find_references_across_workspace(word, file_path, tclsh_cmd)
+
+		if references and #references > 0 then
+			utils.notify(string.format("Found %d cross-file references:", #references), vim.log.levels.INFO)
+
+			local ref_files = {}
+			for _, ref in ipairs(references) do
+				local file_short = vim.fn.fnamemodify(ref.source_file, ":t")
+				if not ref_files[file_short] then
+					ref_files[file_short] = 0
+				end
+				ref_files[file_short] = ref_files[file_short] + 1
+			end
+
+			for file_short, count in pairs(ref_files) do
+				utils.notify(string.format("  %s: %d references", file_short, count), vim.log.levels.INFO)
+			end
+		else
+			utils.notify("No cross-file references found", vim.log.levels.WARN)
+		end
+
+		-- Summary
+		utils.notify("Cross-file analysis test complete!", vim.log.levels.INFO)
+	end, {
+		desc = "Test cross-file definition and reference finding",
+	})
+
+	-- Enhanced goto definition command that shows what it's doing
+	vim.api.nvim_create_user_command("TclGotoDefinitionVerbose", function()
+		local navigation = require("tcl-lsp.navigation")
+		local utils = require("tcl-lsp.utils")
+
+		local word, err = utils.get_word_under_cursor()
+		if not word then
+			utils.notify("No symbol under cursor: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("Searching for definition of '" .. word .. "'...", vim.log.levels.INFO)
+
+		-- Use the enhanced goto definition with verbose output
+		navigation.goto_definition()
+	end, {
+		desc = "Go to definition with verbose output",
+	})
+
+	-- Command to show workspace statistics
+	vim.api.nvim_create_user_command("TclWorkspaceStats", function()
+		local semantic = require("tcl-lsp.semantic")
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to analyze: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local stats = semantic.get_workspace_stats(file_path, tclsh_cmd)
+
+		local stats_msg = string.format(
+			[[
+TCL Workspace Statistics:
+  Total files analyzed: %d
+  Total symbols found: %d
+  Namespaces: %d
+  External dependencies: %d
+  
+Configuration:
+  Cross-file analysis: %s
+  Workspace search: %s
+  Max files: %d
+  Cache timeout: %d seconds
+]],
+			stats.total_files,
+			stats.total_symbols,
+			stats.namespaces,
+			stats.external_dependencies,
+			config.is_cross_file_analysis_enabled() and "enabled" or "disabled",
+			config.is_workspace_search_enabled() and "enabled" or "disabled",
+			config.get_cross_file_max_files(),
+			config.get_cross_file_cache_timeout()
+		)
+
+		utils.notify(stats_msg, vim.log.levels.INFO)
+	end, {
+		desc = "Show TCL workspace analysis statistics",
+	})
+
+	-- Command to clear all caches and rebuild workspace index
+	vim.api.nvim_create_user_command("TclRebuildWorkspace", function()
+		local semantic = require("tcl-lsp.semantic")
+		local tcl = require("tcl-lsp.tcl")
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+
+		utils.notify("Clearing all caches and rebuilding workspace index...", vim.log.levels.INFO)
+
+		-- Clear all caches
+		semantic.invalidate_workspace_cache()
+		tcl.clear_all_caches()
+
+		-- Rebuild workspace index if we have a current file
+		local file_path = utils.get_current_file_path()
+		if file_path then
+			local tclsh_cmd = config.get_tclsh_cmd()
+			local index = semantic.build_workspace_symbol_index(file_path, tclsh_cmd)
+
+			utils.notify(
+				string.format("Workspace rebuilt: %d files, %d symbols", index.file_count, index.total_symbols),
+				vim.log.levels.INFO
+			)
+		else
+			utils.notify("Caches cleared. Open a TCL file to rebuild workspace index.", vim.log.levels.INFO)
+		end
+	end, {
+		desc = "Clear caches and rebuild workspace symbol index",
+	})
+
+	-- Command to show files that would be analyzed for current workspace
+	vim.api.nvim_create_user_command("TclShowWorkspaceFiles", function()
+		local semantic = require("tcl-lsp.semantic")
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to analyze: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		utils.notify("Analyzing workspace files for: " .. vim.fn.fnamemodify(file_path, ":t"), vim.log.levels.INFO)
+
+		-- Get source dependencies
+		local dependencies = semantic.build_source_dependencies(file_path, tclsh_cmd)
+		utils.notify("Source dependencies (" .. #dependencies .. "):", vim.log.levels.INFO)
+		for i, dep in ipairs(dependencies) do
+			local relative_path = vim.fn.fnamemodify(dep, ":.")
+			utils.notify("  " .. i .. ". " .. relative_path, vim.log.levels.INFO)
+		end
+
+		-- Get workspace search files
+		local workspace_files = config.get_workspace_search_paths()
+		utils.notify("Workspace search files (" .. #workspace_files .. "):", vim.log.levels.INFO)
+		for i, file in ipairs(workspace_files) do
+			if i <= 20 then -- Limit output
+				local relative_path = vim.fn.fnamemodify(file, ":.")
+				local is_dependency = vim.tbl_contains(dependencies, file)
+				local marker = is_dependency and " (dependency)" or ""
+				utils.notify("  " .. i .. ". " .. relative_path .. marker, vim.log.levels.INFO)
+			elseif i == 21 then
+				utils.notify("  ... and " .. (#workspace_files - 20) .. " more files", vim.log.levels.INFO)
+				break
+			end
+		end
+	end, {
+		desc = "Show files that would be analyzed in current workspace",
+	})
+
+	-- Command to benchmark cross-file analysis performance
+	vim.api.nvim_create_user_command("TclBenchmarkCrossFile", function()
+		local semantic = require("tcl-lsp.semantic")
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to benchmark: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		utils.notify("Benchmarking cross-file analysis performance...", vim.log.levels.INFO)
+
+		-- Benchmark 1: Source dependencies
+		local start_time = vim.loop.hrtime()
+		local dependencies = semantic.build_source_dependencies(file_path, tclsh_cmd)
+		local deps_time = (vim.loop.hrtime() - start_time) / 1000000 -- Convert to ms
+
+		-- Benchmark 2: Workspace symbol index
+		start_time = vim.loop.hrtime()
+		local index = semantic.build_workspace_symbol_index(file_path, tclsh_cmd)
+		local index_time = (vim.loop.hrtime() - start_time) / 1000000
+
+		-- Benchmark 3: Sample symbol search
+		local test_symbols = { "set", "proc", "puts" } -- Common symbols
+		local search_times = {}
+
+		for _, symbol in ipairs(test_symbols) do
+			start_time = vim.loop.hrtime()
+			local candidates = semantic.find_workspace_symbol_candidates(symbol, file_path, tclsh_cmd)
+			local search_time = (vim.loop.hrtime() - start_time) / 1000000
+			table.insert(search_times, search_time)
+		end
+
+		local avg_search_time = 0
+		for _, time in ipairs(search_times) do
+			avg_search_time = avg_search_time + time
+		end
+		avg_search_time = avg_search_time / #search_times
+
+		local benchmark_msg = string.format(
+			[[
+Cross-File Analysis Benchmark Results:
+  Source dependencies: %.2f ms (%d files)
+  Workspace index build: %.2f ms (%d files, %d symbols)
+  Average symbol search: %.2f ms
+  
+Performance Assessment:
+  %s
+]],
+			deps_time,
+			#dependencies,
+			index_time,
+			index.file_count,
+			index.total_symbols,
+			avg_search_time,
+			(index_time < 1000 and avg_search_time < 100) and "✅ Good performance"
+				or (index_time < 3000 and avg_search_time < 300) and "⚠️ Moderate performance"
+				or "❌ Slow performance - consider reducing workspace scope"
+		)
+
+		utils.notify(benchmark_msg, vim.log.levels.INFO)
+	end, {
+		desc = "Benchmark cross-file analysis performance",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
