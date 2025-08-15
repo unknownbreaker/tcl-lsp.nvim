@@ -34,7 +34,7 @@ local function get_cached_analysis(file_path)
 	return nil
 end
 
--- Fixed TCL analysis script (corrected syntax errors)
+-- Simplified but working enhanced TCL analysis script
 function M.analyze_tcl_file(file_path, tclsh_cmd)
 	-- Check cache first
 	local cached_symbols = get_cached_analysis(file_path)
@@ -45,14 +45,13 @@ function M.analyze_tcl_file(file_path, tclsh_cmd)
 
 	print("DEBUG: Analyzing file", file_path, "with", tclsh_cmd)
 
-	-- Fixed analysis script with corrected syntax
+	-- Very simple but reliable enhanced script
 	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
 	local analysis_script = string.format(
 		[[
-# Fixed TCL Symbol Analysis with Local Variables
+# Simple Enhanced TCL Symbol Analysis
 set file_path "%s"
 
-# Read the file safely
 if {[catch {
     set fp [open $file_path r]
     set content [read $fp]
@@ -62,27 +61,24 @@ if {[catch {
     exit 1
 }
 
-# Split into lines
 set lines [split $content "\n"]
 set line_num 0
 set current_namespace ""
 set current_proc ""
-set current_proc_start 0
-set brace_level 0
+set in_proc 0
 
 foreach line $lines {
     incr line_num
     set trimmed [string trim $line]
     
-    # Skip empty lines and comments
     if {$trimmed eq "" || [string index $trimmed 0] eq "#"} {
         continue
     }
     
-    # Track brace levels
+    # Count braces to track when we're inside procedures
     set open_braces [regexp -all {\{} $line]
     set close_braces [regexp -all {\}} $line]
-    set brace_level [expr {$brace_level + $open_braces - $close_braces}]
+    set in_proc [expr {$in_proc + $open_braces - $close_braces}]
     
     # Find namespace definitions
     if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
@@ -90,8 +86,9 @@ foreach line $lines {
         puts "SYMBOL|namespace|$ns_name|$line_num|namespace||"
     }
     
-    # Find procedure definitions with parameters
+    # Find procedure definitions with simple parameter extraction
     if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{([^}]*)\}} $line match proc_name proc_args]} {
+        # Create qualified name
         if {$current_namespace ne "" && ![string match "*::*" $proc_name]} {
             set qualified_name "$current_namespace\::$proc_name"
         } else {
@@ -99,43 +96,27 @@ foreach line $lines {
         }
         puts "SYMBOL|procedure|$qualified_name|$line_num|global|$current_namespace|"
         
-        # Extract and register procedure parameters
+        # Simple parameter extraction
         set clean_args [string trim $proc_args]
         if {$clean_args ne ""} {
-            # Split parameters by whitespace - FIXED: proper list handling
-            set param_list [split $clean_args]
-            foreach param_item $param_list {
-                set param_item [string trim $param_item]
-                if {$param_item ne ""} {
-                    # Handle default values {param default}
-                    if {[string index $param_item 0] eq "\{" && [string index $param_item end] eq "\}"} {
-                        set param_item [string trim $param_item "{}"]
-                        # Take first word as parameter name
-                        set param_parts [split $param_item]
-                        if {[llength $param_parts] > 0} {
-                            set param_item [lindex $param_parts 0]
-                        }
-                    }
-                    
-                    # Validate parameter name
-                    if {$param_item ne "" && [regexp {^[a-zA-Z_][a-zA-Z0-9_]*$} $param_item]} {
-                        puts "SYMBOL|parameter|$param_item|$line_num|local|$current_namespace|$qualified_name"
-                    }
-                }
+            # Very simple: just split on whitespace and take valid identifiers
+            set words [regexp -all -inline {[a-zA-Z_][a-zA-Z0-9_]*} $clean_args]
+            foreach word $words {
+                puts "SYMBOL|parameter|$word|$line_num|local|$current_namespace|$qualified_name"
             }
         }
         
         set current_proc $qualified_name
-        set current_proc_start $line_num
+        set in_proc 1
     }
     
-    # Find variable assignments (global and local)
+    # Find variable assignments
     if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
         set scope "global"
         set context $current_namespace
         set proc_context ""
         
-        if {$current_proc ne ""} {
+        if {$in_proc > 0 && $current_proc ne ""} {
             set scope "local"
             set proc_context $current_proc
         } elseif {$current_namespace ne ""} {
@@ -150,9 +131,8 @@ foreach line $lines {
         puts "SYMBOL|variable|$qualified_name|$line_num|$scope|$context|$proc_context"
     }
     
-    # Find variable usage (for local variable detection) - FIXED: simpler approach
-    if {$current_proc ne ""} {
-        # Simple variable usage detection: $varname
+    # Find variable usage (simple detection)
+    if {$in_proc > 0 && $current_proc ne ""} {
         if {[regexp {\$([a-zA-Z_][a-zA-Z0-9_]*)} $line match var_name]} {
             puts "SYMBOL|local_var|$var_name|$line_num|local|$current_namespace|$current_proc"
         }
@@ -160,13 +140,10 @@ foreach line $lines {
     
     # Find global variables
     if {[regexp {^\s*global\s+(.+)$} $line match globals]} {
-        # Split globals properly
-        set global_list [split $globals]
-        foreach global_var $global_list {
-            set clean_var [string trim $global_var]
-            if {$clean_var ne ""} {
-                puts "SYMBOL|global|$clean_var|$line_num|global||"
-            }
+        # Simple split on whitespace
+        set words [regexp -all -inline {[a-zA-Z_][a-zA-Z0-9_]*} $globals]
+        foreach word $words {
+            puts "SYMBOL|global|$word|$line_num|global||"
         }
     }
     
@@ -175,13 +152,9 @@ foreach line $lines {
         puts "SYMBOL|package|$pkg_name|$line_num|package||"
     }
     
-    # Reset procedure context when exiting - FIXED: better brace tracking
-    if {$close_braces > 0 && $current_proc ne ""} {
-        # Simple heuristic: if we're back to base level, exit procedure
-        if {$brace_level <= 0} {
-            set current_proc ""
-            set current_proc_start 0
-        }
+    # Reset procedure context when exiting
+    if {$in_proc <= 0} {
+        set current_proc ""
     }
 }
 
@@ -193,24 +166,12 @@ puts "ANALYSIS_COMPLETE"
 	local result, success = utils.execute_tcl_script(analysis_script, tclsh_cmd)
 
 	if not (result and success) then
-		print("DEBUG: Enhanced TCL script failed, using fallback")
+		print("DEBUG: Simple enhanced script failed, using fallback")
 		print("DEBUG: Error:", result or "nil")
-
-		-- Try fallback analysis
 		return M.fallback_analysis(file_path)
 	end
 
-	print("DEBUG: Enhanced TCL script executed successfully")
-	-- Only show first few lines of output to avoid spam
-	local output_lines = {}
-	for line in result:gmatch("[^\n]+") do
-		table.insert(output_lines, line)
-		if #output_lines > 10 then
-			table.insert(output_lines, "... (truncated)")
-			break
-		end
-	end
-	print("DEBUG: Output sample:", table.concat(output_lines, "\n"))
+	print("DEBUG: Simple enhanced script executed successfully")
 
 	local symbols = {}
 	local symbol_count = 0
@@ -232,9 +193,9 @@ puts "ANALYSIS_COMPLETE"
 					scope = parts[5] or "global",
 					context = parts[6] or "",
 					proc_context = parts[7] or "",
-					text = "", -- Will be filled if needed
+					text = "",
 					qualified_name = parts[3] or "unknown",
-					method = "enhanced_fixed",
+					method = "simple_enhanced",
 				}
 
 				-- Create unique key to avoid duplicates
@@ -249,11 +210,11 @@ puts "ANALYSIS_COMPLETE"
 		end
 	end
 
-	print("DEBUG: Enhanced script found", symbol_count, "unique symbols")
+	print("DEBUG: Simple enhanced script found", symbol_count, "unique symbols")
 
-	-- If we still got no symbols, try the fallback
+	-- If no symbols, use fallback
 	if symbol_count == 0 then
-		print("DEBUG: No symbols found with enhanced script, trying fallback")
+		print("DEBUG: No symbols found, using fallback")
 		return M.fallback_analysis(file_path)
 	end
 
