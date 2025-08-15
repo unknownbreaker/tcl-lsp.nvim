@@ -2945,6 +2945,276 @@ if {[catch {
 		desc = "Test symbol resolution for a specific symbol",
 		nargs = 1,
 	})
+
+	-- Debug workspace search functionality
+	vim.api.nvim_create_user_command("TclDebugWorkspace", function(opts)
+		local symbol_name = opts.args
+		if not symbol_name or symbol_name == "" then
+			-- Try to get from cursor
+			local utils = require("tcl-lsp.utils")
+			local word, err = utils.get_qualified_word_under_cursor()
+			if not word then
+				word, err = utils.get_word_under_cursor()
+			end
+			if word then
+				symbol_name = word
+			else
+				print("Usage: :TclDebugWorkspace <symbol_name> or place cursor on symbol")
+				return
+			end
+		end
+
+		local config = require("tcl-lsp.config")
+		local tcl = require("tcl-lsp.tcl")
+		local utils = require("tcl-lsp.utils")
+
+		print("=== Workspace Search Debug ===")
+		print("Searching for:", "'" .. symbol_name .. "'")
+
+		-- Get current file to exclude it
+		local current_file, _ = utils.get_current_file_path()
+		print("Current file:", current_file or "none")
+
+		-- Find all TCL files
+		local files = vim.fn.glob("**/*.tcl", false, true)
+		print("Found", #files, "TCL files in workspace")
+
+		if #files > 20 then
+			print("WARNING: Large workspace, showing first 20 files:")
+			for i = 1, 20 do
+				print("  " .. i .. ". " .. files[i])
+			end
+			print("  ... and", #files - 20, "more files")
+		else
+			print("TCL files:")
+			for i, file in ipairs(files) do
+				print("  " .. i .. ". " .. file)
+			end
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local total_symbols = 0
+		local matches = {}
+		local file_count = 0
+		local error_count = 0
+
+		print("\n--- Searching Files ---")
+
+		for _, file in ipairs(files) do
+			if file ~= current_file then
+				file_count = file_count + 1
+
+				-- Analyze each file
+				local file_symbols = tcl.analyze_tcl_file(file, tclsh_cmd)
+
+				if file_symbols then
+					total_symbols = total_symbols + #file_symbols
+					print(string.format("✓ %s: %d symbols", vim.fn.fnamemodify(file, ":t"), #file_symbols))
+
+					-- Check for matches
+					for _, symbol in ipairs(file_symbols) do
+						local match_found = false
+						local match_type = ""
+
+						if symbol.name == symbol_name then
+							match_found = true
+							match_type = "exact"
+						elseif symbol.qualified_name == symbol_name then
+							match_found = true
+							match_type = "qualified"
+						elseif utils.symbols_match(symbol.name, symbol_name) then
+							match_found = true
+							match_type = "fuzzy"
+						end
+
+						if match_found then
+							table.insert(matches, {
+								symbol = symbol,
+								file = file,
+								match_type = match_type,
+							})
+							print(
+								string.format(
+									"  🎯 MATCH: %s '%s' at line %d (%s)",
+									symbol.type,
+									symbol.name,
+									symbol.line,
+									match_type
+								)
+							)
+						end
+					end
+				else
+					error_count = error_count + 1
+					print(string.format("❌ %s: analysis failed", vim.fn.fnamemodify(file, ":t")))
+				end
+
+				-- Limit output for large workspaces
+				if file_count >= 10 and #matches == 0 then
+					print(string.format("... analyzed %d files so far, continuing search ...", file_count))
+				end
+			end
+		end
+
+		print("\n--- Summary ---")
+		print("Files analyzed:", file_count)
+		print("Files with errors:", error_count)
+		print("Total symbols found:", total_symbols)
+		print("Matches for '" .. symbol_name .. "':", #matches)
+
+		if #matches == 0 then
+			print("❌ NO MATCHES FOUND")
+			print("\nTroubleshooting:")
+			print("1. Check symbol name spelling")
+			print("2. Make sure the file containing the symbol has .tcl extension")
+			print("3. Check if the symbol is in a namespace (try namespace::symbol)")
+			print("4. Run :TclTestSimple on the file you think contains the symbol")
+		else
+			print("✅ MATCHES FOUND:")
+			for i, match in ipairs(matches) do
+				local file_short = vim.fn.fnamemodify(match.file, ":t")
+				print(
+					string.format(
+						"%d. %s '%s' in %s at line %d (%s match)",
+						i,
+						match.symbol.type,
+						match.symbol.name,
+						file_short,
+						match.symbol.line,
+						match.match_type
+					)
+				)
+			end
+
+			if #matches == 1 then
+				print("\n🚀 Would jump to:", matches[1].file, "line", matches[1].symbol.line)
+			else
+				print("\n📋 Would show selection menu with", #matches, "options")
+			end
+		end
+
+		print("=== Debug Complete ===")
+	end, {
+		desc = "Debug workspace symbol search",
+		nargs = "?",
+	})
+
+	-- Command to test a specific file for symbols
+	vim.api.nvim_create_user_command("TclTestFile", function(opts)
+		if not opts.args or opts.args == "" then
+			print("Usage: :TclTestFile <filepath>")
+			print("Example: :TclTestFile src/utils.tcl")
+			return
+		end
+
+		local file_path = opts.args
+		local config = require("tcl-lsp.config")
+		local tcl = require("tcl-lsp.tcl")
+
+		print("=== Testing File Analysis ===")
+		print("File:", file_path)
+
+		-- Check if file exists
+		if not tcl.file_exists(file_path) then
+			print("❌ File does not exist or is not readable")
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		-- Clear cache for this file
+		tcl.invalidate_cache(file_path)
+
+		-- Analyze the file
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if not symbols then
+			print("❌ Analysis failed")
+			return
+		end
+
+		print("✅ Found", #symbols, "symbols:")
+
+		-- Group by type
+		local by_type = {}
+		for _, symbol in ipairs(symbols) do
+			if not by_type[symbol.type] then
+				by_type[symbol.type] = {}
+			end
+			table.insert(by_type[symbol.type], symbol)
+		end
+
+		-- Show grouped results
+		for type_name, type_symbols in pairs(by_type) do
+			print("\n" .. type_name:upper() .. " (" .. #type_symbols .. "):")
+			for _, symbol in ipairs(type_symbols) do
+				print(string.format("  Line %d: %s", symbol.line, symbol.name))
+			end
+		end
+	end, {
+		desc = "Test symbol analysis on a specific file",
+		nargs = 1,
+	})
+
+	-- Command to find all instances of a symbol across workspace
+	vim.api.nvim_create_user_command("TclFindSymbol", function(opts)
+		if not opts.args or opts.args == "" then
+			print("Usage: :TclFindSymbol <symbol_name>")
+			return
+		end
+
+		local symbol_name = opts.args
+		local config = require("tcl-lsp.config")
+		local tcl = require("tcl-lsp.tcl")
+		local utils = require("tcl-lsp.utils")
+
+		local files = vim.fn.glob("**/*.tcl", false, true)
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local all_matches = {}
+
+		print("=== Finding Symbol Across Workspace ===")
+		print("Symbol:", symbol_name)
+		print("Searching", #files, "files...")
+
+		for _, file in ipairs(files) do
+			local symbols = tcl.analyze_tcl_file(file, tclsh_cmd)
+			if symbols then
+				for _, symbol in ipairs(symbols) do
+					if
+						symbol.name:find(symbol_name, 1, true)
+						or (symbol.qualified_name and symbol.qualified_name:find(symbol_name, 1, true))
+					then
+						table.insert(all_matches, {
+							symbol = symbol,
+							file = file,
+						})
+					end
+				end
+			end
+		end
+
+		if #all_matches == 0 then
+			print("❌ No symbols found containing '" .. symbol_name .. "'")
+		else
+			print("✅ Found", #all_matches, "symbols:")
+			for i, match in ipairs(all_matches) do
+				local file_short = vim.fn.fnamemodify(match.file, ":t")
+				print(
+					string.format(
+						"%d. %s '%s' in %s:%d",
+						i,
+						match.symbol.type,
+						match.symbol.name,
+						file_short,
+						match.symbol.line
+					)
+				)
+			end
+		end
+	end, {
+		desc = "Find all instances of a symbol across workspace",
+		nargs = 1,
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
