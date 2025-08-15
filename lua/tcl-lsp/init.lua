@@ -2632,6 +2632,319 @@ if {[catch {
 		desc = "Test symbol resolution for a specific symbol",
 		nargs = 1,
 	})
+
+	vim.api.nvim_create_user_command("TclTestSimple", function()
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+		local tcl = require("tcl-lsp.tcl")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			print("ERROR: No file:", err)
+			return
+		end
+
+		print("=== Simple TCL Test ===")
+		print("File:", file_path)
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		print("TCL command:", tclsh_cmd)
+
+		-- Clear cache
+		tcl.clear_all_caches()
+
+		-- Test symbol analysis directly
+		print("Testing symbol analysis...")
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if symbols then
+			print("SUCCESS: Found", #symbols, "symbols")
+			for i, symbol in ipairs(symbols) do
+				if i <= 5 then -- Show first 5 symbols
+					print(string.format("  %d. %s '%s' at line %d", i, symbol.type, symbol.name, symbol.line))
+				end
+			end
+			if #symbols > 5 then
+				print("  ... and", #symbols - 5, "more symbols")
+			end
+		else
+			print("FAILED: No symbols found")
+		end
+	end, {
+		desc = "Simple TCL symbol test",
+	})
+
+	-- Add these debug commands to your init.lua for troubleshooting
+
+	-- Enhanced debug command for the init.lua file
+	vim.api.nvim_create_user_command("TclLspDebugDetailed", function()
+		local file_path, err = require("tcl-lsp.utils").get_current_file_path()
+		if not file_path then
+			print("ERROR: No file to debug:", err)
+			return
+		end
+
+		local config = require("tcl-lsp.config")
+		local tcl = require("tcl-lsp.tcl")
+		local semantic = require("tcl-lsp.semantic")
+		local utils = require("tcl-lsp.utils")
+
+		print("=== TCL LSP Detailed Debug ===")
+		print("File:", file_path)
+		print("File exists:", tcl.file_exists(file_path))
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		print("TCL command:", tclsh_cmd)
+
+		-- Test basic TCL functionality
+		print("\n=== Testing Basic TCL ===")
+		local test_result, test_success = utils.execute_tcl_script('puts "BASIC_TEST_OK"', tclsh_cmd)
+		print("Basic test result:", test_result)
+		print("Basic test success:", test_success)
+
+		-- Test file reading
+		print("\n=== Testing File Reading ===")
+		local read_test = string.format(
+			[[
+if {[catch {
+    set fp [open "%s" r]
+    set content [read $fp]
+    close $fp
+    puts "FILE_READ_OK:[string length $content] characters"
+} err]} {
+    puts "FILE_READ_ERROR:$err"
+}
+]],
+			file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
+		)
+
+		local read_result, read_success = utils.execute_tcl_script(read_test, tclsh_cmd)
+		print("File read result:", read_result)
+		print("File read success:", read_success)
+
+		-- Test symbol analysis
+		print("\n=== Testing Symbol Analysis ===")
+		local symbols = tcl.debug_symbols(file_path, tclsh_cmd)
+		print("Symbols found:", #symbols)
+
+		-- Test semantic analysis
+		print("\n=== Testing Semantic Analysis ===")
+		local semantic_symbols = semantic.analyze_single_file_symbols(file_path, tclsh_cmd)
+		if semantic_symbols then
+			print("Semantic symbols found:", #semantic_symbols)
+		else
+			print("Semantic analysis failed")
+		end
+
+		-- Test current word detection
+		print("\n=== Testing Word Detection ===")
+		local word, word_err = utils.get_word_under_cursor()
+		local qualified_word, qual_err = utils.get_qualified_word_under_cursor()
+		print("Current word:", word or ("ERROR: " .. (word_err or "unknown")))
+		print("Qualified word:", qualified_word or ("ERROR: " .. (qual_err or "unknown")))
+
+		-- Cache statistics
+		print("\n=== Cache Statistics ===")
+		local cache_stats = tcl.get_cache_stats()
+		for k, v in pairs(cache_stats) do
+			print(k .. ":", v)
+		end
+
+		print("\n=== Debug Complete ===")
+	end, {
+		desc = "Run detailed TCL LSP debug analysis",
+	})
+
+	-- Command to test go-to-definition step by step
+	vim.api.nvim_create_user_command("TclTestGotoDefinition", function()
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+		local tcl = require("tcl-lsp.tcl")
+
+		print("=== Testing Go-to-Definition Step by Step ===")
+
+		-- Step 1: Get word under cursor
+		local word, err = utils.get_qualified_word_under_cursor()
+		if not word then
+			word, err = utils.get_word_under_cursor()
+		end
+
+		if not word then
+			print("FAIL: Cannot get word under cursor:", err)
+			return
+		end
+		print("Step 1 OK: Found word:", word)
+
+		-- Step 2: Get file path
+		local file_path, file_err = utils.get_current_file_path()
+		if not file_path then
+			print("FAIL: Cannot get file path:", file_err)
+			return
+		end
+		print("Step 2 OK: File path:", file_path)
+
+		-- Step 3: Get TCL command
+		local tclsh_cmd = config.get_tclsh_cmd()
+		print("Step 3 OK: TCL command:", tclsh_cmd)
+
+		-- Step 4: Analyze file
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+		if not symbols then
+			print("FAIL: Symbol analysis returned nil")
+			return
+		end
+		print("Step 4 OK: Found", #symbols, "symbols")
+
+		-- Step 5: Look for matching symbols
+		local matches = {}
+		for _, symbol in ipairs(symbols) do
+			if symbol.name == word or utils.symbols_match(symbol.name, word) then
+				table.insert(matches, symbol)
+			end
+		end
+		print("Step 5 OK: Found", #matches, "matching symbols")
+
+		-- Step 6: Display results
+		if #matches == 0 then
+			print("RESULT: No matches found for '" .. word .. "'")
+			print("Available symbols:")
+			for i, symbol in ipairs(symbols) do
+				print(string.format("  %d. %s '%s' at line %d", i, symbol.type, symbol.name, symbol.line))
+			end
+		else
+			print("RESULT: Found matches:")
+			for i, symbol in ipairs(matches) do
+				print(string.format("  %d. %s '%s' at line %d", i, symbol.type, symbol.name, symbol.line))
+			end
+		end
+
+		print("=== Test Complete ===")
+	end, {
+		desc = "Test go-to-definition functionality step by step",
+	})
+
+	-- Command to show all symbols in current file
+	vim.api.nvim_create_user_command("TclShowAllSymbols", function()
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+		local tcl = require("tcl-lsp.tcl")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			print("ERROR:", err)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if not symbols then
+			print("ERROR: Failed to analyze file")
+			return
+		end
+
+		print("=== All Symbols in", vim.fn.fnamemodify(file_path, ":t"), "===")
+		print("Total symbols:", #symbols)
+
+		-- Group by type
+		local by_type = {}
+		for _, symbol in ipairs(symbols) do
+			if not by_type[symbol.type] then
+				by_type[symbol.type] = {}
+			end
+			table.insert(by_type[symbol.type], symbol)
+		end
+
+		-- Display grouped
+		for type_name, type_symbols in pairs(by_type) do
+			print("\n" .. type_name:upper() .. " (" .. #type_symbols .. "):")
+			table.sort(type_symbols, function(a, b)
+				return a.line < b.line
+			end)
+			for _, symbol in ipairs(type_symbols) do
+				print(
+					string.format(
+						"  Line %d: %s (scope: %s, context: %s)",
+						symbol.line,
+						symbol.name,
+						symbol.scope or "none",
+						symbol.context or "none"
+					)
+				)
+			end
+		end
+	end, {
+		desc = "Show all symbols found in current file",
+	})
+
+	-- Command to clear all caches
+	vim.api.nvim_create_user_command("TclClearCaches", function()
+		local tcl = require("tcl-lsp.tcl")
+		local semantic = require("tcl-lsp.semantic")
+
+		tcl.clear_all_caches()
+		semantic.invalidate_workspace_cache()
+
+		print("All TCL LSP caches cleared")
+	end, {
+		desc = "Clear all TCL LSP caches",
+	})
+
+	-- Command to test a specific symbol resolution
+	vim.api.nvim_create_user_command("TclTestSymbol", function(opts)
+		if not opts.args or opts.args == "" then
+			print("Usage: :TclTestSymbol <symbol_name>")
+			return
+		end
+
+		local symbol_name = opts.args
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+		local tcl = require("tcl-lsp.tcl")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			print("ERROR:", err)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+
+		print("=== Testing Symbol:", symbol_name, "===")
+		print("File:", file_path)
+		print("Cursor line:", cursor_line)
+
+		-- Test resolution
+		local resolution = tcl.resolve_symbol(symbol_name, file_path, cursor_line, tclsh_cmd)
+		if resolution then
+			print("Resolution context:", vim.inspect(resolution.context))
+			print("Resolution candidates:", #resolution.resolutions)
+			for i, res in ipairs(resolution.resolutions) do
+				print(string.format("  %d. %s: %s (priority: %d)", i, res.type, res.name, res.priority))
+			end
+		else
+			print("No resolution found")
+		end
+
+		-- Test symbol search
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+		if symbols then
+			local matches = {}
+			for _, symbol in ipairs(symbols) do
+				if symbol.name == symbol_name or utils.symbols_match(symbol.name, symbol_name) then
+					table.insert(matches, symbol)
+				end
+			end
+			print("Direct matches:", #matches)
+			for i, symbol in ipairs(matches) do
+				print(string.format("  %d. %s '%s' at line %d", i, symbol.type, symbol.name, symbol.line))
+			end
+		end
+	end, {
+		desc = "Test symbol resolution for a specific symbol",
+		nargs = 1,
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
