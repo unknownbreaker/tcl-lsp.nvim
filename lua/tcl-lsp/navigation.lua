@@ -1,3 +1,4 @@
+local semantic = require("tcl-lsp.semantic")
 local utils = require("tcl-lsp.utils")
 local config = require("tcl-lsp.config")
 local tcl = require("tcl-lsp.tcl")
@@ -5,7 +6,7 @@ local M = {}
 
 -- DEBUG: Enhanced goto_definition with comprehensive logging
 function M.goto_definition()
-	print("=== DEBUG: goto_definition START ===")
+	print("=== DEBUG: goto_definition START (with REAL semantic engine) ===")
 
 	-- Try to get qualified word first, fall back to regular word
 	local word, err = utils.get_qualified_word_under_cursor()
@@ -28,55 +29,96 @@ function M.goto_definition()
 	end
 
 	print("DEBUG: Current file path:", file_path)
-
 	local tclsh_cmd = config.get_tclsh_cmd()
-	print("DEBUG: TCL command:", tclsh_cmd)
+	local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
 
-	-- Get all symbols from current file first
-	print("DEBUG: Analyzing current file...")
+	-- TRY SEMANTIC CROSS-FILE RESOLUTION FIRST
+	print("DEBUG: Attempting cross-file semantic resolution...")
+	local workspace_symbols = semantic.resolve_symbol_across_workspace(word, file_path, cursor_line, tclsh_cmd)
+
+	if workspace_symbols and #workspace_symbols > 0 then
+		print("DEBUG: Semantic engine found", #workspace_symbols, "candidates across workspace")
+
+		-- Filter for exact matches first
+		local exact_matches = {}
+		local partial_matches = {}
+
+		for _, symbol in ipairs(workspace_symbols) do
+			print("DEBUG: Candidate:", symbol.name, "in", symbol.source_file or "current file", "at line", symbol.line)
+			if symbol.name == word or symbol.qualified_name == word then
+				table.insert(exact_matches, symbol)
+			else
+				table.insert(partial_matches, symbol)
+			end
+		end
+
+		local matches = #exact_matches > 0 and exact_matches or partial_matches
+		print("DEBUG: Found", #exact_matches, "exact matches and", #partial_matches, "partial matches")
+
+		if #matches == 1 then
+			local match = matches[1]
+			print("DEBUG: Single match found - jumping to symbol")
+
+			-- If the symbol is in a different file, open that file first
+			if match.source_file and match.source_file ~= file_path then
+				print("DEBUG: Opening external file:", match.source_file)
+				vim.cmd("edit " .. vim.fn.fnameescape(match.source_file))
+			end
+
+			-- Jump to the symbol location
+			vim.api.nvim_win_set_cursor(0, { match.line, 0 })
+
+			local file_indicator = match.source_file == file_path and ""
+				or " (in " .. vim.fn.fnamemodify(match.source_file, ":t") .. ")"
+			local import_indicator = match.is_imported and " [imported]" or ""
+
+			utils.notify(
+				string.format(
+					"Found %s '%s' at line %d%s%s (semantic)",
+					match.type,
+					match.name,
+					match.line,
+					file_indicator,
+					import_indicator
+				),
+				vim.log.levels.INFO
+			)
+			return
+		elseif #matches > 1 then
+			print("DEBUG: Multiple matches found, showing choices")
+			M.show_cross_file_semantic_choices(matches, word)
+			return
+		end
+	end
+
+	print("DEBUG: Semantic engine found no results, falling back to single-file analysis")
+
+	-- FALLBACK TO SINGLE-FILE ANALYSIS
 	local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
 	if not symbols then
-		print("DEBUG: Failed to analyze current file")
 		utils.notify("Failed to analyze file with TCL", vim.log.levels.ERROR)
 		return
 	end
 
-	print("DEBUG: Found", #symbols, "symbols in current file:")
-	for i, symbol in ipairs(symbols) do
-		print("DEBUG:   ", i, ":", symbol.type, "'" .. symbol.name .. "'", "at line", symbol.line)
-	end
-
-	local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
-	print("DEBUG: Cursor line:", cursor_line)
+	print("DEBUG: Found", #symbols, "symbols in current file")
 
 	-- Try smart resolution first
-	print("DEBUG: Attempting smart resolution...")
 	local resolution = tcl.resolve_symbol(word, file_path, cursor_line, tclsh_cmd)
 	local matches = {}
 
 	if resolution and resolution.resolutions then
-		print("DEBUG: Smart resolution returned", #resolution.resolutions, "resolutions")
+		print("DEBUG: Using smart resolution")
 		matches = M.find_matching_symbols(symbols, resolution.resolutions, word)
-		print("DEBUG: Smart resolution found", #matches, "matches")
-	else
-		print("DEBUG: Smart resolution failed or returned nil")
 	end
 
-	-- Fallback to simple matching if smart resolution fails or finds nothing
+	-- Fallback to simple matching
 	if #matches == 0 then
-		print("DEBUG: No smart matches, trying simple matching...")
+		print("DEBUG: No smart matches, trying simple matching")
 		for _, symbol in ipairs(symbols) do
-			local simple_match = (symbol.name == word)
-			local utils_match = utils.symbols_match(symbol.name, word)
-			print("DEBUG: Checking symbol '" .. symbol.name .. "' against '" .. word .. "':")
-			print("DEBUG:   Simple match (==):", simple_match)
-			print("DEBUG:   Utils match:", utils_match)
-
-			if simple_match or utils_match then
-				print("DEBUG: FOUND MATCH:", symbol.name)
+			if symbol.name == word or utils.symbols_match(symbol.name, word) then
 				table.insert(matches, {
 					symbol = symbol,
-					priority = simple_match and 10 or 5,
+					priority = (symbol.name == word) and 10 or 5,
 					resolution = { type = "fallback", name = word },
 				})
 			end
@@ -86,13 +128,10 @@ function M.goto_definition()
 	print("DEBUG: Total matches in current file:", #matches)
 
 	if #matches == 0 then
-		print("DEBUG: NO MATCHES IN CURRENT FILE - Starting workspace search...")
-		utils.notify("Symbol '" .. word .. "' not found in current file, searching workspace...", vim.log.levels.INFO)
-
-		-- CALL THE WORKSPACE SEARCH WITH DEBUG
-		M.debug_search_workspace_for_definition_simple(word, file_path, tclsh_cmd)
+		print("DEBUG: No matches found anywhere")
+		utils.notify("Definition of '" .. word .. "' not found", vim.log.levels.WARN)
 	elseif #matches == 1 then
-		print("DEBUG: Found single match in current file, jumping to line", matches[1].symbol.line)
+		print("DEBUG: Found single match in current file")
 		local match = matches[1]
 		vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
 		utils.notify(
@@ -100,11 +139,107 @@ function M.goto_definition()
 			vim.log.levels.INFO
 		)
 	else
-		print("DEBUG: Found", #matches, "matches in current file, showing choices")
+		print("DEBUG: Multiple matches in current file")
 		M.show_simple_symbol_choices(matches, word)
 	end
 
 	print("=== DEBUG: goto_definition END ===")
+end
+
+function M.show_cross_file_semantic_choices(symbols, query)
+	print("DEBUG: Showing", #symbols, "cross-file semantic choices")
+
+	local choices = {}
+
+	-- Sort by source file (current file first) then by line number
+	table.sort(symbols, function(a, b)
+		local current_file = utils.get_current_file_path()
+		local a_is_current = (a.source_file == current_file)
+		local b_is_current = (b.source_file == current_file)
+
+		if a_is_current and not b_is_current then
+			return true
+		elseif not a_is_current and b_is_current then
+			return false
+		else
+			return a.line < b.line
+		end
+	end)
+
+	for i, symbol in ipairs(symbols) do
+		local context_info = ""
+		if symbol.scope and symbol.scope ~= "" then
+			context_info = " [" .. symbol.scope .. "]"
+		end
+		if symbol.namespace_context and symbol.namespace_context ~= "" then
+			context_info = context_info .. " (ns: " .. symbol.namespace_context .. ")"
+		end
+
+		-- File information
+		local current_file = utils.get_current_file_path()
+		local file_info = ""
+		if symbol.source_file == current_file then
+			file_info = " (current file)"
+		else
+			local file_name = vim.fn.fnamemodify(symbol.source_file, ":t")
+			file_info = " (in " .. file_name .. ")"
+		end
+
+		-- Import/visibility information
+		local access_info = ""
+		if symbol.is_imported then
+			access_info = " [imported]"
+		elseif symbol.visibility == "public" then
+			access_info = " [public]"
+		elseif symbol.visibility == "private" then
+			access_info = " [private]"
+		end
+
+		table.insert(
+			choices,
+			string.format(
+				"%d. %s '%s'%s at line %d%s%s (semantic)",
+				i,
+				symbol.type,
+				symbol.name,
+				context_info,
+				symbol.line,
+				file_info,
+				access_info
+			)
+		)
+	end
+
+	vim.ui.select(choices, {
+		prompt = "Multiple definitions found for '" .. query .. "' across workspace:",
+	}, function(choice, idx)
+		if idx then
+			local selected_symbol = symbols[idx]
+
+			-- Open the file if it's different from current
+			local current_file = utils.get_current_file_path()
+			if selected_symbol.source_file ~= current_file then
+				vim.cmd("edit " .. vim.fn.fnameescape(selected_symbol.source_file))
+			end
+
+			-- Jump to the symbol
+			vim.api.nvim_win_set_cursor(0, { selected_symbol.line, 0 })
+
+			local file_indicator = selected_symbol.source_file == current_file and ""
+				or " in " .. vim.fn.fnamemodify(selected_symbol.source_file, ":t")
+
+			utils.notify(
+				string.format(
+					"Jumped to %s '%s' at line %d%s (semantic)",
+					selected_symbol.type,
+					selected_symbol.name,
+					selected_symbol.line,
+					file_indicator
+				),
+				vim.log.levels.INFO
+			)
+		end
+	end)
 end
 
 -- DEBUG: Enhanced workspace search function

@@ -1,3 +1,4 @@
+local semantic = require("tcl-lsp.semantic")
 local utils = require("tcl-lsp.utils")
 local M = {}
 
@@ -162,21 +163,38 @@ end
 
 -- Use TCL to analyze a file and extract symbols with their locations (cached)
 function M.analyze_tcl_file(file_path, tclsh_cmd)
+	print("DEBUG: analyze_tcl_file called for:", file_path)
+
 	-- Check cache first
 	local cached_symbols = get_cached_analysis(file_path)
 	if cached_symbols then
+		print("DEBUG: Using cached symbols")
 		return cached_symbols
 	end
 
+	-- TRY SEMANTIC ANALYSIS FIRST
+	print("DEBUG: Attempting semantic analysis...")
+	local semantic_symbols = semantic.analyze_single_file_symbols(file_path, tclsh_cmd)
+
+	if semantic_symbols and #semantic_symbols > 0 then
+		print("DEBUG: Semantic analysis found", #semantic_symbols, "symbols")
+		-- Cache the semantic results
+		cache_file_analysis(file_path, semantic_symbols)
+		return semantic_symbols
+	end
+
+	print("DEBUG: Semantic analysis failed, falling back to regex")
+
+	-- FALLBACK TO REGEX ANALYSIS (existing code)
 	-- Periodically clean up old cache entries
 	if math.random(1, 20) == 1 then -- 5% chance
 		cleanup_cache()
 	end
 
-	-- Simplified analysis script that should definitely work
+	-- Your existing regex-based analysis script
 	local analysis_script = string.format(
 		[[
-# Simple TCL Symbol Analysis Script
+# Simple TCL Symbol Analysis Script (FALLBACK)
 set file_path "%s"
 
 # Read the file
@@ -271,20 +289,13 @@ puts "ANALYSIS_COMPLETE"
 	local result, success = utils.execute_tcl_script(analysis_script, tclsh_cmd)
 
 	if not (result and success) then
-		print("DEBUG: TCL script execution failed")
-		print("DEBUG: Result:", result or "nil")
-		print("DEBUG: Success:", success)
+		print("DEBUG: Regex analysis also failed")
 		return nil
 	end
 
-	print("DEBUG: TCL script output:")
-	print(result)
-
+	print("DEBUG: Regex analysis succeeded")
 	local symbols = {}
 	for line in result:gmatch("[^\n]+") do
-		print("DEBUG: Processing line:", line)
-
-		-- Simple parsing: SYMBOL:type:name:line:text
 		local symbol_type, name, line_num, text = line:match("SYMBOL:([^:]+):([^:]+):([^:]+):(.+)")
 		if symbol_type and name and line_num and text then
 			local symbol = {
@@ -296,18 +307,14 @@ puts "ANALYSIS_COMPLETE"
 				scope = "",
 				args = "",
 				qualified_name = "",
+				method = "regex", -- Mark as regex-based
 			}
-
-			print("DEBUG: Found symbol:", symbol.type, symbol.name, "at line", symbol.line)
 			table.insert(symbols, symbol)
 		end
 	end
 
-	print("DEBUG: Total symbols found:", #symbols)
-
 	-- Cache the results
 	cache_file_analysis(file_path, symbols)
-
 	return symbols
 end
 
