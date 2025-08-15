@@ -3215,6 +3215,244 @@ if {[catch {
 		desc = "Find all instances of a symbol across workspace",
 		nargs = 1,
 	})
+
+	-- Debug the exact symbol matching process
+	vim.api.nvim_create_user_command("TclDebugMatching", function()
+		local utils = require("tcl-lsp.utils")
+		local config = require("tcl-lsp.config")
+		local tcl = require("tcl-lsp.tcl")
+
+		print("=== Symbol Matching Debug ===")
+
+		-- Get word under cursor with detailed info
+		local cursor_pos = vim.api.nvim_win_get_cursor(0)
+		local line = vim.api.nvim_get_current_line()
+		local col = cursor_pos[2]
+
+		print("Cursor position: line", cursor_pos[1], "col", col + 1)
+		print("Current line:", "'" .. line .. "'")
+		print("Character at cursor:", "'" .. line:sub(col + 1, col + 1) .. "'")
+
+		-- Test both word extraction methods
+		local word1, err1 = utils.get_word_under_cursor()
+		local word2, err2 = utils.get_qualified_word_under_cursor()
+
+		print("\nWord extraction:")
+		print("get_word_under_cursor():", word1 and ("'" .. word1 .. "'") or ("ERROR: " .. (err1 or "unknown")))
+		print(
+			"get_qualified_word_under_cursor():",
+			word2 and ("'" .. word2 .. "'") or ("ERROR: " .. (err2 or "unknown"))
+		)
+
+		-- Use the word that was found
+		local target_word = word2 or word1
+		if not target_word then
+			print("❌ Cannot extract word under cursor")
+			return
+		end
+
+		print("Target word:", "'" .. target_word .. "'")
+		print("Word length:", #target_word)
+		print("Word bytes:", table.concat({ string.byte(target_word, 1, -1) }, " "))
+
+		-- Get file and symbols
+		local file_path, file_err = utils.get_current_file_path()
+		if not file_path then
+			print("❌ Cannot get file path:", file_err)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+		if not symbols then
+			print("❌ No symbols found")
+			return
+		end
+
+		print("\n=== Testing Each Symbol ===")
+		local match_count = 0
+
+		for i, symbol in ipairs(symbols) do
+			print(string.format("\nSymbol %d:", i))
+			print("  Name:", "'" .. symbol.name .. "'")
+			print("  Qualified:", "'" .. (symbol.qualified_name or "none") .. "'")
+			print("  Type:", symbol.type)
+			print("  Line:", symbol.line)
+
+			-- Test various matching methods
+			local tests = {
+				{ name = "exact_name", result = (symbol.name == target_word) },
+				{ name = "exact_qualified", result = (symbol.qualified_name == target_word) },
+				{ name = "case_insensitive", result = (symbol.name:lower() == target_word:lower()) },
+				{ name = "utils_symbols_match", result = utils.symbols_match(symbol.name, target_word) },
+				{ name = "name_contains_word", result = symbol.name:find(target_word, 1, true) ~= nil },
+				{ name = "word_contains_name", result = target_word:find(symbol.name, 1, true) ~= nil },
+			}
+
+			local matches = {}
+			for _, test in ipairs(tests) do
+				if test.result then
+					table.insert(matches, test.name)
+				end
+			end
+
+			if #matches > 0 then
+				match_count = match_count + 1
+				print("  ✅ MATCHES:", table.concat(matches, ", "))
+			else
+				print("  ❌ No matches")
+			end
+
+			-- Show detailed comparison for debugging
+			if symbol.name ~= target_word then
+				print("  Name comparison:")
+				print("    Symbol: '" .. symbol.name .. "' (length: " .. #symbol.name .. ")")
+				print("    Target: '" .. target_word .. "' (length: " .. #target_word .. ")")
+
+				-- Check for invisible characters
+				local symbol_bytes = { string.byte(symbol.name, 1, -1) }
+				local target_bytes = { string.byte(target_word, 1, -1) }
+				print("    Symbol bytes:", table.concat(symbol_bytes, " "))
+				print("    Target bytes:", table.concat(target_bytes, " "))
+			end
+		end
+
+		print("\n=== Summary ===")
+		print("Total symbols:", #symbols)
+		print("Symbols with matches:", match_count)
+
+		if match_count == 0 then
+			print("❌ NO MATCHES FOUND - This explains why goto-definition fails")
+
+			-- Suggest closest matches
+			print("\n=== Closest Matches ===")
+			local closest = {}
+			for _, symbol in ipairs(symbols) do
+				local distance = 0
+
+				-- Simple similarity scoring
+				if symbol.name:lower():find(target_word:lower(), 1, true) then
+					distance = distance + 10
+				end
+				if target_word:lower():find(symbol.name:lower(), 1, true) then
+					distance = distance + 5
+				end
+				if math.abs(#symbol.name - #target_word) <= 2 then
+					distance = distance + 3
+				end
+
+				if distance > 0 then
+					table.insert(closest, { symbol = symbol, score = distance })
+				end
+			end
+
+			table.sort(closest, function(a, b)
+				return a.score > b.score
+			end)
+
+			for i = 1, math.min(3, #closest) do
+				local match = closest[i]
+				print(string.format("  %d. %s '%s' (score: %d)", i, match.symbol.type, match.symbol.name, match.score))
+			end
+		else
+			print("✅ Found matches - goto-definition should work")
+		end
+
+		print("=== Debug Complete ===")
+	end, {
+		desc = "Debug symbol matching in detail",
+	})
+
+	-- Test the utils.symbols_match function specifically
+	vim.api.nvim_create_user_command("TclTestSymbolsMatch", function(opts)
+		if not opts.args or not opts.args:match("%S+%s+%S+") then
+			print("Usage: :TclTestSymbolsMatch <symbol1> <symbol2>")
+			print("Example: :TclTestSymbolsMatch MyNamespace::proc proc")
+			return
+		end
+
+		local parts = {}
+		for part in opts.args:gmatch("%S+") do
+			table.insert(parts, part)
+		end
+
+		if #parts < 2 then
+			print("Need two symbols to compare")
+			return
+		end
+
+		local symbol1 = parts[1]
+		local symbol2 = parts[2]
+		local utils = require("tcl-lsp.utils")
+
+		print("=== Testing symbols_match Function ===")
+		print("Symbol 1:", "'" .. symbol1 .. "'")
+		print("Symbol 2:", "'" .. symbol2 .. "'")
+
+		local result1 = utils.symbols_match(symbol1, symbol2)
+		local result2 = utils.symbols_match(symbol2, symbol1)
+
+		print("symbols_match(symbol1, symbol2):", result1)
+		print("symbols_match(symbol2, symbol1):", result2)
+
+		-- Test the underlying parse_symbol_name function
+		local parsed1 = utils.parse_symbol_name(symbol1)
+		local parsed2 = utils.parse_symbol_name(symbol2)
+
+		print("\nParsed symbol1:")
+		if parsed1 then
+			for k, v in pairs(parsed1) do
+				print("  " .. k .. ":", "'" .. tostring(v) .. "'")
+			end
+		else
+			print("  Failed to parse")
+		end
+
+		print("\nParsed symbol2:")
+		if parsed2 then
+			for k, v in pairs(parsed2) do
+				print("  " .. k .. ":", "'" .. tostring(v) .. "'")
+			end
+		else
+			print("  Failed to parse")
+		end
+	end, {
+		desc = "Test the symbols_match function with two symbols",
+		nargs = "*",
+	})
+
+	-- Simple command to show what word is under cursor
+	vim.api.nvim_create_user_command("TclShowCursorWord", function()
+		local utils = require("tcl-lsp.utils")
+
+		local cursor_pos = vim.api.nvim_win_get_cursor(0)
+		local line = vim.api.nvim_get_current_line()
+		local col = cursor_pos[2]
+
+		print("=== Cursor Word Analysis ===")
+		print("Position: line", cursor_pos[1], "column", col + 1)
+		print("Line:", "'" .. line .. "'")
+		print("Char at cursor:", "'" .. (line:sub(col + 1, col + 1)) .. "'")
+
+		-- Show vim's built-in word extraction
+		local vim_word = vim.fn.expand("<cword>")
+		local vim_WORD = vim.fn.expand("<cWORD>")
+
+		print("Vim <cword>:", "'" .. vim_word .. "'")
+		print("Vim <cWORD>:", "'" .. vim_WORD .. "'")
+
+		-- Test our functions
+		local word1, err1 = utils.get_word_under_cursor()
+		local word2, err2 = utils.get_qualified_word_under_cursor()
+
+		print("get_word_under_cursor():", word1 and ("'" .. word1 .. "'") or ("ERROR: " .. (err1 or "unknown")))
+		print(
+			"get_qualified_word_under_cursor():",
+			word2 and ("'" .. word2 .. "'") or ("ERROR: " .. (err2 or "unknown"))
+		)
+	end, {
+		desc = "Show what word is detected under cursor",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
