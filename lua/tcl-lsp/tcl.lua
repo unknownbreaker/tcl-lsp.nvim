@@ -62,21 +62,21 @@ foreach proc_name [info procs] {
         if {![catch {info args $proc_name} args]} {
             set proc_args [join $args " "]
         }
-        puts "SEMANTIC_PROC|$proc_name|$proc_args|[namespace current]"
+        puts "SEMANTIC_PROC:$proc_name:$proc_args:[namespace current]"
     }
 }
 
 # Get all global variables
 foreach var_name [info globals] {
     if {[info exists ::$var_name]} {
-        puts "SEMANTIC_VAR|$var_name|global|::"
+        puts "SEMANTIC_VAR:$var_name:global::"
     }
 }
 
 # Get all namespaces
 foreach ns [namespace children ::] {
     if {$ns ne "::tcl"} {
-        puts "SEMANTIC_NS|$ns"
+        puts "SEMANTIC_NS:$ns"
         
         # Get procs in this namespace
         foreach ns_proc [info procs ${ns}::*] {
@@ -84,12 +84,12 @@ foreach ns [namespace children ::] {
             if {![catch {info args $ns_proc} args]} {
                 set proc_args [join $args " "]
             }
-            puts "SEMANTIC_PROC|$ns_proc|$proc_args|$ns"
+            puts "SEMANTIC_PROC:$ns_proc:$proc_args:$ns"
         }
         
         # Get vars in this namespace  
         foreach ns_var [info vars ${ns}::*] {
-            puts "SEMANTIC_VAR|$ns_var|namespace|$ns"
+            puts "SEMANTIC_VAR:$ns_var:namespace:$ns"
         }
     }
 }
@@ -113,69 +113,67 @@ puts "SEMANTIC_COMPLETE"
 
 	-- Parse the simpler output format
 	for line in result:gmatch("[^\n]+") do
-		if line:match("^SEMANTIC_PROC|") then
-			local parts = {}
-			for part in line:gmatch("([^|]*)") do
-				table.insert(parts, part)
+		-- For procedures
+		if line:match("^SEMANTIC_PROC:") then
+			local remaining = line:sub(15) -- Remove "SEMANTIC_PROC:"
+			local name, rest = remaining:match("^([^:]+):(.*)")
+			if name and rest then
+				local args, context = rest:match("^([^:]*):(.*)$")
+				if args and context then
+					local symbol = {
+						type = "procedure",
+						name = name,
+						line = 1,
+						args = args,
+						context = context,
+						scope = "semantic",
+						proc_context = "",
+						text = "",
+						qualified_name = name,
+						method = "semantic_simple",
+					}
+					table.insert(symbols, symbol)
+					symbol_count = symbol_count + 1
+					print("DEBUG: Found procedure:", name, "args:", args)
+				end
 			end
+		elseif line:match("^SEMANTIC_VAR:") then
+			local remaining = line:sub(13) -- Remove "SEMANTIC_VAR:"
+			local name, rest = remaining:match("^([^:]+):(.*)")
+			if name and rest then
+				local scope, context = rest:match("^([^:]*):(.*)$")
+				if scope and context then
+					local symbol = {
+						type = "variable",
+						name = name,
+						line = 1,
+						args = "",
+						context = context,
+						scope = scope, -- "global" or "namespace"
+						proc_context = "",
+						text = "",
+						qualified_name = name,
+						method = "semantic_simple",
+					}
 
-			if #parts >= 4 then
-				local symbol = {
-					type = "procedure",
-					name = parts[2],
-					line = 1, -- We don't have line numbers from introspection
-					args = parts[3],
-					context = parts[4],
-					scope = "semantic",
-					proc_context = "",
-					text = "",
-					qualified_name = parts[2],
-					method = "semantic_simple",
-				}
-
-				table.insert(symbols, symbol)
-				symbol_count = symbol_count + 1
+					table.insert(symbols, symbol)
+					symbol_count = symbol_count + 1
+				end
 			end
-		elseif line:match("^SEMANTIC_VAR|") then
-			local parts = {}
-			for part in line:gmatch("([^|]*)") do
-				table.insert(parts, part)
-			end
+		elseif line:match("^SEMANTIC_NS:") then
+			local name = line:sub(12) -- Remove "SEMANTIC_NS:"
 
-			if #parts >= 4 then
-				local symbol = {
-					type = "variable",
-					name = parts[2],
-					line = 1,
-					args = "",
-					context = parts[4],
-					scope = parts[3], -- "global" or "namespace"
-					proc_context = "",
-					text = "",
-					qualified_name = parts[2],
-					method = "semantic_simple",
-				}
-
-				table.insert(symbols, symbol)
-				symbol_count = symbol_count + 1
-			end
-		elseif line:match("^SEMANTIC_NS|") then
-			local parts = {}
-			for part in line:gmatch("([^|]*)") do
-				table.insert(parts, part)
-			end
-
-			if #parts >= 2 then
+			if name then
 				local symbol = {
 					type = "namespace",
-					name = parts[2],
+					name = name,
 					line = 1,
 					args = "",
 					context = "",
 					scope = "namespace",
 					proc_context = "",
 					text = "",
-					qualified_name = parts[2],
+					qualified_name = name,
 					method = "semantic_simple",
 				}
 
