@@ -169,11 +169,16 @@ function M.analyze_tcl_file(file_path, tclsh_cmd)
 		return cached_symbols
 	end
 
-	-- True semantic analysis using TCL's parser and safe interpreter
+	-- Periodically clean up old cache entries
+	if math.random(1, 20) == 1 then -- 5% chance
+		cleanup_cache()
+	end
+
+	-- More robust analysis that works with real TCL files
 	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
-	local semantic_script = string.format(
+	local working_analysis_script = string.format(
 		[[
-# True Semantic TCL Analysis using TCL's introspection
+# Robust TCL Analysis that actually works
 set file_path "%s"
 
 # Read the file
@@ -186,358 +191,255 @@ if {[catch {
     exit 1
 }
 
-# Create a safe interpreter for semantic analysis
-set safe_interp [interp create -safe]
+puts "DEBUG: File read successfully, length: [string length $content]"
 
-# Add necessary commands to the safe interpreter for analysis
-$safe_interp alias puts_symbol puts_symbol
-$safe_interp alias track_proc track_proc
-$safe_interp alias track_namespace track_namespace
-$safe_interp alias track_variable track_variable
-$safe_interp alias track_parameter track_parameter
-
-# Global state for tracking symbols during evaluation
+# Split into lines and track context
+set lines [split $content "\n"]
+set line_num 0
 set current_namespace ""
 set current_proc ""
 set namespace_stack [list]
-set proc_stack [list]
-set symbols [list]
-set line_map [dict create]
+set brace_level 0
+set in_string 0
 
-# Build line mapping by parsing the content
-set lines [split $content "\n"]
-set line_num 0
-set char_pos 0
+puts "DEBUG: Processing [llength $lines] lines"
+
+# Function to output symbol information
+proc emit_symbol {type name qualified_name line scope context extra} {
+    puts "SYMBOL:$type:$name:$qualified_name:$line:$scope:$context:$extra"
+}
+
+# Parse each line more carefully
 foreach line $lines {
     incr line_num
-    set line_length [string length $line]
-    for {set i 0} {$i <= $line_length} {incr i} {
-        dict set line_map $char_pos $line_num
-        incr char_pos
-    }
-}
-
-# Function to find line number from character position
-proc find_line_number {char_pos} {
-    global line_map
-    set best_line 1
-    dict for {pos line} $line_map {
-        if {$pos <= $char_pos} {
-            set best_line $line
-        } else {
-            break
-        }
-    }
-    return $best_line
-}
-
-# Enhanced tracking functions that use TCL's semantic information
-proc puts_symbol {type name qualified_name line scope context args} {
-    puts "SYMBOL:$type:$name:$qualified_name:$line:$scope:$context:$args"
-}
-
-proc track_proc {name args body} {
-    global current_namespace current_proc symbols
+    set original_line $line
+    set trimmed [string trim $line]
     
-    # Use info frame to get precise location information
-    set call_frame [info frame]
-    set line_num 1
-    if {[dict exists $call_frame file]} {
-        set line_num [dict get $call_frame line]
+    # Skip empty lines and comments
+    if {$trimmed eq "" || [string match "#*" $trimmed]} {
+        continue
     }
     
-    set qualified_name $name
-    if {$current_namespace ne "" && ![string match "::*" $name]} {
-        set qualified_name "${current_namespace}::$name"
-    }
+    puts "DEBUG: Line $line_num: $trimmed"
     
-    # Track the procedure
-    puts_symbol "procedure" $name $qualified_name $line_num "procedure" $current_namespace $args
+    # Track brace levels more carefully
+    set line_open_braces 0
+    set line_close_braces 0
+    set in_quotes 0
     
-    # Parse and track parameters using TCL's actual argument parsing
-    set old_proc $current_proc
-    set current_proc $name
-    
-    # Use TCL's info args equivalent parsing
-    if {[catch {
-        # Parse the argument list semantically
-        foreach arg_spec $args {
-            if {[llength $arg_spec] == 1} {
-                # Simple parameter
-                set param_name $arg_spec
-                puts_symbol "parameter" $param_name "${current_proc}::$param_name" $line_num "parameter" $current_proc ""
-            } elseif {[llength $arg_spec] == 2} {
-                # Parameter with default value
-                set param_name [lindex $arg_spec 0]
-                set default_val [lindex $arg_spec 1]
-                puts_symbol "parameter" $param_name "${current_proc}::$param_name" $line_num "parameter" $current_proc $default_val
+    # Count braces while respecting quotes
+    for {set i 0} {$i < [string length $line]} {incr i} {
+        set char [string index $line $i]
+        if {$char eq "\""} {
+            set in_quotes [expr {!$in_quotes}]
+        } elseif {!$in_quotes} {
+            if {$char eq "\{"} {
+                incr line_open_braces
+            } elseif {$char eq "\}"} {
+                incr line_close_braces
             }
         }
+    }
+    
+    set brace_level [expr {$brace_level + $line_open_braces - $line_close_braces}]
+    puts "DEBUG: Brace level now: $brace_level"
+    
+    # Find package commands (more flexible pattern)
+    if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match cmd pkg_name]} {
+        puts "DEBUG: Found package: $cmd $pkg_name"
+        emit_symbol "package" $pkg_name $pkg_name $line_num "package" "" "$cmd"
+    }
+    
+    # Find namespace eval commands (handle various forms)
+    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_:][a-zA-Z0-9_:]*)} $trimmed match ns_name]} {
+        puts "DEBUG: Found namespace: $ns_name"
         
-        # Now evaluate the body in the procedure context
-        # We don't actually execute it, but parse it for variable assignments
-        parse_proc_body $body $line_num
+        # Clean up namespace name
+        set clean_ns [string trim $ns_name "{}\""]
         
-    } parse_err]} {
-        # If parameter parsing fails, fall back to simpler method
-        puts "DEBUG: Parameter parsing failed for $name: $parse_err"
-    }
-    
-    set current_proc $old_proc
-    
-    # Actually define the procedure in the safe interpreter for later introspection
-    $::safe_interp eval [list proc $name $args $body]
-}
-
-proc track_namespace {name body} {
-    global current_namespace namespace_stack
-    
-    set call_frame [info frame]
-    set line_num 1
-    if {[dict exists $call_frame file]} {
-        set line_num [dict get $call_frame line]
-    }
-    
-    puts_symbol "namespace" $name $name $line_num "namespace" "" ""
-    
-    # Track namespace context
-    lappend namespace_stack $current_namespace
-    set current_namespace $name
-    
-    # Evaluate namespace body
-    if {[catch {
-        eval $body
-    } ns_err]} {
-        puts "DEBUG: Namespace evaluation failed for $name: $ns_err"
-    }
-    
-    # Restore namespace context
-    if {[llength $namespace_stack] > 0} {
-        set current_namespace [lindex $namespace_stack end]
-        set namespace_stack [lrange $namespace_stack 0 end-1]
-    } else {
-        set current_namespace ""
-    }
-}
-
-proc track_variable {name args} {
-    global current_namespace current_proc
-    
-    set call_frame [info frame]
-    set line_num 1
-    if {[dict exists $call_frame file]} {
-        set line_num [dict get $call_frame line]
-    }
-    
-    set qualified_name $name
-    set scope "global"
-    
-    if {$current_proc ne ""} {
-        set scope "local"
-        set qualified_name "${current_proc}::$name"
-        if {$current_namespace ne ""} {
-            set qualified_name "${current_namespace}::${current_proc}::$name"
-        }
-    } elseif {$current_namespace ne "" && ![string match "::*" $name]} {
-        set scope "namespace"
-        set qualified_name "${current_namespace}::$name"
-    }
-    
-    set value ""
-    if {[llength $args] > 0} {
-        set value [lindex $args 0]
-    }
-    
-    puts_symbol "variable" $name $qualified_name $line_num $scope $current_proc $value
-}
-
-proc parse_proc_body {body start_line} {
-    # Parse the procedure body for variable assignments and other symbols
-    # This is a simplified version - in a full implementation we'd use TCL's parser
-    
-    set body_lines [split $body "\n"]
-    set rel_line 0
-    foreach line $body_lines {
-        incr rel_line
-        set actual_line [expr {$start_line + $rel_line}]
-        set trimmed [string trim $line]
+        # Track namespace stack
+        lappend namespace_stack $current_namespace
+        set current_namespace $clean_ns
         
-        # Look for variable assignments using semantic understanding
-        if {[regexp {^set\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s+(.*)$} $trimmed -> var_name var_value]} {
-            track_variable $var_name $var_value
+        emit_symbol "namespace" $clean_ns $clean_ns $line_num "namespace" "" ""
+    }
+    
+    # Find procedure definitions (more robust)
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match proc_name]} {
+        puts "DEBUG: Found proc: $proc_name"
+        
+        set qualified_name $proc_name
+        
+        # Create qualified name if in namespace
+        if {$current_namespace ne "" && ![string match "*::*" $proc_name]} {
+            set qualified_name "$current_namespace\::$proc_name"
         }
         
-        # Look for global declarations
-        if {[regexp {^global\s+(.+)$} $trimmed -> globals]} {
-            foreach global_var [split $globals] {
-                set clean_var [string trim $global_var]
-                if {$clean_var ne ""} {
-                    puts_symbol "global" $clean_var $clean_var $actual_line "global" $::current_proc ""
+        # Try to extract arguments (simple approach)
+        set proc_args ""
+        if {[regexp {^\s*proc\s+[a-zA-Z_][a-zA-Z0-9_:]*\s*\{([^}]*)\}} $trimmed match args_part]} {
+            set proc_args [string trim $args_part]
+        }
+        
+        emit_symbol "procedure" $proc_name $qualified_name $line_num "procedure" $current_namespace $proc_args
+        
+        set current_proc $proc_name
+        
+        # Parse parameters if we found them
+        if {$proc_args ne ""} {
+            # Simple parameter parsing
+            set param_list [split $proc_args]
+            foreach param_item $param_list {
+                set param_item [string trim $param_item]
+                if {$param_item ne ""} {
+                    # Handle simple parameters and defaults
+                    if {[string match "*\{*\}*" $param_item]} {
+                        # Parameter with default: {name default}
+                        if {[regexp {\{([a-zA-Z_][a-zA-Z0-9_]*)} $param_item match param_name]} {
+                            emit_symbol "parameter" $param_name "$current_proc\::$param_name" $line_num "parameter" $current_proc ""
+                        }
+                    } elseif {[regexp {^[a-zA-Z_][a-zA-Z0-9_]*$} $param_item]} {
+                        # Simple parameter
+                        emit_symbol "parameter" $param_item "$current_proc\::$param_item" $line_num "parameter" $current_proc ""
+                    }
                 }
             }
         }
+    }
+    
+    # Find variable assignments
+    if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match var_name]} {
+        puts "DEBUG: Found variable: $var_name"
         
-        # Look for array operations
-        if {[regexp {^array\s+set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed -> array_name]} {
-            track_variable $array_name "array"
-        }
-    }
-}
-
-# Override TCL commands in safe interpreter to track symbol definitions
-$safe_interp eval {
-    rename proc _original_proc
-    proc proc {name args body} {
-        track_proc $name $args $body
-        return
-    }
-    
-    rename namespace _original_namespace
-    proc namespace {subcommand args} {
-        if {$subcommand eq "eval"} {
-            set name [lindex $args 0]
-            set body [lindex $args 1]
-            track_namespace $name $body
-        }
-        return
-    }
-    
-    rename set _original_set
-    proc set {name args} {
-        track_variable $name {*}$args
-        return
-    }
-    
-    rename global _original_global
-    proc global {args} {
-        foreach var $args {
-            puts_symbol "global" $var $var [info frame line] "global" "" ""
-        }
-        return
-    }
-    
-    rename array _original_array
-    proc array {subcommand name args} {
-        if {$subcommand eq "set"} {
-            track_variable $name "array"
-        }
-        return
-    }
-    
-    # Handle package commands
-    proc package {subcommand args} {
-        if {$subcommand eq "require" || $subcommand eq "provide"} {
-            set pkg_name [lindex $args 0]
-            set version [lindex $args 1]
-            puts_symbol "package" $pkg_name $pkg_name [info frame line] "package" "" "$subcommand $version"
-        }
-        return
-    }
-    
-    # Handle source commands
-    proc source {filename} {
-        puts_symbol "source" $filename $filename [info frame line] "source" "" ""
-        return
-    }
-    
-    # Disable potentially dangerous commands
-    proc exec {args} { return }
-    proc open {args} { return }
-    proc file {args} { return }
-    proc glob {args} { return }
-}
-
-# Now evaluate the content in the safe interpreter to extract semantic information
-if {[catch {
-    $safe_interp eval $content
-} eval_err]} {
-    # If full evaluation fails, try parsing it piece by piece
-    puts "DEBUG: Full evaluation failed, trying incremental parsing: $eval_err"
-    
-    # Split content into top-level commands and evaluate each
-    set command_buffer ""
-    set brace_count 0
-    
-    foreach line [split $content "\n"] {
-        append command_buffer $line "\n"
+        set qualified_name $var_name
+        set scope "global"
         
-        # Count braces to determine complete commands
-        incr brace_count [regexp -all {\{} $line]
-        incr brace_count -[regexp -all {\}} $line]
+        if {$current_proc ne ""} {
+            set scope "local"
+            set qualified_name "$current_proc\::$var_name"
+        } elseif {$current_namespace ne "" && ![string match "*::*" $var_name]} {
+            set scope "namespace"
+            set qualified_name "$current_namespace\::$var_name"
+        }
         
-        # If braces are balanced and we have content, try to evaluate
-        if {$brace_count == 0 && [string trim $command_buffer] ne ""} {
-            if {[catch {
-                if {[info complete $command_buffer]} {
-                    $safe_interp eval $command_buffer
-                }
-            } cmd_err]} {
-                # If individual command fails, skip it
-                puts "DEBUG: Command failed: [string range $command_buffer 0 50]..."
+        emit_symbol "variable" $var_name $qualified_name $line_num $scope $current_proc ""
+    }
+    
+    # Find global declarations
+    if {[regexp {^\s*global\s+(.+)$} $trimmed match globals]} {
+        puts "DEBUG: Found global: $globals"
+        foreach global_var [split $globals] {
+            set clean_var [string trim $global_var]
+            if {$clean_var ne "" && [regexp {^[a-zA-Z_][a-zA-Z0-9_:]*$} $clean_var]} {
+                emit_symbol "global" $clean_var $clean_var $line_num "global" $current_proc ""
             }
-            set command_buffer ""
+        }
+    }
+    
+    # Find array operations
+    if {[regexp {^\s*array\s+set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $trimmed match array_name]} {
+        puts "DEBUG: Found array: $array_name"
+        
+        set qualified_name $array_name
+        set scope "global"
+        
+        if {$current_proc ne ""} {
+            set scope "local"
+            set qualified_name "$current_proc\::$array_name"
+        } elseif {$current_namespace ne "" && ![string match "*::*" $array_name]} {
+            set scope "namespace"
+            set qualified_name "$current_namespace\::$array_name"
+        }
+        
+        emit_symbol "array" $array_name $qualified_name $line_num $scope $current_proc ""
+    }
+    
+    # Find source commands
+    if {[regexp {^\s*source\s+(.+)$} $trimmed match source_file]} {
+        puts "DEBUG: Found source: $source_file"
+        set clean_file [string trim $source_file "\"'\{\}"]
+        emit_symbol "source" $clean_file $clean_file $line_num "source" "" ""
+    }
+    
+    # Handle scope exits when braces close
+    if {$line_close_braces > 0} {
+        puts "DEBUG: Closing braces, checking scope exits"
+        
+        # If we closed back to level 0 or below, exit current procedure
+        if {$brace_level <= 0 && $current_proc ne ""} {
+            puts "DEBUG: Exiting procedure: $current_proc"
+            set current_proc ""
+        }
+        
+        # If we have unmatched closes and we're in a namespace, exit it
+        if {$brace_level <= 0 && [llength $namespace_stack] > 0} {
+            puts "DEBUG: Exiting namespace: $current_namespace"
+            set current_namespace [lindex $namespace_stack end]
+            set namespace_stack [lrange $namespace_stack 0 end-1]
         }
     }
 }
 
-# Clean up
-interp delete $safe_interp
-
-puts "SEMANTIC_ANALYSIS_COMPLETE"
+puts "ANALYSIS_COMPLETE"
+puts "DEBUG: Analysis finished"
 ]],
 		escaped_path
 	)
 
-	local result, success = utils.execute_tcl_script(semantic_script, tclsh_cmd)
+	local result, success = utils.execute_tcl_script(working_analysis_script, tclsh_cmd)
 
 	if not (result and success) then
-		print("DEBUG: Semantic analysis failed")
+		print("DEBUG: Robust analysis failed")
 		print("DEBUG: Result:", result or "nil")
 		print("DEBUG: Success:", success)
 		return nil
 	end
 
-	print("DEBUG: Semantic analysis output:")
+	print("DEBUG: Robust analysis output:")
 	print(result)
 
 	local symbols = {}
 	for line in result:gmatch("[^\n]+") do
-		print("DEBUG: Processing semantic line:", line)
+		if line:match("^SYMBOL:") then
+			print("DEBUG: Processing symbol line:", line)
 
-		-- Parse semantic output: SYMBOL:type:name:qualified_name:line:scope:context:args
-		local symbol_type, name, qualified_name, line_num, scope, context, args =
-			line:match("SYMBOL:([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]*):([^:]*)")
+			-- Parse: SYMBOL:type:name:qualified_name:line:scope:context:extra
+			local symbol_type, name, qualified_name, line_num, scope, context, extra =
+				line:match("SYMBOL:([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]*):([^:]*)")
 
-		if symbol_type and name and line_num then
-			local symbol = {
-				type = symbol_type,
-				name = name,
-				qualified_name = qualified_name ~= name and qualified_name or nil,
-				line = tonumber(line_num),
-				text = line, -- We could get actual text from line lookup
-				scope = scope or "global",
-				context = context ~= "" and context or nil,
-				proc_context = (symbol_type == "parameter" and context ~= "") and context or nil,
-				args = args ~= "" and args or nil,
-				method = "true_semantic",
-			}
+			if symbol_type and name and line_num then
+				local symbol = {
+					type = symbol_type,
+					name = name,
+					qualified_name = qualified_name ~= name and qualified_name or nil,
+					line = tonumber(line_num),
+					text = line, -- Could be improved by getting actual line text
+					scope = scope or "global",
+					context = context ~= "" and context or nil,
+					proc_context = (symbol_type == "parameter" and context ~= "") and context or nil,
+					args = extra ~= "" and extra or nil,
+					method = "robust_working",
+				}
 
-			print(
-				"DEBUG: Found semantic symbol:",
-				symbol.type,
-				symbol.name,
-				"at line",
-				symbol.line,
-				"scope:",
-				symbol.scope,
-				"qualified:",
-				symbol.qualified_name or "none"
-			)
-			table.insert(symbols, symbol)
+				print(
+					"DEBUG: Found robust symbol:",
+					symbol.type,
+					symbol.name,
+					"at line",
+					symbol.line,
+					"scope:",
+					symbol.scope,
+					"qualified:",
+					symbol.qualified_name or "none"
+				)
+				table.insert(symbols, symbol)
+			else
+				print("DEBUG: Failed to parse symbol line:", line)
+			end
 		end
 	end
 
-	print("DEBUG: Total semantic symbols found:", #symbols)
+	print("DEBUG: Total robust symbols found:", #symbols)
 
 	-- Cache the results
 	cache_file_analysis(file_path, symbols)
