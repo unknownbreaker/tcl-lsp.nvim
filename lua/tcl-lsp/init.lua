@@ -649,6 +649,150 @@ Performance Assessment:
 	end, {
 		desc = "Go to definition with debug output",
 	})
+
+	vim.api.nvim_create_user_command("TclTestCorrected", function()
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify("No file to analyze: " .. (err or "unknown"), vim.log.levels.ERROR)
+			return
+		end
+
+		utils.notify("Testing corrected TCL analysis on: " .. vim.fn.fnamemodify(file_path, ":t"), vim.log.levels.INFO)
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		-- Clear cache to force fresh analysis
+		tcl.invalidate_cache(file_path)
+
+		-- Run the corrected analysis
+		local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
+
+		if not symbols then
+			utils.notify("❌ Analysis failed - check :messages for details", vim.log.levels.ERROR)
+			return
+		end
+
+		if #symbols == 0 then
+			utils.notify("⚠️  No symbols found - file might be empty or have syntax issues", vim.log.levels.WARN)
+
+			-- Show first few lines of file for debugging
+			local lines = vim.api.nvim_buf_get_lines(0, 0, 10, false)
+			utils.notify("First 10 lines of file:", vim.log.levels.INFO)
+			for i, line in ipairs(lines) do
+				if line:trim() ~= "" and not line:match("^%s*#") then
+					utils.notify(string.format("  %d: %s", i, line), vim.log.levels.INFO)
+				end
+			end
+			return
+		end
+
+		utils.notify("✅ Found " .. #symbols .. " symbols:", vim.log.levels.INFO)
+
+		-- Group symbols by type for better display
+		local by_type = {}
+		for _, symbol in ipairs(symbols) do
+			if not by_type[symbol.type] then
+				by_type[symbol.type] = {}
+			end
+			table.insert(by_type[symbol.type], symbol)
+		end
+
+		-- Display grouped results
+		for type_name, type_symbols in pairs(by_type) do
+			utils.notify(string.format("  %s (%d):", type_name, #type_symbols), vim.log.levels.INFO)
+
+			for i, symbol in ipairs(type_symbols) do
+				local qualified_info = symbol.qualified_name and (" -> " .. symbol.qualified_name) or ""
+				utils.notify(
+					string.format("    %d. '%s'%s at line %d", i, symbol.name, qualified_info, symbol.line),
+					vim.log.levels.INFO
+				)
+
+				if i >= 5 then -- Limit output
+					utils.notify(string.format("    ... and %d more", #type_symbols - 5), vim.log.levels.INFO)
+					break
+				end
+			end
+		end
+
+		utils.notify("✅ Analysis completed successfully!", vim.log.levels.INFO)
+	end, {
+		desc = "Test the corrected TCL symbol analysis",
+	})
+
+	-- Test the specific file from your error
+	vim.api.nvim_create_user_command("TclTestFile", function(opts)
+		local file_path = opts.args
+		if not file_path or file_path == "" then
+			file_path =
+				"/Users/rob.yang/Documents/Repos/FlightAware/22fa_web/packages/flightaware-main/ftrehose/trials.tcl"
+		end
+
+		if not vim.fn.filereadable(file_path) then
+			utils.notify("File not readable: " .. file_path, vim.log.levels.ERROR)
+			return
+		end
+
+		local utils = require("tcl-lsp.utils")
+		local tcl = require("tcl-lsp.tcl")
+		local config = require("tcl-lsp.config")
+
+		utils.notify("Testing analysis on specific file: " .. vim.fn.fnamemodify(file_path, ":t"), vim.log.levels.INFO)
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+
+		-- Test the TCL script directly
+		local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
+		local test_script = string.format(
+			[[
+# Test script to verify file can be read and parsed
+set file_path "%s"
+
+puts "Testing file: $file_path"
+
+if {[catch {
+    set fp [open $file_path r]
+    set content [read $fp]
+    close $fp
+} err]} {
+    puts "ERROR: Cannot read file: $err"
+    exit 1
+}
+
+set lines [split $content "\n"]
+puts "File has [llength $lines] lines"
+
+# Test parsing first 10 lines
+set line_num 0
+foreach line [lrange $lines 0 9] {
+    incr line_num
+    puts "Line $line_num: [string length $line] chars: [string range $line 0 50]..."
+}
+
+puts "SUCCESS: File parsed without errors"
+]],
+			escaped_path
+		)
+
+		local result, success = utils.execute_tcl_script(test_script, tclsh_cmd)
+
+		if result and success then
+			utils.notify("✅ File test passed:", vim.log.levels.INFO)
+			for line in result:gmatch("[^\n]+") do
+				utils.notify("  " .. line, vim.log.levels.INFO)
+			end
+		else
+			utils.notify("❌ File test failed:", vim.log.levels.ERROR)
+			utils.notify("Result: " .. (result or "nil"), vim.log.levels.ERROR)
+		end
+	end, {
+		desc = "Test analysis on specific file",
+		nargs = "?",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings
