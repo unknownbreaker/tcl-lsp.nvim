@@ -105,6 +105,25 @@ TCL LSP Cache Statistics:
 		desc = "Manage TCL LSP caches (clear|stats)",
 		nargs = "?",
 	})
+
+	vim.api.nvim_create_user_command("TclLspDebug", function()
+		local file_path, err = utils.get_current_file_path()
+		if not file_path then
+			utils.notify(err or "No file to debug", vim.log.levels.WARN)
+			return
+		end
+
+		local tclsh_cmd = config.get_tclsh_cmd()
+		local symbols = tcl.debug_symbols(file_path, tclsh_cmd)
+
+		if symbols and #symbols > 0 then
+			utils.notify("Found " .. #symbols .. " symbols. Check :messages for details.", vim.log.levels.INFO)
+		else
+			utils.notify("No symbols found! Check :messages for debug info.", vim.log.levels.WARN)
+		end
+	end, {
+		desc = "Debug TCL symbol analysis",
+	})
 end
 
 -- Auto-setup keymaps and buffer-local settings

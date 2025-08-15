@@ -297,7 +297,7 @@ puts "ANALYSIS_COMPLETE"
 
 	local symbols = {}
 	for line in result:gmatch("[^\n]+") do
-		-- Parse enhanced symbol format: SYMBOL:type:name:line:text:CONTEXT:context:SCOPE:scope:etc
+		-- Parse enhanced symbol format with better error handling
 		local parts = {}
 		for part in line:gmatch("([^:]+)") do
 			table.insert(parts, part)
@@ -315,20 +315,20 @@ puts "ANALYSIS_COMPLETE"
 				qualified_name = "",
 			}
 
-			-- Parse additional metadata
+			-- Parse additional metadata with more robust parsing
 			local i = 6
 			while i <= #parts do
 				if parts[i] == "CONTEXT" and i < #parts then
-					symbol.context = parts[i + 1]
+					symbol.context = parts[i + 1] or ""
 					i = i + 2
 				elseif parts[i] == "SCOPE" and i < #parts then
-					symbol.scope = parts[i + 1]
+					symbol.scope = parts[i + 1] or ""
 					i = i + 2
 				elseif parts[i] == "ARGS" and i < #parts then
-					symbol.args = parts[i + 1]
+					symbol.args = parts[i + 1] or ""
 					i = i + 2
 				elseif parts[i] == "QUALIFIED" and i < #parts then
-					symbol.qualified_name = parts[i + 1]
+					symbol.qualified_name = parts[i + 1] or ""
 					i = i + 2
 				else
 					i = i + 1
@@ -775,6 +775,33 @@ end
 function M.clear_all_caches()
 	file_cache = {}
 	resolution_cache = {}
+end
+
+-- Debug function to see what symbols are being found
+function M.debug_symbols(file_path, tclsh_cmd)
+	local symbols = M.analyze_tcl_file(file_path, tclsh_cmd)
+
+	if not symbols then
+		print("DEBUG: No symbols found - analysis failed")
+		return
+	end
+
+	print("DEBUG: Found " .. #symbols .. " symbols:")
+	for i, symbol in ipairs(symbols) do
+		print(
+			string.format(
+				"  %d. %s '%s' at line %d (scope: %s, context: %s)",
+				i,
+				symbol.type,
+				symbol.name,
+				symbol.line,
+				symbol.scope or "none",
+				symbol.context or "none"
+			)
+		)
+	end
+
+	return symbols
 end
 
 -- Get cache statistics
