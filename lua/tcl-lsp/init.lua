@@ -224,7 +224,10 @@ function M.setup(user_config)
 	-- Test TCL environment
 	local tcl_ok, tcl_err = tcl.initialize_tcl_environment(tclsh_cmd)
 	if not tcl_ok then
-		utils.notify("❌ TCL LSP: Failed to initialize TCL environment: " .. tcl_err, vim.log.levels.ERROR)
+		utils.notify(
+			"❌ TCL LSP: Failed to initialize TCL environment: " .. (tcl_err or "unknown error"),
+			vim.log.levels.ERROR
+		)
 		return
 	end
 

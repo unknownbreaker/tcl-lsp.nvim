@@ -259,6 +259,44 @@ puts "REFERENCES_COMPLETE"
 	return references
 end
 
--- Keep all other existing functions unchanged...
+-- Initialize the TCL environment and verify it's working
+function M.initialize_tcl_environment(tclsh_cmd)
+	local init_script = [[
+# Test basic TCL functionality
+puts "TCL_INIT_START"
+
+# Check basic commands
+if {[catch {set test_var "hello"} err]} {
+    puts "ERROR: Basic set command failed: $err"
+    exit 1
+}
+
+if {[catch {puts -nonewline ""} err]} {
+    puts "ERROR: puts command failed: $err"
+    exit 1
+}
+
+# Check if we can create procedures
+if {[catch {
+    proc test_proc {} {
+        return "test"
+    }
+    test_proc
+} err]} {
+    puts "ERROR: Procedure creation failed: $err"
+    exit 1
+}
+
+puts "TCL_INIT_SUCCESS"
+]]
+
+	local result, success = utils.execute_tcl_script(init_script, tclsh_cmd)
+
+	if result and success and result:match("TCL_INIT_SUCCESS") then
+		return true, "TCL environment initialized successfully"
+	else
+		return false, result or "Failed to initialize TCL environment"
+	end
+end
 
 return M
