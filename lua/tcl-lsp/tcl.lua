@@ -5,7 +5,7 @@ local M = {}
 local file_cache = {}
 local resolution_cache = {}
 
--- Cache management functions (keep existing)
+-- Cache management functions
 local function get_file_mtime(file_path)
 	return vim.fn.getftime(file_path)
 end
@@ -34,7 +34,162 @@ local function get_cached_analysis(file_path)
 	return nil
 end
 
--- Simplified but working enhanced TCL analysis script
+-- Simplified semantic TCL analysis that avoids complex nested strings
+function M.semantic_tcl_analysis(file_path, tclsh_cmd)
+	print("DEBUG: Running simplified semantic TCL analysis")
+
+	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
+
+	-- Much simpler approach: just use TCL's introspection on the sourced file
+	local semantic_script = string.format(
+		[[
+# Simple Semantic Analysis - just source and introspect
+set file_path "%s"
+
+# Source the file (in current interpreter, but catch errors)
+if {[catch {source $file_path} err]} {
+    puts "WARNING: Could not source file: $err"
+    puts "PARTIAL_ANALYSIS"
+} else {
+    puts "FULL_ANALYSIS"
+}
+
+# Get all procedures that were defined
+foreach proc_name [info procs] {
+    # Skip built-in procs that we don't care about
+    if {$proc_name ni {unknown auto_execok auto_import auto_qualify}} {
+        set proc_args ""
+        if {![catch {info args $proc_name} args]} {
+            set proc_args [join $args " "]
+        }
+        puts "SEMANTIC_PROC|$proc_name|$proc_args|[namespace current]"
+    }
+}
+
+# Get all global variables
+foreach var_name [info globals] {
+    if {[info exists ::$var_name]} {
+        puts "SEMANTIC_VAR|$var_name|global|::"
+    }
+}
+
+# Get all namespaces
+foreach ns [namespace children ::] {
+    if {$ns ne "::tcl"} {
+        puts "SEMANTIC_NS|$ns"
+        
+        # Get procs in this namespace
+        foreach ns_proc [info procs ${ns}::*] {
+            set proc_args ""
+            if {![catch {info args $ns_proc} args]} {
+                set proc_args [join $args " "]
+            }
+            puts "SEMANTIC_PROC|$ns_proc|$proc_args|$ns"
+        }
+        
+        # Get vars in this namespace  
+        foreach ns_var [info vars ${ns}::*] {
+            puts "SEMANTIC_VAR|$ns_var|namespace|$ns"
+        }
+    }
+}
+
+puts "SEMANTIC_COMPLETE"
+]],
+		escaped_path
+	)
+
+	local result, success = utils.execute_tcl_script(semantic_script, tclsh_cmd)
+
+	if not (result and success) then
+		print("DEBUG: Simplified semantic analysis failed:", result or "nil")
+		return nil
+	end
+
+	print("DEBUG: Simplified semantic analysis completed")
+
+	local symbols = {}
+	local symbol_count = 0
+
+	-- Parse the simpler output format
+	for line in result:gmatch("[^\n]+") do
+		if line:match("^SEMANTIC_PROC|") then
+			local parts = {}
+			for part in line:gmatch("([^|]*)") do
+				table.insert(parts, part)
+			end
+
+			if #parts >= 4 then
+				local symbol = {
+					type = "procedure",
+					name = parts[2],
+					line = 1, -- We don't have line numbers from introspection
+					args = parts[3],
+					context = parts[4],
+					scope = "semantic",
+					proc_context = "",
+					text = "",
+					qualified_name = parts[2],
+					method = "semantic_simple",
+				}
+
+				table.insert(symbols, symbol)
+				symbol_count = symbol_count + 1
+			end
+		elseif line:match("^SEMANTIC_VAR|") then
+			local parts = {}
+			for part in line:gmatch("([^|]*)") do
+				table.insert(parts, part)
+			end
+
+			if #parts >= 4 then
+				local symbol = {
+					type = "variable",
+					name = parts[2],
+					line = 1,
+					args = "",
+					context = parts[4],
+					scope = parts[3], -- "global" or "namespace"
+					proc_context = "",
+					text = "",
+					qualified_name = parts[2],
+					method = "semantic_simple",
+				}
+
+				table.insert(symbols, symbol)
+				symbol_count = symbol_count + 1
+			end
+		elseif line:match("^SEMANTIC_NS|") then
+			local parts = {}
+			for part in line:gmatch("([^|]*)") do
+				table.insert(parts, part)
+			end
+
+			if #parts >= 2 then
+				local symbol = {
+					type = "namespace",
+					name = parts[2],
+					line = 1,
+					args = "",
+					context = "",
+					scope = "namespace",
+					proc_context = "",
+					text = "",
+					qualified_name = parts[2],
+					method = "semantic_simple",
+				}
+
+				table.insert(symbols, symbol)
+				symbol_count = symbol_count + 1
+			end
+		end
+	end
+
+	print("DEBUG: Simplified semantic analysis found", symbol_count, "symbols")
+	return symbols
+end
+
+-- Enhanced analyze_tcl_file that tries semantic analysis first
 function M.analyze_tcl_file(file_path, tclsh_cmd)
 	-- Check cache first
 	local cached_symbols = get_cached_analysis(file_path)
@@ -45,182 +200,26 @@ function M.analyze_tcl_file(file_path, tclsh_cmd)
 
 	print("DEBUG: Analyzing file", file_path, "with", tclsh_cmd)
 
-	-- Very simple but reliable enhanced script
-	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
-	local analysis_script = string.format(
-		[[
-# Simple Enhanced TCL Symbol Analysis
-set file_path "%s"
+	-- Try semantic analysis first
+	local symbols = M.semantic_tcl_analysis(file_path, tclsh_cmd)
 
-if {[catch {
-    set fp [open $file_path r]
-    set content [read $fp]
-    close $fp
-} err]} {
-    puts "ERROR: Cannot read file: $err"
-    exit 1
-}
-
-set lines [split $content "\n"]
-set line_num 0
-set current_namespace ""
-set current_proc ""
-set in_proc 0
-
-foreach line $lines {
-    incr line_num
-    set trimmed [string trim $line]
-    
-    if {$trimmed eq "" || [string index $trimmed 0] eq "#"} {
-        continue
-    }
-    
-    # Count braces to track when we're inside procedures
-    set open_braces [regexp -all {\{} $line]
-    set close_braces [regexp -all {\}} $line]
-    set in_proc [expr {$in_proc + $open_braces - $close_braces}]
-    
-    # Find namespace definitions
-    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
-        set current_namespace $ns_name
-        puts "SYMBOL|namespace|$ns_name|$line_num|namespace||"
-    }
-    
-    # Find procedure definitions with simple parameter extraction
-    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)\s*\{([^}]*)\}} $line match proc_name proc_args]} {
-        # Create qualified name
-        if {$current_namespace ne "" && ![string match "*::*" $proc_name]} {
-            set qualified_name "$current_namespace\::$proc_name"
-        } else {
-            set qualified_name $proc_name
-        }
-        puts "SYMBOL|procedure|$qualified_name|$line_num|global|$current_namespace|"
-        
-        # Simple parameter extraction
-        set clean_args [string trim $proc_args]
-        if {$clean_args ne ""} {
-            # Very simple: just split on whitespace and take valid identifiers
-            set words [regexp -all -inline {[a-zA-Z_][a-zA-Z0-9_]*} $clean_args]
-            foreach word $words {
-                puts "SYMBOL|parameter|$word|$line_num|local|$current_namespace|$qualified_name"
-            }
-        }
-        
-        set current_proc $qualified_name
-        set in_proc 1
-    }
-    
-    # Find variable assignments
-    if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
-        set scope "global"
-        set context $current_namespace
-        set proc_context ""
-        
-        if {$in_proc > 0 && $current_proc ne ""} {
-            set scope "local"
-            set proc_context $current_proc
-        } elseif {$current_namespace ne ""} {
-            set scope "namespace"
-        }
-        
-        if {$current_namespace ne "" && $scope ne "local" && ![string match "*::*" $var_name]} {
-            set qualified_name "$current_namespace\::$var_name"
-        } else {
-            set qualified_name $var_name
-        }
-        puts "SYMBOL|variable|$qualified_name|$line_num|$scope|$context|$proc_context"
-    }
-    
-    # Find variable usage (simple detection)
-    if {$in_proc > 0 && $current_proc ne ""} {
-        if {[regexp {\$([a-zA-Z_][a-zA-Z0-9_]*)} $line match var_name]} {
-            puts "SYMBOL|local_var|$var_name|$line_num|local|$current_namespace|$current_proc"
-        }
-    }
-    
-    # Find global variables
-    if {[regexp {^\s*global\s+(.+)$} $line match globals]} {
-        # Simple split on whitespace
-        set words [regexp -all -inline {[a-zA-Z_][a-zA-Z0-9_]*} $globals]
-        foreach word $words {
-            puts "SYMBOL|global|$word|$line_num|global||"
-        }
-    }
-    
-    # Find package commands
-    if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match cmd pkg_name]} {
-        puts "SYMBOL|package|$pkg_name|$line_num|package||"
-    }
-    
-    # Reset procedure context when exiting
-    if {$in_proc <= 0} {
-        set current_proc ""
-    }
-}
-
-puts "ANALYSIS_COMPLETE"
-]],
-		escaped_path
-	)
-
-	local result, success = utils.execute_tcl_script(analysis_script, tclsh_cmd)
-
-	if not (result and success) then
-		print("DEBUG: Simple enhanced script failed, using fallback")
-		print("DEBUG: Error:", result or "nil")
-		return M.fallback_analysis(file_path)
+	if symbols and #symbols > 0 then
+		print("DEBUG: Semantic analysis successful")
+		cache_file_analysis(file_path, symbols)
+		return symbols
 	end
 
-	print("DEBUG: Simple enhanced script executed successfully")
+	print("DEBUG: Semantic analysis failed, trying text-based fallback")
 
-	local symbols = {}
-	local symbol_count = 0
-	local seen_symbols = {} -- Avoid duplicates
-
-	-- Parse the format: SYMBOL|type|name|line|scope|context|proc_context
-	for line in result:gmatch("[^\n]+") do
-		if line:match("^SYMBOL|") then
-			local parts = {}
-			for part in line:gmatch("([^|]*)") do
-				table.insert(parts, part)
-			end
-
-			if #parts >= 4 then
-				local symbol = {
-					type = parts[2] or "unknown",
-					name = parts[3] or "unknown",
-					line = tonumber(parts[4]) or 1,
-					scope = parts[5] or "global",
-					context = parts[6] or "",
-					proc_context = parts[7] or "",
-					text = "",
-					qualified_name = parts[3] or "unknown",
-					method = "simple_enhanced",
-				}
-
-				-- Create unique key to avoid duplicates
-				local key = symbol.type .. ":" .. symbol.name .. ":" .. symbol.line .. ":" .. symbol.scope
-
-				if not seen_symbols[key] then
-					seen_symbols[key] = true
-					table.insert(symbols, symbol)
-					symbol_count = symbol_count + 1
-				end
-			end
-		end
+	-- Fallback to text-based analysis
+	symbols = M.fallback_analysis(file_path)
+	if symbols and #symbols > 0 then
+		cache_file_analysis(file_path, symbols)
+		return symbols
 	end
 
-	print("DEBUG: Simple enhanced script found", symbol_count, "unique symbols")
-
-	-- If no symbols, use fallback
-	if symbol_count == 0 then
-		print("DEBUG: No symbols found, using fallback")
-		return M.fallback_analysis(file_path)
-	end
-
-	-- Cache the results
-	cache_file_analysis(file_path, symbols)
-	return symbols
+	print("DEBUG: All analysis methods failed")
+	return {}
 end
 
 -- Improved fallback analysis using pure Lua
@@ -332,8 +331,9 @@ function M.fallback_analysis(file_path)
 	return symbols
 end
 
--- Keep your existing functions but fix the main analysis
--- Get Tcl system information (unchanged)
+-- Keep all your existing functions...
+
+-- Get Tcl system information
 function M.get_tcl_info(tclsh_cmd)
 	local info_script = [[
 puts "TCL_VERSION:[info patchlevel]"
@@ -379,7 +379,7 @@ puts "AUTO_PATH_END"
 	return info
 end
 
--- Test JSON functionality (unchanged)
+-- Test JSON functionality
 function M.test_json_functionality(tclsh_cmd)
 	local json_test_script = [[
 if {[catch {package require json} err]} {
@@ -413,7 +413,7 @@ if {[catch {set result [json::json2dict $test_data]} err]} {
 	return false, "JSON test failed"
 end
 
--- Simplified find symbol references
+-- Find symbol references
 function M.find_symbol_references(file_path, symbol_name, tclsh_cmd)
 	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
 	local escaped_symbol = symbol_name:gsub("\\", "\\\\"):gsub('"', '\\"')
@@ -438,7 +438,6 @@ set line_num 0
 foreach line $lines {
     incr line_num
     
-    # Simple word boundary matching
     if {[regexp "\\y$target_word\\y" $line]} {
         set context "usage"
         if {[regexp "^\\s*proc\\s+$target_word\\s" $line]} {
@@ -487,7 +486,7 @@ puts "REFERENCES_COMPLETE"
 	return references
 end
 
--- Check builtin commands (simplified)
+-- Check builtin commands
 function M.check_builtin_command(symbol_name, tclsh_cmd)
 	local builtin_check_script = string.format(
 		[[
@@ -532,7 +531,7 @@ if {[info commands $word] ne ""} {
 	return nil
 end
 
--- Get TCL command documentation (keep existing)
+-- Get TCL command documentation
 function M.get_command_documentation(command)
 	local tcl_docs = {
 		puts = "puts ?-nonewline? ?channelId? string\nWrite string to output channel",
@@ -549,26 +548,22 @@ function M.get_command_documentation(command)
 		lappend = "lappend varName ?value value ...?\nAppend elements to list",
 		split = "split string ?splitChars?\nSplit string into list",
 		join = "join list ?joinString?\nJoin list elements into string",
-		-- Add more as needed...
 	}
 
 	return tcl_docs[command]
 end
 
--- Simplified symbol resolution
+-- Simple symbol resolution
 function M.resolve_symbol(symbol_name, file_path, cursor_line, tclsh_cmd)
 	print("DEBUG: Resolving symbol", symbol_name, "at line", cursor_line)
 
-	-- Simple context detection
 	local context = {
 		namespace = "",
 		proc = "",
 	}
 
-	-- Generate simple resolution candidates
 	local resolutions = {}
 
-	-- Built-in command check
 	if M.check_builtin_command(symbol_name, tclsh_cmd) then
 		table.insert(resolutions, {
 			type = "builtin_command",
@@ -577,7 +572,6 @@ function M.resolve_symbol(symbol_name, file_path, cursor_line, tclsh_cmd)
 		})
 	end
 
-	-- Qualified name as-is
 	if symbol_name:match("::") then
 		table.insert(resolutions, {
 			type = "qualified_name",
@@ -585,7 +579,6 @@ function M.resolve_symbol(symbol_name, file_path, cursor_line, tclsh_cmd)
 			priority = 9,
 		})
 	else
-		-- Global scope
 		table.insert(resolutions, {
 			type = "global",
 			name = symbol_name,
@@ -597,6 +590,19 @@ function M.resolve_symbol(symbol_name, file_path, cursor_line, tclsh_cmd)
 		context = context,
 		resolutions = resolutions,
 	}
+end
+
+-- Helper function to check if file exists
+function M.file_exists(file_path)
+	if not file_path then
+		return false
+	end
+	local file = io.open(file_path, "r")
+	if file then
+		file:close()
+		return true
+	end
+	return false
 end
 
 -- Clear cache functions
@@ -619,7 +625,6 @@ end
 function M.debug_symbols(file_path, tclsh_cmd)
 	print("DEBUG: Starting debug analysis of", file_path)
 
-	-- Clear cache to force fresh analysis
 	M.invalidate_cache(file_path)
 
 	local symbols = M.analyze_tcl_file(file_path, tclsh_cmd)
