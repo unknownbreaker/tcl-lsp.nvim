@@ -216,21 +216,13 @@ function M.analyze_tcl_file(file_path, tclsh_cmd, callback)
 		return cached_symbols
 	end
 
+	local content = utils.get_file_content(file_path)
+
 	-- Fixed analysis script with proper global variable handling
 	local analysis_script = string.format(
 		[[
 # Simple TCL Symbol Analysis Script
-set file_path "%s"
-
-# Read the file
-if {[catch {
-    set fp [open $file_path r]
-    set content [read $fp]
-    close $fp
-} err]} {
-    puts "ERROR: Cannot read file: $err"
-    exit 1
-}
+set content "%s"
 
 # Split into lines for line number tracking
 set lines [split $content "\n"]
@@ -308,7 +300,7 @@ foreach line $lines {
 
 puts "ANALYSIS_COMPLETE"
 ]],
-		file_path
+		content:gsub("}", "\\}")
 	)
 
 	utils.execute_tcl_script_async(analysis_script, tclsh_cmd, function(result, success)

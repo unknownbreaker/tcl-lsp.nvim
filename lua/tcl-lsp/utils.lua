@@ -2,6 +2,45 @@
 -- Helper functions for TCL LSP
 
 local M = {}
+local FileManager = {
+	content_cache = {},
+
+	get_content = function(self, file_path)
+		-- Check if file is already loaded in Neovim
+		local bufnr = vim.fn.bufnr(file_path)
+		if bufnr ~= -1 and vim.api.nvim_buf_is_loaded(bufnr) then
+			-- Get from buffer (always current)
+			return table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
+		end
+
+		-- Check cache
+		local mtime = vim.fn.getftime(file_path)
+		local cached = self.content_cache[file_path]
+		if cached and cached.mtime == mtime then
+			return cached.content
+		end
+
+		-- Read from disk
+		local file = io.open(file_path, "r")
+		if not file then
+			return nil
+		end
+		local content = file:read("*a")
+		file:close()
+
+		-- Cache it
+		self.content_cache[file_path] = {
+			content = content,
+			mtime = mtime,
+		}
+
+		return content
+	end,
+}
+
+function M.get_file_content(file_path)
+	return FileManager:get_content(file_path)
+end
 
 -- Helper function to execute Tcl scripts using temporary files
 function M.execute_tcl_script(script_content, tclsh_cmd)
