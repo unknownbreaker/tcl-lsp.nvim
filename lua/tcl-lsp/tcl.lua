@@ -1,38 +1,57 @@
 local utils = require("tcl-lsp.utils")
 local M = {}
+local Cache = {
+	entries = {},
+	access_order = {}, -- For LRU
+	max_size = 100, -- Prevent memory leaks
+
+	get = function(self, key)
+		local entry = self.entries[key]
+		if not entry then
+			return nil
+		end
+
+		-- Check if still valid (mtime hasn't changed)
+		local current_mtime = vim.fn.getftime(key)
+		if entry.mtime ~= current_mtime then
+			self:remove(key)
+			return nil
+		end
+
+		-- Update LRU order
+		self:mark_accessed(key)
+		return entry.data
+	end,
+
+	set = function(self, key, data)
+		-- Evict oldest if at capacity
+		if #self.access_order >= self.max_size then
+			local oldest = self.access_order[1]
+			self:remove(oldest)
+		end
+
+		self.entries[key] = {
+			data = data,
+			mtime = vim.fn.getftime(key),
+		}
+		self:mark_accessed(key)
+	end,
+
+	mark_accessed = function(self, key)
+		-- Remove from current position
+		for i, k in ipairs(self.access_order) do
+			if k == key then
+				table.remove(self.access_order, i)
+				break
+			end
+		end
+		-- Add to end (most recent)
+		table.insert(self.access_order, key)
+	end,
+}
 
 -- Cache for file analysis results
-local file_cache = {}
 local resolution_cache = {}
-
--- Cache management functions
-local function get_file_mtime(file_path)
-	return vim.fn.getftime(file_path)
-end
-
-local function is_cache_valid(file_path, cache_entry)
-	if not cache_entry then
-		return false
-	end
-	local current_mtime = get_file_mtime(file_path)
-	return cache_entry.mtime == current_mtime
-end
-
-local function cache_file_analysis(file_path, symbols)
-	file_cache[file_path] = {
-		symbols = symbols,
-		mtime = get_file_mtime(file_path),
-		timestamp = os.time(),
-	}
-end
-
-local function get_cached_analysis(file_path)
-	local cache_entry = file_cache[file_path]
-	if is_cache_valid(file_path, cache_entry) then
-		return cache_entry.symbols
-	end
-	return nil
-end
 
 -- Simplified semantic TCL analysis that avoids complex nested strings
 function M.semantic_tcl_analysis(file_path, tclsh_cmd)
@@ -192,14 +211,9 @@ end
 -- Enhanced analyze_tcl_file that combines semantic + text analysis
 function M.analyze_tcl_file(file_path, tclsh_cmd, callback)
 	-- Check cache first
-	local cached_symbols = get_cached_analysis(file_path)
+	local cached_symbols = Cache:get(file_path)
 	if cached_symbols then
 		return cached_symbols
-	end
-
-	-- Periodically clean up old cache entries
-	if math.random(1, 20) == 1 then -- 5% chance
-		M.cleanup_cache()
 	end
 
 	-- Fixed analysis script with proper global variable handling
@@ -334,7 +348,7 @@ puts "ANALYSIS_COMPLETE"
 		print("DEBUG: Total symbols found:", #symbols)
 
 		-- Cache the results
-		cache_file_analysis(file_path, symbols)
+		Cache:set(file_path, symbols)
 
 		callback(symbols)
 	end)
@@ -917,23 +931,6 @@ function M.invalidate_cache(file_path)
 
 	for key, _ in pairs(resolution_cache) do
 		if key:match("^" .. vim.pesc(file_path) .. ":") then
-			resolution_cache[key] = nil
-		end
-	end
-end
-
-function M.cleanup_cache()
-	local current_time = os.time()
-	local max_age = 300 -- 5 minutes
-
-	for key, entry in pairs(file_cache) do
-		if current_time - entry.timestamp > max_age then
-			file_cache[key] = nil
-		end
-	end
-
-	for key, entry in pairs(resolution_cache) do
-		if current_time - entry.timestamp > max_age then
 			resolution_cache[key] = nil
 		end
 	end
