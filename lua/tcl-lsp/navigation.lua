@@ -3,6 +3,70 @@ local config = require("tcl-lsp.config")
 local tcl = require("tcl-lsp.tcl")
 local M = {}
 
+local function calculate_symbol_score(symbol, query, cursor_line, current_context)
+	local score = 0
+
+	-- Base score for name matching
+	if symbol.name == query then
+		score = 100 -- Exact match
+	elseif utils.symbols_match(symbol.name, query) then
+		score = 50 -- Partial/qualified match
+	else
+		return 0 -- No match
+	end
+
+	-- CRITICAL FIX: Procedure scope bonus/penalty
+	if current_context and current_context.procedure then
+		if symbol.proc_context == current_context.procedure then
+			-- Same procedure - huge bonus for local scope
+			score = score + 100
+		elseif symbol.proc_context and symbol.proc_context ~= current_context.procedure then
+			-- Different procedure - penalty
+			score = score - 30
+		end
+		-- Note: symbols with no proc_context (global scope) get no bonus/penalty
+	end
+
+	-- Proximity bonus (closer to cursor gets higher score)
+	local distance = math.abs(symbol.line - cursor_line)
+	if distance <= 5 then
+		score = score + 20
+	elseif distance <= 20 then
+		score = score + 10
+	elseif distance <= 50 then
+		score = score + 5
+	end
+
+	-- Scope-based bonuses
+	if symbol.scope == "local" then
+		score = score + 30
+	elseif symbol.scope == "namespace" then
+		score = score + 20
+	elseif symbol.scope == "global" then
+		score = score + 10
+	end
+
+	-- Namespace context bonus
+	if current_context and current_context.namespace then
+		if symbol.namespace_context == current_context.namespace then
+			score = score + 25
+		end
+	end
+
+	-- Symbol type priority
+	local type_priority = {
+		procedure = 5,
+		variable = 10,
+		array = 8,
+		global = 6,
+		namespace = 3,
+		package = 1,
+	}
+	score = score + (type_priority[symbol.type] or 0)
+
+	return score
+end
+
 -- Smart and reliable go-to-definition with scope awareness
 function M.goto_definition()
 	-- Get word under cursor
@@ -125,22 +189,93 @@ function M.goto_definition()
 	end
 end
 
--- Get the current context (which procedure/namespace we're in)
+function M.find_matching_symbols(symbols, resolutions, query)
+	local matches = {}
+	local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+
+	-- Get current context (procedure and namespace we're in)
+	local current_context = M.get_current_context(cursor_line, symbols)
+
+	for _, resolution in ipairs(resolutions) do
+		for _, symbol in ipairs(symbols) do
+			local symbol_matches = false
+
+			-- Check if symbol matches this resolution
+			if resolution.type == "qualified_name" and symbol.name == resolution.name then
+				symbol_matches = true
+			elseif
+				resolution.type == "namespace_qualified"
+				and (symbol.name == resolution.name or symbol.qualified_name == resolution.name)
+			then
+				symbol_matches = true
+			elseif
+				resolution.type == "proc_local"
+				and symbol.name == query
+				and (symbol.scope == "proc_local" or symbol.scope == "local")
+			then
+				symbol_matches = true
+			elseif
+				resolution.type == "global"
+				and symbol.name == query
+				and (symbol.scope == "global" or symbol.type == "global")
+			then
+				symbol_matches = true
+			elseif resolution.type == "package_qualified" and symbol.name == resolution.name then
+				symbol_matches = true
+			elseif symbol.name == query then -- Fallback exact match
+				symbol_matches = true
+			end
+
+			if symbol_matches then
+				-- Use the enhanced scoring function
+				local calculated_score = calculate_symbol_score(symbol, query, cursor_line, current_context)
+
+				table.insert(matches, {
+					symbol = symbol,
+					resolution = resolution,
+					priority = calculated_score, -- Use calculated score instead of resolution.priority
+				})
+			end
+		end
+	end
+
+	-- Remove duplicates and sort by calculated priority
+	local seen = {}
+	local unique_matches = {}
+
+	for _, match in ipairs(matches) do
+		local key = match.symbol.name .. ":" .. match.symbol.line
+		if not seen[key] then
+			seen[key] = true
+			table.insert(unique_matches, match)
+		end
+	end
+
+	table.sort(unique_matches, function(a, b)
+		return a.priority > b.priority
+	end)
+
+	return unique_matches
+end
+
+-- Determine current context (what procedure/namespace we're in)
 function M.get_current_context(cursor_line, symbols)
 	local context = {
-		namespace = "",
-		procedure = "",
+		procedure = nil,
+		namespace = nil,
 		procedure_line = 0,
+		namespace_line = 0,
 	}
 
-	-- Find the most recent procedure/namespace before cursor line
+	-- Find the most recent procedure and namespace before cursor
 	for _, symbol in ipairs(symbols) do
 		if symbol.line <= cursor_line then
 			if symbol.type == "procedure" and symbol.line > context.procedure_line then
 				context.procedure = symbol.name
 				context.procedure_line = symbol.line
-			elseif symbol.type == "namespace" then
+			elseif symbol.type == "namespace" and symbol.line > context.namespace_line then
 				context.namespace = symbol.name
+				context.namespace_line = symbol.line
 			end
 		end
 	end
@@ -242,6 +377,72 @@ function M.search_workspace_for_definition(symbol_name, current_file, tclsh_cmd)
 	else
 		M.show_workspace_choices(matches, symbol_name)
 	end
+end
+
+function M.show_prioritized_symbol_choices(matches, query, context)
+	local choices = {}
+
+	for i, match in ipairs(matches) do
+		local symbol = match.symbol
+		local context_info = ""
+
+		if symbol.proc_context and symbol.proc_context ~= "" then
+			context_info = " [proc: " .. symbol.proc_context .. "]"
+		elseif symbol.namespace_context and symbol.namespace_context ~= "" then
+			context_info = " [ns: " .. symbol.namespace_context .. "]"
+		elseif symbol.scope and symbol.scope ~= "" then
+			context_info = " [" .. symbol.scope .. "]"
+		end
+
+		table.insert(
+			choices,
+			string.format(
+				"%d. %s '%s'%s at line %d (score: %d)",
+				i,
+				symbol.type,
+				symbol.name,
+				context_info,
+				symbol.line,
+				match.priority -- This will now show the calculated score
+			)
+		)
+	end
+
+	local context_str = ""
+	if context and context.namespace then
+		context_str = context_str .. "namespace: " .. context.namespace
+	end
+	if context and context.procedure then
+		if context_str ~= "" then
+			context_str = context_str .. ", "
+		end
+		context_str = context_str .. "procedure: " .. context.procedure
+	end
+
+	local prompt = "Multiple definitions found for '" .. query .. "'"
+	if context_str ~= "" then
+		prompt = prompt .. " (in " .. context_str .. ")"
+	end
+	prompt = prompt .. ":"
+
+	vim.ui.select(choices, {
+		prompt = prompt,
+	}, function(choice, idx)
+		if idx then
+			local selected_match = matches[idx]
+			vim.api.nvim_win_set_cursor(0, { selected_match.symbol.line, 0 })
+			utils.notify(
+				string.format(
+					"Jumped to %s '%s' at line %d (score: %d)",
+					selected_match.symbol.type,
+					selected_match.symbol.name,
+					selected_match.symbol.line,
+					selected_match.priority
+				),
+				vim.log.levels.INFO
+			)
+		end
+	end)
 end
 
 -- Show multiple symbol choices
