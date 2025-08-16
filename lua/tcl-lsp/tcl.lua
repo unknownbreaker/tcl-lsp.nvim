@@ -922,6 +922,23 @@ function M.invalidate_cache(file_path)
 	end
 end
 
+function M.cleanup_cache()
+	local current_time = os.time()
+	local max_age = 300 -- 5 minutes
+
+	for key, entry in pairs(file_cache) do
+		if current_time - entry.timestamp > max_age then
+			file_cache[key] = nil
+		end
+	end
+
+	for key, entry in pairs(resolution_cache) do
+		if current_time - entry.timestamp > max_age then
+			resolution_cache[key] = nil
+		end
+	end
+end
+
 function M.clear_all_caches()
 	file_cache = {}
 	resolution_cache = {}
