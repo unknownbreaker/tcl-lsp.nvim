@@ -190,7 +190,7 @@ puts "SEMANTIC_COMPLETE"
 end
 
 -- Enhanced analyze_tcl_file that combines semantic + text analysis
-function M.analyze_tcl_file(file_path, tclsh_cmd)
+function M.analyze_tcl_file(file_path, tclsh_cmd, callback)
 	-- Check cache first
 	local cached_symbols = get_cached_analysis(file_path)
 	if cached_symbols then
@@ -297,47 +297,47 @@ puts "ANALYSIS_COMPLETE"
 		file_path
 	)
 
-	local result, success = utils.execute_tcl_script(analysis_script, tclsh_cmd)
-
-	if not (result and success) then
-		print("DEBUG: TCL script execution failed")
-		print("DEBUG: Result:", result or "nil")
-		print("DEBUG: Success:", success)
-		return nil
-	end
-
-	print("DEBUG: TCL script output:")
-	print(result)
-
-	local symbols = {}
-	for line in result:gmatch("[^\n]+") do
-		print("DEBUG: Processing line:", line)
-
-		-- Simple parsing: SYMBOL:type:name:line:text
-		local symbol_type, name, line_num, text = line:match("SYMBOL:([^:]+):([^:]+):([^:]+):(.+)")
-		if symbol_type and name and line_num and text then
-			local symbol = {
-				type = symbol_type,
-				name = name,
-				line = tonumber(line_num),
-				text = text,
-				context = "",
-				scope = "",
-				args = "",
-				qualified_name = "",
-			}
-
-			print("DEBUG: Found symbol:", symbol.type, symbol.name, "at line", symbol.line)
-			table.insert(symbols, symbol)
+	utils.execute_tcl_script_async(analysis_script, tclsh_cmd, function(result, success)
+		if not (result and success) then
+			print("DEBUG: TCL script execution failed")
+			print("DEBUG: Result:", result or "nil")
+			print("DEBUG: Success:", success)
+			return nil
 		end
-	end
 
-	print("DEBUG: Total symbols found:", #symbols)
+		print("DEBUG: TCL script output:")
+		print(result)
 
-	-- Cache the results
-	cache_file_analysis(file_path, symbols)
+		local symbols = {}
+		for line in result:gmatch("[^\n]+") do
+			print("DEBUG: Processing line:", line)
 
-	return symbols
+			-- Simple parsing: SYMBOL:type:name:line:text
+			local symbol_type, name, line_num, text = line:match("SYMBOL:([^:]+):([^:]+):([^:]+):(.+)")
+			if symbol_type and name and line_num and text then
+				local symbol = {
+					type = symbol_type,
+					name = name,
+					line = tonumber(line_num),
+					text = text,
+					context = "",
+					scope = "",
+					args = "",
+					qualified_name = "",
+				}
+
+				print("DEBUG: Found symbol:", symbol.type, symbol.name, "at line", symbol.line)
+				table.insert(symbols, symbol)
+			end
+		end
+
+		print("DEBUG: Total symbols found:", #symbols)
+
+		-- Cache the results
+		cache_file_analysis(file_path, symbols)
+
+		callback(symbols)
+	end)
 end
 
 -- Enhanced text analysis that focuses on local variables and parameters
@@ -720,7 +720,7 @@ if {[catch {set result [json::json2dict $test_data]} err]} {
 end
 
 -- Find symbol references
-function M.find_symbol_references(file_path, symbol_name, tclsh_cmd)
+function M.find_symbol_references(file_path, symbol_name, tclsh_cmd, callback)
 	local escaped_path = file_path:gsub("\\", "\\\\"):gsub('"', '\\"')
 	local escaped_symbol = symbol_name:gsub("\\", "\\\\"):gsub('"', '\\"')
 
@@ -764,32 +764,32 @@ puts "REFERENCES_COMPLETE"
 		escaped_path
 	)
 
-	local result, success = utils.execute_tcl_script(reference_script, tclsh_cmd)
+	utils.execute_tcl_script_async(reference_script, tclsh_cmd, function(result, success)
+		if not (result and success) then
+			return nil
+		end
 
-	if not (result and success) then
-		return nil
-	end
+		local references = {}
+		for line in result:gmatch("[^\n]+") do
+			if line:match("^REF|") then
+				local parts = {}
+				for part in line:gmatch("([^|]*)") do
+					table.insert(parts, part)
+				end
 
-	local references = {}
-	for line in result:gmatch("[^\n]+") do
-		if line:match("^REF|") then
-			local parts = {}
-			for part in line:gmatch("([^|]*)") do
-				table.insert(parts, part)
-			end
-
-			if #parts >= 4 then
-				table.insert(references, {
-					context = parts[2] or "usage",
-					line = tonumber(parts[3]) or 1,
-					text = utils.trim(parts[4] or ""),
-					method = "simplified",
-				})
+				if #parts >= 4 then
+					table.insert(references, {
+						context = parts[2] or "usage",
+						line = tonumber(parts[3]) or 1,
+						text = utils.trim(parts[4] or ""),
+						method = "simplified",
+					})
+				end
 			end
 		end
-	end
 
-	return references
+		callback(references)
+	end)
 end
 
 -- Check builtin commands

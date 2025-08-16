@@ -1,43 +1,23 @@
+local utils = require("tcl-lsp.utils")
 local health = vim.health or require("health")
 
 local M = {}
 
--- Execute Tcl script using temporary file (same as main module)
-local function execute_tcl_script(script_content, tclsh_cmd)
-	tclsh_cmd = tclsh_cmd or "tclsh"
-
-	local temp_file = os.tmpname() .. ".tcl"
-	local file = io.open(temp_file, "w")
-	if not file then
-		return nil, false
-	end
-
-	file:write(script_content)
-	file:close()
-
-	local cmd = tclsh_cmd .. " " .. vim.fn.shellescape(temp_file) .. " 2>&1"
-	local handle = io.popen(cmd)
-	local result = handle:read("*a")
-	local success = handle:close()
-
-	os.remove(temp_file)
-	return result, success
-end
-
 -- Check if a tclsh command works
-local function check_tclsh(tclsh_cmd)
+local function check_tclsh(tclsh_cmd, callback)
 	local test_script = [[
 puts "VERSION:[info patchlevel]"
 puts "EXECUTABLE:[info nameofexecutable]"
 ]]
 
-	local result, success = execute_tcl_script(test_script, tclsh_cmd)
-	if result and success then
-		local version = result:match("VERSION:([^\n]+)")
-		local executable = result:match("EXECUTABLE:([^\n]+)")
-		return true, version, executable
-	end
-	return false, result
+	utils.execute_tcl_script_async(test_script, tclsh_cmd, function(result, success)
+		if result and success then
+			local version = result:match("VERSION:([^\n]+)")
+			local executable = result:match("EXECUTABLE:([^\n]+)")
+			callback(true, version, executable)
+		end
+		callback(false, result)
+	end)
 end
 
 -- Check tcllib availability
@@ -52,7 +32,7 @@ if {[catch {package require json} err]} {
 }
 ]]
 
-	local result, success = execute_tcl_script(test_script, tclsh_cmd)
+	local result, success = utils.execute_tcl_script(test_script, tclsh_cmd)
 	if result and success and result:match("SUCCESS") then
 		local version = result:match("VERSION:([^\n]+)")
 		return true, version
@@ -170,7 +150,7 @@ if {[catch {set result [json::json2dict $test_data]} err]} {
 }
 ]]
 
-		local result, success = execute_tcl_script(json_test_script, best_tclsh.cmd)
+		local result, success = utils.execute_tcl_script(json_test_script, best_tclsh.cmd)
 
 		if result and success and result:match("JSON_SUCCESS") then
 			health.ok("JSON functionality test passed")

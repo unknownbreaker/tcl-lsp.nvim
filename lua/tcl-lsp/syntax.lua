@@ -3,7 +3,7 @@ local config = require("tcl-lsp.config")
 local M = {}
 
 -- Enhanced syntax checking using script files
-function M.check_syntax(file_path, tclsh_cmd)
+function M.check_syntax(file_path, tclsh_cmd, callback)
 	if not file_path or file_path == "" then
 		return false, "No file specified"
 	end
@@ -51,18 +51,18 @@ if {[catch {
 		file_path
 	)
 
-	local result, success = utils.execute_tcl_script(syntax_script, tclsh_cmd)
-
-	if result then
-		if result:match("SYNTAX_OK") then
-			return true, "Syntax OK"
-		elseif result:match("SYNTAX_ERROR: (.+)") then
-			local error_msg = result:match("SYNTAX_ERROR: (.+)")
-			return false, error_msg
+	utils.execute_tcl_script_async(syntax_script, tclsh_cmd, function(result, success)
+		if result then
+			if result:match("SYNTAX_OK") then
+				return true, "Syntax OK"
+			elseif result:match("SYNTAX_ERROR: (.+)") then
+				local error_msg = result:match("SYNTAX_ERROR: (.+)")
+				return false, error_msg
+			end
 		end
-	end
 
-	return false, "Syntax check failed: " .. (result or "unknown error")
+		callback(false, "Syntax check failed: " .. (result or "unknown error"))
+	end)
 end
 
 -- Parse syntax errors and create diagnostics

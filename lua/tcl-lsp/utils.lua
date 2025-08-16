@@ -31,6 +31,29 @@ function M.execute_tcl_script(script_content, tclsh_cmd)
 	return result, success
 end
 
+function M.execute_tcl_script_async(script_content, tclsh_cmd, callback)
+	tclsh_cmd = tclsh_cmd or "tclsh"
+
+	-- Use Neovim's job API instead of io.popen
+	local job_id = vim.fn.jobstart({ tclsh_cmd }, {
+		stdin = "pipe",
+		stdout_buffered = true,
+		stderr_buffered = true,
+		on_exit = function(_, exit_code)
+			vim.schedule(function()
+				callback(job_output, exit_code == 0)
+			end)
+		end,
+		on_stdout = function(_, data)
+			job_output = table.concat(data, "\n")
+		end,
+	})
+
+	-- Send script directly via stdin (no temp file!)
+	vim.fn.chansend(job_id, script_content)
+	vim.fn.chanclose(job_id, "stdin")
+end
+
 -- Check if tcllib JSON package is available
 function M.check_tcllib_availability(tclsh_cmd)
 	local test_script = [[
