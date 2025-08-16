@@ -199,7 +199,7 @@ function M.analyze_tcl_file(file_path, tclsh_cmd)
 
 	-- Periodically clean up old cache entries
 	if math.random(1, 20) == 1 then -- 5% chance
-		cleanup_cache()
+		M.cleanup_cache()
 	end
 
 	-- Fixed analysis script with proper global variable handling
