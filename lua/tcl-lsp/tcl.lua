@@ -346,6 +346,135 @@ puts "ANALYSIS_COMPLETE"
 	end)
 end
 
+function M.analyze_tcl_file_async(file_path, tclsh_cmd, callback)
+	-- Use same analysis_script as current version
+	local analysis_script = string.format(
+		[[
+# Simple TCL Symbol Analysis Script
+set content "%s"
+
+# Split into lines for line number tracking
+set lines [split $content "\n"]
+set line_num 0
+set current_namespace ""
+
+# Parse each line to find symbols
+foreach line $lines {
+    incr line_num
+    set trimmed [string trim $line]
+    
+    # Skip comments and empty lines
+    if {$trimmed eq "" || [string index $trimmed 0] eq "#"} {
+        continue
+    }
+    
+    # Find namespace definitions
+    if {[regexp {^\s*namespace\s+eval\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match ns_name]} {
+        set current_namespace $ns_name
+        puts "SYMBOL:namespace:$ns_name:$line_num:$line"
+    }
+    
+    # Find procedure definitions
+    if {[regexp {^\s*proc\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match proc_name]} {
+        # Create qualified name if in namespace
+        if {$current_namespace ne "" && ![string match "*::*" $proc_name]} {
+            set full_name "$current_namespace\::$proc_name"
+        } else {
+            set full_name $proc_name
+        }
+        puts "SYMBOL:procedure:$full_name:$line_num:$line"
+        
+        # Also add local name if different
+        if {$full_name ne $proc_name} {
+            puts "SYMBOL:procedure_local:$proc_name:$line_num:$line"
+        }
+    }
+    
+    # Find variable assignments
+    if {[regexp {^\s*set\s+([a-zA-Z_][a-zA-Z0-9_:]*)} $line match var_name]} {
+        # Create qualified name if in namespace
+        if {$current_namespace ne "" && ![string match "*::*" $var_name]} {
+            set full_name "$current_namespace\::$var_name"
+        } else {
+            set full_name $var_name
+        }
+        puts "SYMBOL:variable:$full_name:$line_num:$line"
+        
+        # Also add local name if different
+        if {$full_name ne $var_name} {
+            puts "SYMBOL:variable_local:$var_name:$line_num:$line"
+        }
+    }
+    
+    # Find global variables - FIXED VERSION
+    if {[regexp {^\s*global\s+(.+)} $line match globals]} {
+        # Use regexp to find all valid variable names instead of split
+        set global_vars [regexp -all -inline {[a-zA-Z_][a-zA-Z0-9_:]*} $globals]
+        foreach gvar $global_vars {
+            puts "SYMBOL:global:$gvar:$line_num:$line"
+        }
+    }
+    
+    # Find package commands - IMPROVED REGEX FOR PACKAGES WITH UNDERSCORES/DOTS
+    if {[regexp {^\s*package\s+(require|provide)\s+([a-zA-Z_][a-zA-Z0-9_.-]*)} $line match cmd pkg_name]} {
+        puts "SYMBOL:package:$pkg_name:$line_num:$line"
+    }
+    
+    # Find source commands
+    if {[regexp {^\s*source\s+(.+)$} $line match source_file]} {
+        set clean_file [string trim $source_file "\"'\{\}"]
+        puts "SYMBOL:source:$clean_file:$line_num:$line"
+    }
+}
+
+puts "ANALYSIS_COMPLETE"
+]],
+		file_path
+	)
+
+	utils.execute_tcl_script_async(analysis_script, tclsh_cmd, function(result, success)
+		if not (result and success) then
+			print("DEBUG: TCL script execution failed")
+			print("DEBUG: Result:", result or "nil")
+			print("DEBUG: Success:", success)
+			return nil
+		end
+
+		print("DEBUG: TCL script output:")
+		print(result)
+
+		local symbols = {}
+		for line in result:gmatch("[^\n]+") do
+			print("DEBUG: Processing line:", line)
+
+			-- Simple parsing: SYMBOL:type:name:line:text
+			local symbol_type, name, line_num, text = line:match("SYMBOL:([^:]+):([^:]+):([^:]+):(.+)")
+			if symbol_type and name and line_num and text then
+				local symbol = {
+					type = symbol_type,
+					name = name,
+					line = tonumber(line_num),
+					text = text,
+					context = "",
+					scope = "",
+					args = "",
+					qualified_name = "",
+				}
+
+				print("DEBUG: Found symbol:", symbol.type, symbol.name, "at line", symbol.line)
+				table.insert(symbols, symbol)
+			end
+		end
+
+		print("DEBUG: Total symbols found:", #symbols)
+
+		-- Cache the results
+		Cache:set(file_path, symbols)
+
+		callback(symbols)
+	end)
+end
+
 -- Enhanced text analysis that focuses on local variables and parameters
 function M.enhanced_text_analysis(file_path)
 	print("DEBUG: Running enhanced text analysis for local symbols")
