@@ -347,7 +347,13 @@ puts "ANALYSIS_COMPLETE"
 end
 
 function M.analyze_tcl_file_async(file_path, tclsh_cmd, callback)
-	-- Use same analysis_script as current version
+	-- Check cache first
+	local cached_symbols = Cache:get(file_path)
+	if cached_symbols then
+		return cached_symbols
+	end
+
+	local content = utils.get_file_content(file_path)
 	local analysis_script = string.format(
 		[[
 # Simple TCL Symbol Analysis Script
@@ -429,7 +435,7 @@ foreach line $lines {
 
 puts "ANALYSIS_COMPLETE"
 ]],
-		file_path
+		content:gsub("}", "\\}")
 	)
 
 	utils.execute_tcl_script_async(analysis_script, tclsh_cmd, function(result, success)
