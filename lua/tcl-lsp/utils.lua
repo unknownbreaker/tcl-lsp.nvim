@@ -1,52 +1,12 @@
--- lua/tcl-lsp/utils.lua
 -- Helper functions for TCL LSP
 
 local M = {}
-local FileManager = {
-	content_cache = {},
-
-	get_content = function(self, file_path)
-		-- Check if file is already loaded in Neovim
-		local bufnr = vim.fn.bufnr(file_path)
-		if bufnr ~= -1 and vim.api.nvim_buf_is_loaded(bufnr) then
-			-- Get from buffer (always current)
-			return table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
-		end
-
-		-- Check cache
-		local mtime = vim.fn.getftime(file_path)
-		local cached = self.content_cache[file_path]
-		if cached and cached.mtime == mtime then
-			return cached.content
-		end
-
-		-- Read from disk
-		local file = io.open(file_path, "r")
-		if not file then
-			return nil
-		end
-		local content = file:read("*a")
-		file:close()
-
-		-- Cache it
-		self.content_cache[file_path] = {
-			content = content,
-			mtime = mtime,
-		}
-
-		return content
-	end,
-}
-
-function M.get_file_content(file_path)
-	return FileManager:get_content(file_path)
-end
 
 -- Helper function to execute Tcl scripts using temporary files
 function M.execute_tcl_script(script_content, tclsh_cmd)
 	tclsh_cmd = tclsh_cmd or "tclsh"
 
-	-- Create temporary file
+	-- Create temporary file with proper cleanup
 	local temp_file = os.tmpname() .. ".tcl"
 	local file = io.open(temp_file, "w")
 	if not file then
@@ -58,59 +18,75 @@ function M.execute_tcl_script(script_content, tclsh_cmd)
 	file:write(script_content)
 	file:close()
 
-	-- Execute script
+	-- Execute script with better error handling
 	local cmd = tclsh_cmd .. " " .. vim.fn.shellescape(temp_file) .. " 2>&1"
 	local handle = io.popen(cmd)
+	if not handle then
+		os.remove(temp_file)
+		return nil, false
+	end
+
 	local result = handle:read("*a")
 	local success = handle:close()
 
 	-- Cleanup
 	os.remove(temp_file)
 
-	return result, success
+	-- Enhanced error detection
+	if not success then
+		return result, false
+	end
+
+	-- Check for common TCL error patterns
+	if
+		result
+		and (
+			result:match("ERROR:")
+			or result:match("can't read")
+			or result:match("invalid command")
+			or result:match("syntax error")
+		)
+	then
+		return result, false
+	end
+
+	return result, true
 end
 
-function M.execute_tcl_script_async(script_content, tclsh_cmd, callback)
-	tclsh_cmd = tclsh_cmd or "tclsh"
-
-	-- Use Neovim's job API instead of io.popen
-	local job_id = vim.fn.jobstart({ tclsh_cmd }, {
-		stdin = "pipe",
-		stdout_buffered = true,
-		stderr_buffered = true,
-		on_exit = function(_, exit_code)
-			vim.schedule(function()
-				callback(job_output, exit_code == 0)
-			end)
-		end,
-		on_stdout = function(_, data)
-			job_output = table.concat(data, "\n")
-		end,
-	})
-
-	-- Send script directly via stdin (no temp file!)
-	vim.fn.chansend(job_id, script_content)
-	vim.fn.chanclose(job_id, "stdin")
-end
-
--- Check if tcllib JSON package is available
+-- Check if tcllib JSON package is available with enhanced testing
 function M.check_tcllib_availability(tclsh_cmd)
 	local test_script = [[
+# Enhanced tcllib availability check
 if {[catch {package require json} err]} {
-    puts "ERROR: $err"
+    puts "JSON_ERROR:$err"
     exit 1
-} else {
-    puts "OK"
-    puts "JSON_VERSION:[package provide json]"
 }
+
+# Test actual JSON functionality
+set test_data {{"hello": "world", "number": 42}}
+if {[catch {json::json2dict $test_data} parse_err]} {
+    puts "JSON_PARSE_ERROR:$parse_err"
+    exit 1
+}
+
+puts "JSON_SUCCESS"
+puts "JSON_VERSION:[package provide json]"
 ]]
 
 	local result, success = M.execute_tcl_script(test_script, tclsh_cmd)
-	if result and success and result:match("OK") then
+	if result and success and result:match("JSON_SUCCESS") then
 		local version = result:match("JSON_VERSION:([%d%.]+)")
-		return true, version
+		return true, version or "unknown"
 	else
-		return false, result
+		local error_msg = "JSON package not available"
+		if result then
+			if result:match("JSON_ERROR:(.+)") then
+				error_msg = result:match("JSON_ERROR:(.+)")
+			elseif result:match("JSON_PARSE_ERROR:(.+)") then
+				error_msg = "JSON parse error: " .. result:match("JSON_PARSE_ERROR:(.+)")
+			end
+		end
+		return false, error_msg
 	end
 end
 
@@ -120,6 +96,7 @@ function M.find_best_tclsh()
 		"tclsh",
 		"tclsh8.6",
 		"tclsh8.5",
+		"tclsh9.0",
 		"/opt/homebrew/bin/tclsh",
 		"/opt/homebrew/bin/tclsh8.6",
 		"/opt/homebrew/Cellar/tcl-tk@8/8.6.16/bin/tclsh8.6",
@@ -134,9 +111,8 @@ function M.find_best_tclsh()
 
 	for _, tclsh_cmd in ipairs(candidates) do
 		-- Check if command exists
-		local check_cmd = "command -v " .. tclsh_cmd .. " >/dev/null 2>&1"
-		if os.execute(check_cmd) == 0 then
-			-- Test if it has tcllib
+		if M.command_exists(tclsh_cmd) then
+			-- Test if it has working tcllib
 			local has_tcllib, version_or_error = M.check_tcllib_availability(tclsh_cmd)
 			if has_tcllib then
 				return tclsh_cmd, version_or_error
@@ -144,7 +120,24 @@ function M.find_best_tclsh()
 		end
 	end
 
-	return nil, "No tclsh with tcllib found"
+	return nil, "No tclsh with working tcllib found"
+end
+
+-- Check if a command exists in PATH
+function M.command_exists(cmd)
+	if not cmd or cmd == "" then
+		return false
+	end
+
+	-- Try different methods based on OS
+	local check_cmd
+	if vim.fn.has("win32") == 1 then
+		check_cmd = "where " .. cmd .. " >nul 2>&1"
+	else
+		check_cmd = "command -v " .. cmd .. " >/dev/null 2>&1"
+	end
+
+	return os.execute(check_cmd) == 0
 end
 
 -- Auto-setup filetype detection
@@ -176,19 +169,32 @@ function M.get_current_file_path()
 	if not file_path or file_path == "" then
 		return nil, "No file to analyze"
 	end
+
+	-- Check if file actually exists
+	if not M.file_exists(file_path) then
+		return nil, "File does not exist: " .. file_path
+	end
+
 	return file_path, nil
 end
 
--- Get word under cursor
+-- Get word under cursor with improved detection
 function M.get_word_under_cursor()
 	local word = vim.fn.expand("<cword>")
 	if not word or word == "" then
 		return nil, "No word under cursor"
 	end
+
+	-- Filter out non-identifier characters
+	word = word:match("^[a-zA-Z_][a-zA-Z0-9_]*$")
+	if not word then
+		return nil, "Invalid identifier under cursor"
+	end
+
 	return word, nil
 end
 
--- Get word under cursor including namespace qualifiers
+-- Get word under cursor including namespace qualifiers (improved)
 function M.get_qualified_word_under_cursor()
 	-- Get the current line and cursor position
 	local line = vim.api.nvim_get_current_line()
@@ -220,25 +226,35 @@ function M.get_qualified_word_under_cursor()
 
 	local qualified_word = line:sub(start_pos, end_pos - 1)
 
-	-- Clean up the word (remove leading/trailing colons)
+	-- Clean up the word (remove leading/trailing colons, validate format)
 	qualified_word = qualified_word:gsub("^:+", ""):gsub(":+$", "")
 
 	if not qualified_word or qualified_word == "" then
 		return nil, "No qualified word under cursor"
 	end
 
+	-- Validate that it's a proper TCL identifier
+	if not qualified_word:match("^[a-zA-Z_][a-zA-Z0-9_:]*$") then
+		return nil, "Invalid qualified identifier under cursor"
+	end
+
 	return qualified_word, nil
 end
 
--- Create quickfix list from results
+-- Create quickfix list from results with enhanced formatting
 function M.create_quickfix_list(items, title)
+	if not items or #items == 0 then
+		vim.notify("No items to show in quickfix list", vim.log.levels.INFO)
+		return
+	end
+
 	local qflist = {}
 	for _, item in ipairs(items) do
 		table.insert(qflist, {
 			bufnr = item.bufnr or vim.api.nvim_get_current_buf(),
 			filename = item.filename,
-			lnum = item.line or item.lnum,
-			text = item.text,
+			lnum = item.line or item.lnum or 1,
+			text = item.text or "",
 		})
 	end
 
@@ -255,64 +271,6 @@ function M.set_buffer_keymap(mode, lhs, rhs, opts, buffer)
 	local default_opts = { buffer = buffer or 0, silent = true }
 	local final_opts = vim.tbl_extend("force", default_opts, opts or {})
 	vim.keymap.set(mode, lhs, rhs, final_opts)
-end
-
--- Safely get buffer lines
-function M.get_buffer_lines(bufnr, start_line, end_line)
-	bufnr = bufnr or 0
-	start_line = start_line or 0
-	end_line = end_line or -1
-
-	local ok, lines = pcall(vim.api.nvim_buf_get_lines, bufnr, start_line, end_line, false)
-	if not ok then
-		return nil, "Failed to read buffer lines"
-	end
-
-	return lines, nil
-end
-
--- Check if a command exists in PATH
-function M.command_exists(cmd)
-	local check_cmd = "command -v " .. cmd .. " >/dev/null 2>&1"
-	return os.execute(check_cmd) == 0
-end
-
--- Debounce function calls
-function M.debounce(func, delay)
-	local timer_id = nil
-	return function(...)
-		local args = { ... }
-		if timer_id then
-			vim.fn.timer_stop(timer_id)
-		end
-		timer_id = vim.fn.timer_start(delay, function()
-			func(unpack(args))
-			timer_id = nil
-		end)
-	end
-end
-
--- Parse error message to extract line number and description
-function M.parse_error_message(error_msg)
-	if not error_msg then
-		return nil
-	end
-
-	-- Try to extract line number from common TCL error formats
-	local line_num = error_msg:match("line (%d+)") or error_msg:match("at line (%d+)")
-	if line_num then
-		line_num = tonumber(line_num)
-	end
-
-	-- Clean up error message
-	local clean_msg = error_msg:gsub("^[^:]+:%s*", "") -- Remove file prefix
-	clean_msg = clean_msg:gsub("\n.*", "") -- Take only first line
-
-	return {
-		line = line_num,
-		message = clean_msg,
-		original = error_msg,
-	}
 end
 
 -- Check if file exists and is readable
@@ -457,6 +415,58 @@ function M.symbols_match(symbol1, symbol2)
 
 	-- Both unqualified
 	return parsed1.unqualified == parsed2.unqualified
+end
+
+-- Debounce function calls
+function M.debounce(func, delay)
+	local timer_id = nil
+	return function(...)
+		local args = { ... }
+		if timer_id then
+			vim.fn.timer_stop(timer_id)
+		end
+		timer_id = vim.fn.timer_start(delay, function()
+			func(unpack(args))
+			timer_id = nil
+		end)
+	end
+end
+
+-- Parse error message to extract line number and description
+function M.parse_error_message(error_msg)
+	if not error_msg then
+		return nil
+	end
+
+	-- Try to extract line number from common TCL error formats
+	local line_num = error_msg:match("line (%d+)") or error_msg:match("at line (%d+)")
+	if line_num then
+		line_num = tonumber(line_num)
+	end
+
+	-- Clean up error message
+	local clean_msg = error_msg:gsub("^[^:]+:%s*", "") -- Remove file prefix
+	clean_msg = clean_msg:gsub("\n.*", "") -- Take only first line
+
+	return {
+		line = line_num,
+		message = clean_msg,
+		original = error_msg,
+	}
+end
+
+-- Safely get buffer lines
+function M.get_buffer_lines(bufnr, start_line, end_line)
+	bufnr = bufnr or 0
+	start_line = start_line or 0
+	end_line = end_line or -1
+
+	local ok, lines = pcall(vim.api.nvim_buf_get_lines, bufnr, start_line, end_line, false)
+	if not ok then
+		return nil, "Failed to read buffer lines"
+	end
+
+	return lines, nil
 end
 
 return M
