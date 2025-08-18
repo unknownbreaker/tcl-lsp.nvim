@@ -12,54 +12,55 @@ function M.document_symbols()
 	end
 
 	local tclsh_cmd = config.get_tclsh_cmd()
-	local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
 
-	if not symbols or #symbols == 0 then
-		utils.notify("No symbols found in current file", vim.log.levels.WARN)
-		return
-	end
-
-	-- Group symbols by type
-	local grouped = {}
-	for _, symbol in ipairs(symbols) do
-		if not grouped[symbol.type] then
-			grouped[symbol.type] = {}
+	tcl.analyze_tcl_file_async(file_path, tclsh_cmd, function(symbols)
+		if not symbols or #symbols == 0 then
+			utils.notify("No symbols found in current file", vim.log.levels.WARN)
+			return
 		end
-		table.insert(grouped[symbol.type], symbol)
-	end
 
-	-- Create quickfix list with grouped symbols
-	local qflist = {}
-	local type_order = { "procedure", "variable", "global", "namespace", "package", "source" }
+		-- Group symbols by type
+		local grouped = {}
+		for _, symbol in ipairs(symbols) do
+			if not grouped[symbol.type] then
+				grouped[symbol.type] = {}
+			end
+			table.insert(grouped[symbol.type], symbol)
+		end
 
-	for _, type_name in ipairs(type_order) do
-		local type_symbols = grouped[type_name]
-		if type_symbols then
-			table.insert(qflist, {
-				bufnr = vim.api.nvim_get_current_buf(),
-				lnum = 1,
-				text = string.format("=== %s (%d) ===", type_name:upper(), #type_symbols),
-			})
+		-- Create quickfix list with grouped symbols
+		local qflist = {}
+		local type_order = { "procedure", "variable", "global", "namespace", "package", "source" }
 
-			-- Sort symbols by line number
-			table.sort(type_symbols, function(a, b)
-				return a.line < b.line
-			end)
-
-			for _, symbol in ipairs(type_symbols) do
+		for _, type_name in ipairs(type_order) do
+			local type_symbols = grouped[type_name]
+			if type_symbols then
 				table.insert(qflist, {
 					bufnr = vim.api.nvim_get_current_buf(),
-					lnum = symbol.line,
-					text = string.format("  %s: %s", symbol.name, utils.trim(symbol.text)),
+					lnum = 1,
+					text = string.format("=== %s (%d) ===", type_name:upper(), #type_symbols),
 				})
+
+				-- Sort symbols by line number
+				table.sort(type_symbols, function(a, b)
+					return a.line < b.line
+				end)
+
+				for _, symbol in ipairs(type_symbols) do
+					table.insert(qflist, {
+						bufnr = vim.api.nvim_get_current_buf(),
+						lnum = symbol.line,
+						text = string.format("  %s: %s", symbol.name, utils.trim(symbol.text)),
+					})
+				end
 			end
 		end
-	end
 
-	utils.create_quickfix_list(
-		qflist,
-		string.format("Found %d symbols in %d categories", #symbols, vim.tbl_count(grouped))
-	)
+		utils.create_quickfix_list(
+			qflist,
+			string.format("Found %d symbols in %d categories", #symbols, vim.tbl_count(grouped))
+		)
+	end)
 end
 
 -- Enhanced workspace symbols using TCL analysis

@@ -90,103 +90,118 @@ function M.goto_definition()
 	print("DEBUG: Looking for symbol:", word, "in file:", file_path)
 
 	-- Get symbols from current file
-	local symbols = tcl.analyze_tcl_file(file_path, tclsh_cmd)
-	if not symbols then
-		utils.notify("Failed to analyze file with TCL", vim.log.levels.ERROR)
-		return
-	end
+	-- Show loading indicator
+	utils.notify("Analyzing symbols...", vim.log.levels.INFO)
 
-	print("DEBUG: Found", #symbols, "symbols total")
-
-	if #symbols == 0 then
-		utils.notify("No symbols found in file. Run :TclTestSimple to troubleshoot.", vim.log.levels.WARN)
-		return
-	end
-
-	-- Get current context for smart scope resolution
-	local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
-	local current_context = M.get_current_context(cursor_line, symbols)
-
-	print("DEBUG: Current context:", vim.inspect(current_context))
-
-	-- Find matching symbols with scope-aware scoring
-	local matches = {}
-	for _, symbol in ipairs(symbols) do
-		local match_score = 0
-		local match_type = "none"
-
-		-- Basic name matching
-		if symbol.name == word then
-			match_score = 100
-			match_type = "exact"
-		elseif symbol.qualified_name == word then
-			match_score = 95
-			match_type = "qualified_exact"
-		elseif utils.symbols_match(symbol.name, word) then
-			match_score = 80
-			match_type = "fuzzy"
-		elseif symbol.name:match("::" .. word .. "$") then
-			match_score = 75
-			match_type = "unqualified"
+	tcl.analyze_tcl_file_async(file_path, tclsh_cmd, function(symbols)
+		if not symbols then
+			utils.notify("Failed to analyze file with TCL", vim.log.levels.ERROR)
+			return
 		end
 
-		if match_score > 0 then
-			-- Apply scope-aware bonus scoring
-			match_score = M.apply_scope_bonus(symbol, word, current_context, match_score)
+		print("DEBUG: Found", #symbols, "symbols total")
 
-			table.insert(matches, {
-				symbol = symbol,
-				score = match_score,
-				match_type = match_type,
-			})
-			print("DEBUG: Found match:", symbol.type, symbol.name, "scope:", symbol.scope, "final score:", match_score)
+		if #symbols == 0 then
+			utils.notify("No symbols found in file. Run :TclTestSimple to troubleshoot.", vim.log.levels.WARN)
+			return
 		end
-	end
 
-	-- Sort by score (highest first)
-	table.sort(matches, function(a, b)
-		return a.score > b.score
-	end)
+		-- Get current context for smart scope resolution
+		local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+		local current_context = M.get_current_context(cursor_line, symbols)
 
-	print("DEBUG: Total matches found:", #matches)
+		print("DEBUG: Current context:", vim.inspect(current_context))
 
-	-- Handle results with smarter logic
-	if #matches == 0 then
-		-- Try workspace search as fallback
-		utils.notify("Symbol '" .. word .. "' not found in current file, searching workspace...", vim.log.levels.INFO)
-		M.search_workspace_for_definition(word, file_path, tclsh_cmd)
-	elseif #matches == 1 then
-		-- Single match - jump to it
-		local match = matches[1]
-		vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
-		utils.notify(
-			string.format("Found %s '%s' at line %d", match.symbol.type, match.symbol.name, match.symbol.line),
-			vim.log.levels.INFO
-		)
-	else
-		-- Multiple matches - check if there's a clear winner
-		local best_score = matches[1].score
-		local second_best_score = matches[2] and matches[2].score or 0
+		-- Find matching symbols with scope-aware scoring
+		local matches = {}
+		for _, symbol in ipairs(symbols) do
+			local match_score = 0
+			local match_type = "none"
 
-		-- If the best match is significantly better than the second best, auto-jump
-		if best_score > second_best_score + 50 then
+			-- Basic name matching
+			if symbol.name == word then
+				match_score = 100
+				match_type = "exact"
+			elseif symbol.qualified_name == word then
+				match_score = 95
+				match_type = "qualified_exact"
+			elseif utils.symbols_match(symbol.name, word) then
+				match_score = 80
+				match_type = "fuzzy"
+			elseif symbol.name:match("::" .. word .. "$") then
+				match_score = 75
+				match_type = "unqualified"
+			end
+
+			if match_score > 0 then
+				-- Apply scope-aware bonus scoring
+				match_score = M.apply_scope_bonus(symbol, word, current_context, match_score)
+
+				table.insert(matches, {
+					symbol = symbol,
+					score = match_score,
+					match_type = match_type,
+				})
+				print(
+					"DEBUG: Found match:",
+					symbol.type,
+					symbol.name,
+					"scope:",
+					symbol.scope,
+					"final score:",
+					match_score
+				)
+			end
+		end
+
+		-- Sort by score (highest first)
+		table.sort(matches, function(a, b)
+			return a.score > b.score
+		end)
+
+		print("DEBUG: Total matches found:", #matches)
+
+		-- Handle results with smarter logic
+		if #matches == 0 then
+			-- Try workspace search as fallback
+			utils.notify(
+				"Symbol '" .. word .. "' not found in current file, searching workspace...",
+				vim.log.levels.INFO
+			)
+			M.search_workspace_for_definition(word, file_path, tclsh_cmd)
+		elseif #matches == 1 then
+			-- Single match - jump to it
 			local match = matches[1]
 			vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
 			utils.notify(
-				string.format(
-					"Found %s '%s' at line %d (scope: %s)",
-					match.symbol.type,
-					match.symbol.name,
-					match.symbol.line,
-					match.symbol.scope
-				),
+				string.format("Found %s '%s' at line %d", match.symbol.type, match.symbol.name, match.symbol.line),
 				vim.log.levels.INFO
 			)
 		else
-			-- Show choices for ambiguous matches
-			M.show_symbol_choices(matches, word)
+			-- Multiple matches - check if there's a clear winner
+			local best_score = matches[1].score
+			local second_best_score = matches[2] and matches[2].score or 0
+
+			-- If the best match is significantly better than the second best, auto-jump
+			if best_score > second_best_score + 50 then
+				local match = matches[1]
+				vim.api.nvim_win_set_cursor(0, { match.symbol.line, 0 })
+				utils.notify(
+					string.format(
+						"Found %s '%s' at line %d (scope: %s)",
+						match.symbol.type,
+						match.symbol.name,
+						match.symbol.line,
+						match.symbol.scope
+					),
+					vim.log.levels.INFO
+				)
+			else
+				-- Show choices for ambiguous matches
+				M.show_symbol_choices(matches, word)
+			end
 		end
-	end
+	end)
 end
 
 function M.find_matching_symbols(symbols, resolutions, query)
