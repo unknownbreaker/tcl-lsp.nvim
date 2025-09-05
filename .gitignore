@@ -1,108 +1,50 @@
-# OS specific files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# Lua
+luacov.stats.out
+luacov.report.out
+*.luac
 
-# Linux
-*~
-.fuse_hidden*
-.directory
-.Trash-*
-.nfs*
+# Neovim
+.nvim/
 
-# Windows
-Desktop.ini
-$RECYCLE.BIN/
-*.cab
-*.msi
-*.msix
-*.msm
-*.msp
-*.lnk
+# Testing
+coverage/
+.coverage
+.luacov
 
-# Editor files
+# Build artifacts
+build/
+dist/
+*.so
+*.dylib
+*.dll
+
+# Documentation
+doc/html/
+docs/_build/
+
+# IDE/Editor
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-.netrwhist
-tags
-.tags
 
-# Vim/Neovim specific
-*.tmp
-*.bak
-*.orig
-Session.vim
-.exrc
+# OS
+.DS_Store
+Thumbs.db
 
-# Lua specific
-luac.out
-*.lua~
-.luacompleterc
-
-# Testing and development
-/test_files/
-/examples/
-/scratch/
-/debug/
-*.test.lua
-test_*.lua
-
-# Documentation build artifacts
-/doc/tags
-/doc/*.txt.bak
-
-# Logs and temporary files
-*.log
-*.tmp
-*.temp
-/logs/
-
-# Plugin development
-.lazy/
-.local/
+# Dependencies
 node_modules/
-package-lock.json
-yarn.lock
+.npm/
+*.log
 
-# CI/CD artifacts
-.github/secrets/
+# Local configuration
 .env
 .env.local
+config.local.*
 
-# TCL specific test files (for testing the LSP)
-*.tcl.test
-test_*.tcl
-example_*.tcl
-/tcl_test_files/
-
-# Plugin installation testing
-/lazy-lock.json
-/plugin/packer_compiled.lua
-
-# Benchmark and profiling
-*.prof
-/benchmarks/
-/performance/
-
-# IDE and editor specific
-.vscode/settings.json
-.vscode/launch.json
-.vscode/extensions.json
-*.code-workspace
-
-# Backup files
-*.backup
-*.old
-*~
-
-# Runtime files that shouldn't be committed
-/runtime/
-/.nvim/
-/share/
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
