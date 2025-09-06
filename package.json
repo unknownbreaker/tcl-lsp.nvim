@@ -2,29 +2,40 @@
   "name": "tcl-lsp.nvim",
   "version": "1.0.0",
   "description": "TCL Language Server Protocol implementation for Neovim",
-  "main": "index.js",
+  "private": true,
   "scripts": {
+    "format": "prettier --write tests/e2e/**/*.js tests/integration/**/*.js",
+    "format:check": "prettier --check tests/e2e/**/*.js tests/integration/**/*.js",
+    "lint": "eslint tests/e2e tests/integration",
+    "lint:fix": "eslint --fix tests/e2e tests/integration",
     "test": "make test",
     "test:e2e": "jest tests/e2e",
-    "lint": "make lint",
-    "format": "make format",
-    "docs": "make docs"
+    "test:integration": "jest tests/integration"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/unknownbreaker/tcl-lsp.nvim.git"
   },
   "keywords": [
-    "neovim",
+    "language-server",
     "lsp",
-    "tcl",
-    "language-server"
+    "neovim",
+    "tcl"
   ],
   "author": "Your Name",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^20.10.0",
+    "@eslint/js": "^8.55.0",
+    "eslint": "^8.55.0",
     "jest": "^29.7.0",
-    "typescript": "^5.3.0"
+    "neovim": "^5.3.0",
+    "prettier": "^3.1.0"
+  },
+  "jest": {
+    "testMatch": [
+      "**/tests/e2e/**/*.spec.js",
+      "**/tests/integration/**/*.spec.js"
+    ],
+    "testTimeout": 10000
   }
 }

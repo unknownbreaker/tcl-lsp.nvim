@@ -25,8 +25,12 @@ install: ## Install dependencies
 	@echo "Installing Python dependencies..."
 	pip install -r requirements-dev.txt
 
-test: test-unit test-integration ## Run all tests
+test: test-unit test-integration test-performance test-coverage ## Run all tests
 	@echo "All tests completed"
+
+test-e2e:
+	@echo: "Running E2E tests..."
+	npm run test:e2e
 
 test-unit: ## Run unit tests
 	@echo "Running Lua unit tests..."
@@ -47,26 +51,46 @@ test-coverage: ## Generate test coverage report
 	busted tests/lua --coverage --verbose
 	luacov
 
-lint: ## Run linting
+lint: lint-js lint-lua lint-tcl ## Run all linting
+	@echo "All linting completed"
+
+lint-js: ## Lint JavaScript test files
+	@echo "Linting JavaScript files..."
+	npm run lint
+
+lint-js-fix: ## Fix JavaScript linting issues
+	@echo "Fixing JavaScript linting issues..."
+	npm run lint:fix
+
+lint-lua: ## Run linting
 	@echo "Linting Lua code..."
 	luacheck lua/ tests/
+
+lint-tcl: ## Run linting
 	@echo "Linting Tcl code..."
 	tclchecker tcl/
 
-format: ## Format code
+format-js: ## Format JavaScript test files
+	@echo "Formatting JavaScript files..."
+	npm run format
+
+format-js-check: ## Check JavaScript formatting
+	@echo "Checking JavaScript formatting..."
+	npm run format:check
+
+format-lua: ## Format code
 	@echo "Formatting Lua code..."
 	stylua lua/ tests/lua/
+
+format-tcl: ## Format code
 	@echo "Formatting Tcl code..."
 	find tcl/ -name "*.tcl" -exec tclFormatter {} \;
 
+format: format-lua format-tcl ## Run all formatting
+	@echo "All formatting completed"
+
 check: lint test ## Run checks and tests
 	@echo "All checks passed"
-
-docs: ## Generate documentation
-	@echo "Generating documentation..."
-	ldoc lua/
-	@echo "Generating API docs..."
-	tclsh scripts/generate_tcl_docs.tcl
 
 clean: ## Clean build artifacts
 	@echo "Cleaning build artifacts..."
@@ -75,6 +99,13 @@ clean: ## Clean build artifacts
 	rm -rf coverage/
 	rm -rf node_modules/.cache/
 
+docs: ## Generate documentation
+	@echo "Generating documentation..."
+	ldoc lua/
+	@echo "Generating API docs..."
+	tclsh scripts/generate_tcl_docs.tcl
+
 release: check docs ## Prepare release
 	@echo "Preparing release..."
 	@scripts/prepare_release.sh
+
