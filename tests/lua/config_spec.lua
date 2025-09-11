@@ -2,6 +2,55 @@
 -- Tests for TCL LSP configuration management
 -- Following TDD approach - these tests define the expected behavior
 
+local helpers = require "tests.spec.test_helpers"
+
+-- Add contains assertion for plenary
+local assert = require "luassert"
+assert:register("assertion", "contains", function(state, arguments)
+  local expected = arguments[1]
+  local actual_table = arguments[2]
+
+  if type(actual_table) ~= "table" then
+    return false
+  end
+
+  for _, value in ipairs(actual_table) do
+    if value == expected then
+      return true
+    end
+  end
+  return false
+end, "assertion.contains.positive", "assertion.contains.negative")
+
+-- Add contains assertion for plenary
+local function assert_contains(expected, actual_table)
+  if type(actual_table) ~= "table" then
+    error("Expected table, got " .. type(actual_table))
+  end
+
+  for _, value in ipairs(actual_table) do
+    if value == expected then
+      return true
+    end
+  end
+  error(
+    "Expected table to contain '"
+      .. tostring(expected)
+      .. "' but it didn't. Table contents: "
+      .. vim.inspect(actual_table)
+  )
+end
+
+-- Make it available as assert.contains
+local assert = require "luassert"
+assert:register(
+  "assertion",
+  "contains",
+  assert_contains,
+  "assertion.contains.positive",
+  "assertion.contains.negative"
+)
+
 describe("TCL LSP Configuration", function()
   local config
 
@@ -12,8 +61,17 @@ describe("TCL LSP Configuration", function()
     -- Require fresh config module
     config = require "tcl-lsp.config"
 
-    -- Ensure clean state
+    -- Ensure completely clean state
     config.reset()
+
+    -- Clear any existing buffers to prevent contamination
+    for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+      if
+        vim.api.nvim_buf_is_valid(bufnr) and not vim.api.nvim_buf_get_option(bufnr, "buflisted")
+      then
+        pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+      end
+    end
   end)
 
   after_each(function()
@@ -292,21 +350,25 @@ describe("TCL LSP Configuration", function()
       -- Set global config
       config.setup { log_level = "info", timeout = 5000 }
 
-      -- Set buffer-local config
-      vim.b = vim.b or {}
-      vim.b[1] = vim.b[1] or {}
-      vim.b[1].tcl_lsp_config = {
-        log_level = "debug",
-        custom_buffer_option = "buffer_value",
+      -- Create a real buffer and set buffer-local config
+      local bufnr = vim.api.nvim_create_buf(false, true)
+      vim.b[bufnr] = {
+        tcl_lsp_config = {
+          log_level = "debug",
+          custom_buffer_option = "buffer_value",
+        },
       }
 
       -- Get config for specific buffer
-      local buffer_config = config.get(1)
+      local buffer_config = config.get(bufnr)
 
       -- Should merge global and buffer-local
       assert.equals("debug", buffer_config.log_level) -- Overridden
       assert.equals(5000, buffer_config.timeout) -- From global
       assert.equals("buffer_value", buffer_config.custom_buffer_option) -- Buffer-only
+
+      -- Cleanup
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
     it("should fall back to global config without buffer overrides", function()
@@ -322,27 +384,31 @@ describe("TCL LSP Configuration", function()
     it("should handle current buffer when no buffer specified", function()
       config.setup { log_level = "error" }
 
-      -- Mock current buffer
-      vim.api.nvim_get_current_buf = function()
-        return 5
-      end
-      vim.b = vim.b or {}
-      vim.b[5] = { tcl_lsp_config = { log_level = "debug" } }
+      -- Create a real buffer for testing
+      local bufnr = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_set_current_buf(bufnr)
+      vim.b[bufnr] = { tcl_lsp_config = { log_level = "debug" } }
 
       local current_config = config.get() -- No buffer specified
       assert.equals("debug", current_config.log_level)
+
+      -- Cleanup
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
     it("should validate buffer-local configuration", function()
       config.setup { log_level = "info" }
 
-      -- Set invalid buffer-local config
-      vim.b = vim.b or {}
-      vim.b[1] = { tcl_lsp_config = { cmd = "invalid_should_be_table" } }
+      -- Create real buffer with invalid config
+      local bufnr = vim.api.nvim_create_buf(false, true)
+      vim.b[bufnr] = { tcl_lsp_config = { cmd = "invalid_should_be_table" } }
 
-      local success, error_msg = pcall(config.get, 1)
+      local success, error_msg = pcall(config.get, bufnr)
       assert.is_false(success, "Should validate buffer-local config")
       assert.matches("cmd.*table", error_msg, "Should provide helpful error")
+
+      -- Cleanup
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
   end)
 
