@@ -33,8 +33,10 @@ test-e2e:
 	npm run test:e2e
 
 test-unit: ## Run unit tests
-	@echo "Running Lua unit tests..."
-	busted tests/lua --verbose
+	@echo "Running Lua unit tests with plenary..."
+	nvim --headless --noplugin -u tests/minimal_init.lua \
+		-c "lua require('plenary.test_harness').test_directory('tests/lua/', {minimal_init = 'tests/minimal_init.lua'})" \
+		-c "qa!"
 	@echo "Running Tcl unit tests..."
 	tclsh tests/tcl/run_tests.tcl
 
