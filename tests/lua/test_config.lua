@@ -4,66 +4,98 @@
 
 local helpers = require "tests.spec.test_helpers"
 
--- Mock vim environment for testing
-local mock_vim = helpers.create_vim_mock()
+describe("TCL LSP Configuration", function()
+  local config
+  local original_vim
 
--- Mock vim.inspect if not available
-if not vim or not vim.inspect then
-  _G.vim = _G.vim or {}
-  _G.vim.inspect = function(obj)
-    if type(obj) == "table" then
-      local str = "{"
-      local first = true
-      for k, v in pairs(obj) do
-        if not first then
-          str = str .. ", "
-        end
-        first = false
-        str = str .. tostring(k) .. " = " .. tostring(v)
-      end
-      return str .. "}"
-    else
-      return tostring(obj)
-    end
-  end
-end
+  before_each(function()
+    -- Store original vim and replace with mock
+    original_vim = _G.vim
 
--- Mock vim.json if not available
-if not vim or not vim.json then
-  _G.vim = _G.vim or {}
-  _G.vim.json = {
-    encode = function(obj)
-      -- Simple JSON encoding for basic objects
+    -- Create enhanced mock vim with all needed APIs
+    local mock_vim = helpers.create_vim_mock()
+
+    -- Add vim.inspect mock
+    mock_vim.inspect = function(obj)
       if type(obj) == "table" then
         local str = "{"
         local first = true
         for k, v in pairs(obj) do
           if not first then
-            str = str .. ","
+            str = str .. ", "
           end
           first = false
-          str = str
-            .. '"'
-            .. tostring(k)
-            .. '":'
-            .. (type(v) == "string" and '"' .. v .. '"' or tostring(v))
+          str = str .. tostring(k) .. " = " .. tostring(v)
         end
         return str .. "}"
       else
-        return type(obj) == "string" and '"' .. obj .. '"' or tostring(obj)
+        return tostring(obj)
       end
-    end,
+    end
 
-    decode = function(str)
-      -- Simple JSON decoding - just return a basic table for testing
-      return {
-        log_level = "debug",
-        root_markers = { ".git", "tcl.toml" },
-        timeout = 8000,
-      }
-    end,
-  }
-end
+    -- Add vim.json mock
+    mock_vim.json = {
+      encode = function(obj)
+        -- Simple JSON encoding for basic objects
+        if type(obj) == "table" then
+          local str = "{"
+          local first = true
+          for k, v in pairs(obj) do
+            if not first then
+              str = str .. ","
+            end
+            first = false
+            str = str
+              .. '"'
+              .. tostring(k)
+              .. '":'
+              .. (type(v) == "string" and '"' .. v .. '"' or tostring(v))
+          end
+          return str .. "}"
+        else
+          return type(obj) == "string" and '"' .. obj .. '"' or tostring(obj)
+        end
+      end,
+
+      decode = function(str)
+        -- Simple JSON decoding - just return a basic table for testing
+        return {
+          log_level = "debug",
+          root_markers = { ".git", "tcl.toml" },
+          timeout = 8000,
+        }
+      end,
+    }
+
+    -- Set the enhanced mock
+    _G.vim = mock_vim
+
+    -- Clear package cache to get fresh module
+    package.loaded["tcl-lsp.config"] = nil
+
+    -- Require fresh config module
+    config = require "tcl-lsp.config"
+
+    -- Ensure completely clean state - reset multiple times if needed
+    if config.reset then
+      config.reset()
+      config.reset() -- Double reset to be sure
+    end
+  end)
+
+  after_each(function()
+    -- Restore original vim
+    _G.vim = original_vim
+
+    -- Reset config state aggressively
+    if config and config.reset then
+      config.reset()
+    end
+
+    -- Clear package cache to prevent state leakage
+    package.loaded["tcl-lsp.config"] = nil
+  end)
+end)
 
 describe("TCL LSP Configuration", function()
   local config
