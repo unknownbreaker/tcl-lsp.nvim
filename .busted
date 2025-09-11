@@ -3,9 +3,10 @@ return {
     verbose = true,
     coverage = false,
     pattern = "test_",
-    ROOT = { "tests/lua" },
+    ROOT = { "tests/" },
     exclude = {
       "tests/spec/",
     },
+    lpath = "lua/?.lua;lua/?/init.lua",
   },
 }
