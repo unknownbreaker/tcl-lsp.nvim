@@ -40,11 +40,16 @@ test-unit: ## Run unit tests
 	@echo "Running Tcl unit tests..."
 	tclsh tests/tcl/run_tests.tcl
 
-test-unit-lsp-server:
-	@echo "Running Lua unit tests with plenary..."
-	nvim --headless -u tests/minimal_init.lua \
-		-c "lua require('plenary.test_harness').run('tests/lua/server_spec.lua')" \
-		-c "qa"
+test-unit-lsp-server: ## Run LSP server specific tests
+	@echo "Running LSP server unit tests..."
+	$(NVIM) --headless --noplugin -u tests/minimal_init.lua \
+		-c "lua dofile('tests/run_server_tests.lua')"
+
+test-unit-lsp-server-alt: ## Run LSP server tests (alternative method)
+	@echo "Running LSP server unit tests (alternative)..."
+	$(NVIM) --headless --noplugin -u tests/minimal_init.lua \
+		-c "PlenaryBustedFile tests/lua/server_spec.lua {minimal_init = 'tests/minimal_init.lua'}" \
+		-c "qa!"
 
 test-integration: ## Run integration tests
 	@echo "Running integration tests..."
