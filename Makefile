@@ -40,6 +40,12 @@ test-unit: ## Run unit tests
 	@echo "Running Tcl unit tests..."
 	tclsh tests/tcl/run_tests.tcl
 
+test-unit-lsp-server:
+	@echo "Running Lua unit tests with plenary..."
+	nvim --headless -u tests/minimal_init.lua \
+		-c "lua require('plenary.test_harness').run('tests/lua/server_spec.lua')" \
+		-c "qa"
+
 test-integration: ## Run integration tests
 	@echo "Running integration tests..."
 	busted tests/integration --verbose
