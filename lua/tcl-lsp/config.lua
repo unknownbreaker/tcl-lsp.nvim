@@ -245,12 +245,13 @@ function M.get(bufnr)
   local base_config = state.config or defaults
 
   -- Get buffer number (current buffer if not specified)
-  bufnr = bufnr or (vim.api and vim.api.nvim_get_current_buf()) or 0
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   -- Get buffer-local configuration if it exists
   local buffer_config = {}
-  if vim.b and bufnr and vim.b[bufnr] and vim.b[bufnr].tcl_lsp_config then
-    buffer_config = vim.b[bufnr].tcl_lsp_config
+  local success, buf_var = pcall(vim.api.nvim_buf_get_var, bufnr, "tcl_lsp_config")
+  if success and buf_var then
+    buffer_config = buf_var
 
     -- Validate buffer-local configuration
     local valid, errors = validate_config(buffer_config)
