@@ -438,56 +438,6 @@ function M.create_test_project(base_dir, files)
   return base_dir
 end
 
--- Mock LSP server for testing without external dependencies
-function M.create_mock_lsp_server()
-  local mock_server = {}
-  local messages = {}
-
-  function mock_server.start()
-    return {
-      request = function(method, params, callback)
-        table.insert(messages, { method = method, params = params })
-
-        if method == "initialize" then
-          callback(nil, {
-            capabilities = {
-              textDocumentSync = 1,
-              completionProvider = { triggerCharacters = { ".", ":" } },
-              hoverProvider = true,
-              definitionProvider = true,
-              referencesProvider = true,
-              documentSymbolProvider = true,
-              workspaceSymbolProvider = true,
-              codeActionProvider = true,
-              renameProvider = true,
-              documentFormattingProvider = true,
-            },
-          })
-        elseif method == "shutdown" then
-          callback(nil, nil)
-        else
-          -- Default empty response for other methods
-          callback(nil, {})
-        end
-      end,
-
-      notify = function(method, params)
-        table.insert(messages, { method = method, params = params, type = "notification" })
-      end,
-
-      get_messages = function()
-        return messages
-      end,
-
-      clear_messages = function()
-        messages = {}
-      end,
-    }
-  end
-
-  return mock_server
-end
-
 -- Performance measurement utilities
 function M.measure_time(func)
   local start_time = vim.loop.hrtime()
