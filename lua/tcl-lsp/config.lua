@@ -74,29 +74,24 @@ local function validate_root_markers(markers)
     if type(marker) ~= "string" then
       return false, "root_markers[" .. i .. "] must be string, got: " .. type(marker)
     end
-    if marker == "" then
-      return false, "root_markers[" .. i .. "] cannot be empty string"
-    end
   end
 
   return true
 end
 
 local function validate_log_level(level)
-  local valid_levels = { "debug", "info", "warn", "error" }
-
   if type(level) ~= "string" then
     return false, "log_level must be string, got: " .. type(level)
   end
 
+  local valid_levels = { "debug", "info", "warn", "error" }
   for _, valid_level in ipairs(valid_levels) do
     if level == valid_level then
       return true
     end
   end
 
-  return false,
-    "log_level must be one of: " .. table.concat(valid_levels, ", ") .. ", got: " .. level
+  return false, "log_level must be one of: " .. table.concat(valid_levels, ", ")
 end
 
 local function validate_numeric_field(value, field_name, allow_zero)
@@ -104,12 +99,10 @@ local function validate_numeric_field(value, field_name, allow_zero)
     return false, field_name .. " must be number, got: " .. type(value)
   end
 
-  if value < 0 then
-    return false, field_name .. " must be non-negative, got: " .. value
-  end
-
-  if not allow_zero and value == 0 then
-    return false, field_name .. " must be positive, got: " .. value
+  if allow_zero and value < 0 then
+    return false, field_name .. " must be non-negative"
+  elseif not allow_zero and value <= 0 then
+    return false, field_name .. " must be positive"
   end
 
   return true
@@ -128,15 +121,12 @@ local function validate_filetypes(filetypes)
     if type(filetype) ~= "string" then
       return false, "filetypes[" .. i .. "] must be string, got: " .. type(filetype)
     end
-    if filetype == "" then
-      return false, "filetypes[" .. i .. "] cannot be empty string"
-    end
   end
 
   return true
 end
 
--- Check for circular references to prevent infinite loops
+-- Check for circular references in configuration tables
 local function has_circular_reference(tbl, seen)
   seen = seen or {}
 
@@ -243,7 +233,7 @@ function M.setup(user_config)
 
   -- Deep merge user config with defaults
   state.config = vim.tbl_deep_extend("force", deep_copy(defaults), user_config)
-  state.has_changes = false
+  state.has_changes = false -- Should be false after setup
   state.initialized = true
 
   return true
@@ -259,7 +249,7 @@ function M.get(bufnr)
 
   -- Get buffer-local configuration if it exists
   local buffer_config = {}
-  if vim.b and vim.b[bufnr] and vim.b[bufnr].tcl_lsp_config then
+  if vim.b and bufnr and vim.b[bufnr] and vim.b[bufnr].tcl_lsp_config then
     buffer_config = vim.b[bufnr].tcl_lsp_config
 
     -- Validate buffer-local configuration
@@ -276,7 +266,7 @@ end
 -- Reset configuration to defaults
 function M.reset()
   state.config = nil
-  state.has_changes = false
+  state.has_changes = false -- Should be false after reset
   state.initialized = false
 end
 
