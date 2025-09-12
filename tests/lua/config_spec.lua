@@ -2,7 +2,7 @@
 -- Tests for TCL LSP configuration management
 -- Following TDD approach - these tests define the expected behavior
 
-local helpers = require "tests.spec.helpers_spec"
+local helpers = require "tests.spec.test_helpers"
 
 -- Add contains assertion for plenary
 local assert = require "luassert"
