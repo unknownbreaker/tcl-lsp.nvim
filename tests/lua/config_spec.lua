@@ -1,106 +1,34 @@
 -- tests/lua/config_spec.lua
--- Tests for TCL LSP configuration management
--- Following TDD approach - these tests define the expected behavior
-
-local helpers = require "tests.spec.test_helpers"
-
--- Simple contains function that works reliably
-local function table_contains(tbl, value)
-  if type(tbl) ~= "table" then
-    return false
-  end
-
-  for _, v in ipairs(tbl) do
-    if v == value then
-      return true
-    end
-  end
-  return false
-end
-
--- Create simple assert_contains function
-local function assert_contains(expected, actual_table, message)
-  if not table_contains(actual_table, expected) then
-    local error_msg = message
-      or ("Expected table to contain '" .. tostring(expected) .. "' but it didn't")
-    error_msg = error_msg .. ". Table contents: " .. vim.inspect(actual_table)
-    error(error_msg)
-  end
-end
-
--- Make it available as assert.contains
-local assert = require "luassert"
-assert:register("assertion", "contains", function(state, arguments)
-  local expected = arguments[1]
-  local actual_table = arguments[2]
-  local message = arguments[3]
-
-  if not table_contains(actual_table, expected) then
-    return false
-  end
-  return true
-end, "assertion.contains.positive", "assertion.contains.negative")
+-- Tests for TCL LSP configuration management using real Neovim APIs
 
 describe("TCL LSP Configuration", function()
   local config
-  local original_vim_api
-  local original_vim_b
-  local mock_vim_b
 
   before_each(function()
-    -- Save original vim API
-    original_vim_api = vim.api
-    original_vim_b = vim.b
-
-    -- Create mock buffer-local variables
-    mock_vim_b = {}
-
-    -- Mock vim.api
-    vim.api = {
-      nvim_get_current_buf = function()
-        return 1 -- Default to buffer 1
-      end,
-      nvim_list_bufs = function()
-        return { 1, 2, 3 }
-      end,
-      nvim_buf_is_valid = function()
-        return true
-      end,
-      nvim_buf_get_option = function()
-        return false
-      end,
-      nvim_buf_delete = function() end,
-    }
-
-    -- Mock vim.b for buffer-local variables
-    vim.b = setmetatable({}, {
-      __index = function(_, bufnr)
-        return mock_vim_b[bufnr] or {}
-      end,
-      __newindex = function(_, bufnr, value)
-        mock_vim_b[bufnr] = value
-      end,
-    })
-
     -- Clear package cache to get fresh module
     package.loaded["tcl-lsp.config"] = nil
 
-    -- Require fresh config module
+    -- Load fresh config module
     config = require "tcl-lsp.config"
 
-    -- Ensure completely clean state
+    -- Reset to clean state
     config.reset()
+
+    -- Clear any buffer-local variables
+    for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_valid(bufnr) then
+        pcall(function()
+          vim.api.nvim_buf_del_var(bufnr, "tcl_lsp_config")
+        end)
+      end
+    end
   end)
 
   after_each(function()
-    -- Reset config state
+    -- Clean up
     if config and config.reset then
       config.reset()
     end
-
-    -- Restore original vim API
-    vim.api = original_vim_api
-    vim.b = original_vim_b
   end)
 
   describe("Default Configuration", function()
@@ -112,10 +40,12 @@ describe("TCL LSP Configuration", function()
 
       -- Root markers for project detection
       assert.is_table(defaults.root_markers, "root_markers should be a table")
-      assert_contains(".git", defaults.root_markers)
-      assert_contains("tcl.toml", defaults.root_markers)
-      assert_contains("project.tcl", defaults.root_markers)
-      assert_contains("pkgIndex.tcl", defaults.root_markers)
+      assert.truthy(vim.tbl_contains(defaults.root_markers, ".git"))
+      assert.truthy(vim.tbl_contains(defaults.root_markers, "tcl.toml"))
+      assert.truthy(vim.tbl_contains(defaults.root_markers, "project.tcl"))
+      assert.truthy(vim.tbl_contains(defaults.root_markers, "pkgIndex.tcl"))
+      assert.truthy(vim.tbl_contains(defaults.root_markers, "Makefile"))
+      assert.truthy(vim.tbl_contains(defaults.root_markers, ".gitroot"))
 
       -- Logging configuration
       assert.equals("info", defaults.log_level)
@@ -130,8 +60,8 @@ describe("TCL LSP Configuration", function()
 
       -- File type support
       assert.is_table(defaults.filetypes, "filetypes should be a table")
-      assert_contains("tcl", defaults.filetypes)
-      assert_contains("rvt", defaults.filetypes)
+      assert.truthy(vim.tbl_contains(defaults.filetypes, "tcl"))
+      assert.truthy(vim.tbl_contains(defaults.filetypes, "rvt"))
     end)
 
     it("should have reasonable default values", function()
@@ -156,15 +86,18 @@ describe("TCL LSP Configuration", function()
       }
 
       for _, marker in ipairs(expected_markers) do
-        assert_contains(marker, defaults.root_markers, "Should include root marker: " .. marker)
+        assert.truthy(
+          vim.tbl_contains(defaults.root_markers, marker),
+          "Should include root marker: " .. marker
+        )
       end
     end)
 
     it("should support both TCL and RVT filetypes", function()
       local defaults = config.get()
 
-      assert_contains("tcl", defaults.filetypes)
-      assert_contains("rvt", defaults.filetypes)
+      assert.truthy(vim.tbl_contains(defaults.filetypes, "tcl"))
+      assert.truthy(vim.tbl_contains(defaults.filetypes, "rvt"))
       assert.equals(2, #defaults.filetypes, "Should have exactly 2 default filetypes")
     end)
   end)
@@ -204,7 +137,7 @@ describe("TCL LSP Configuration", function()
       -- Defaults should be preserved where not overridden
       assert.equals(3, result.restart_limit)
       assert.is_table(result.root_markers)
-      assert_contains(".git", result.root_markers)
+      assert.truthy(vim.tbl_contains(result.root_markers, ".git"))
     end)
 
     it("should perform deep merge for nested tables", function()
@@ -364,64 +297,77 @@ describe("TCL LSP Configuration", function()
       -- Setup global config
       config.setup { log_level = "info" }
 
+      -- Create a test buffer
+      local bufnr = vim.api.nvim_create_buf(false, true)
+
       -- Set buffer-local override
-      local bufnr = 1
-      mock_vim_b[bufnr] = {
-        tcl_lsp_config = {
-          log_level = "debug",
-        },
-      }
+      vim.api.nvim_buf_set_var(bufnr, "tcl_lsp_config", {
+        log_level = "debug",
+      })
 
       -- Get config for specific buffer
       local buffer_config = config.get(bufnr)
       assert.equals("debug", buffer_config.log_level, "Should use buffer-local override")
 
       -- Get config for different buffer (should use global)
-      local other_config = config.get(2)
+      local other_bufnr = vim.api.nvim_create_buf(false, true)
+      local other_config = config.get(other_bufnr)
       assert.equals("info", other_config.log_level, "Should use global config for other buffer")
+
+      -- Cleanup
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+      vim.api.nvim_buf_delete(other_bufnr, { force = true })
     end)
 
     it("should fall back to global config without buffer overrides", function()
       config.setup { log_level = "warn" }
 
-      local config_result = config.get(1)
+      local bufnr = vim.api.nvim_create_buf(false, true)
+      local config_result = config.get(bufnr)
       assert.equals(
         "warn",
         config_result.log_level,
         "Should use global config when no buffer override"
       )
+
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
     it("should handle current buffer when no buffer specified", function()
       config.setup { log_level = "error" }
 
-      -- Set buffer-local config for current buffer (buffer 1)
-      mock_vim_b[1] = {
-        tcl_lsp_config = {
-          log_level = "debug",
-        },
-      }
+      -- Create and switch to a test buffer
+      local bufnr = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_set_current_buf(bufnr)
+
+      -- Set buffer-local config for current buffer
+      vim.api.nvim_buf_set_var(bufnr, "tcl_lsp_config", {
+        log_level = "debug",
+      })
 
       -- Get config without specifying buffer (should use current buffer)
       local config_result = config.get()
       assert.equals("debug", config_result.log_level, "Should use current buffer config")
+
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
     it("should validate buffer-local configuration", function()
       config.setup { log_level = "info" }
 
+      local bufnr = vim.api.nvim_create_buf(false, true)
+
       -- Set invalid buffer-local config
-      local bufnr = 1
-      mock_vim_b[bufnr] = {
-        tcl_lsp_config = {
-          log_level = "invalid_level",
-        },
-      }
+      vim.api.nvim_buf_set_var(bufnr, "tcl_lsp_config", {
+        log_level = "invalid_level",
+      })
 
       -- Should fail validation
       local success, error_msg = pcall(config.get, bufnr)
       assert.is_false(success, "Should validate buffer-local config")
       assert.matches("log_level", error_msg, "Should mention invalid log_level")
+
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
   end)
 
