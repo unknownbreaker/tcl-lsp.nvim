@@ -151,9 +151,13 @@ proc ::ast::parse_command {cmd line} {
 # Parse proc definition
 proc ::ast::parse_proc {cmd line} {
     # Extract: proc name {params} {body}
-    if {![regexp {^proc\s+(\S+)\s+\{([^}]*)\}\s+\{(.*)}\s*$} $cmd -> name params body]} {
+    # Use regexp with -expanded for readability, no need to escape braces in {}
+    if {![regexp {proc\s+(\S+)\s+\{([^}]*)\}} $cmd -> name params]} {
         error "Invalid proc syntax"
     }
+
+    # Extract body (everything after the params)
+    regexp {\}\s*\{(.*)\}} $cmd -> body
 
     # Parse parameters
     set param_list [list]
@@ -195,7 +199,7 @@ proc ::ast::parse_proc {cmd line} {
 # Parse set command
 proc ::ast::parse_set {cmd line} {
     # Extract: set varname value
-    if {![regexp {^set\s+(\S+)\s+(.*)$} $cmd -> varname value]} {
+    if {![regexp {set\s+(\S+)\s+(.*)} $cmd -> varname value]} {
         error "Invalid set syntax"
     }
 
@@ -225,7 +229,7 @@ proc ::ast::parse_global {cmd line} {
 # Parse upvar command
 proc ::ast::parse_upvar {cmd line} {
     # Extract: upvar level othervar localvar
-    if {![regexp {^upvar\s+(\S+)\s+(\S+)\s+(\S+)} $cmd -> level othervar localvar]} {
+    if {![regexp {upvar\s+(\S+)\s+(\S+)\s+(\S+)} $cmd -> level othervar localvar]} {
         error "Invalid upvar syntax"
     }
 
@@ -240,7 +244,7 @@ proc ::ast::parse_upvar {cmd line} {
 # Parse array command
 proc ::ast::parse_array {cmd line} {
     # Extract: array set arrayname {...}
-    if {[regexp {^array\s+set\s+(\S+)} $cmd -> arrayname]} {
+    if {[regexp {array\s+set\s+(\S+)} $cmd -> arrayname]} {
         return [list \
             type "array" \
             array_name $arrayname \
@@ -295,7 +299,7 @@ proc ::ast::parse_for {cmd line} {
 # Parse foreach loop
 proc ::ast::parse_foreach {cmd line} {
     # Extract: foreach var list {body}
-    if {![regexp {^foreach\s+(\S+)\s+(\S+)} $cmd -> varname listvar]} {
+    if {![regexp {foreach\s+(\S+)\s+(\S+)} $cmd -> varname listvar]} {
         set varname "item"
         set listvar "list"
     }
@@ -323,7 +327,7 @@ proc ::ast::parse_switch {cmd line} {
 # Parse namespace command
 proc ::ast::parse_namespace {cmd line} {
     # Check for namespace eval
-    if {[regexp {^namespace\s+eval\s+(\S+)} $cmd -> name]} {
+    if {[regexp {namespace\s+eval\s+(\S+)} $cmd -> name]} {
         return [list \
             type "namespace" \
             name $name \
@@ -347,7 +351,7 @@ proc ::ast::parse_namespace {cmd line} {
 # Parse package command
 proc ::ast::parse_package {cmd line} {
     # Extract: package require Name Version
-    if {[regexp {^package\s+require\s+(\S+)\s*(\S*)} $cmd -> pkgname version]} {
+    if {[regexp {package\s+require\s+(\S+)\s*(\S*)} $cmd -> pkgname version]} {
         return [list \
             type "package_require" \
             package_name $pkgname \
@@ -356,7 +360,7 @@ proc ::ast::parse_package {cmd line} {
     }
 
     # Extract: package provide Name Version
-    if {[regexp {^package\s+provide\s+(\S+)\s*(\S*)} $cmd -> pkgname version]} {
+    if {[regexp {package\s+provide\s+(\S+)\s*(\S*)} $cmd -> pkgname version]} {
         return [list \
             type "package_provide" \
             package_name $pkgname \
@@ -372,7 +376,7 @@ proc ::ast::parse_package {cmd line} {
 # Parse expr command
 proc ::ast::parse_expr {cmd line} {
     # Extract: expr {expression}
-    if {[regexp {^expr\s+\{(.*)\}} $cmd -> expression]} {
+    if {[regexp {expr\s+\{(.*)\}} $cmd -> expression]} {
         return [list \
             type "expr" \
             expression $expression \
