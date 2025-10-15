@@ -43,12 +43,13 @@ test-unit: ## Run unit tests
 test-unit-lsp-server: ## Run LSP server specific tests
 	@echo "Running LSP server unit tests..."
 	$(NVIM) --headless --noplugin -u tests/minimal_init.lua \
-		-c "lua dofile('tests/run_server_tests.lua')"
+		-c "PlenaryBustedDirectory tests/lua/ {minimal_init = 'tests/minimal_init.lua'}" \
+		-c "qa!"
 
-test-unit-lsp-server-alt: ## Run LSP server tests (alternative method)
-	@echo "Running LSP server unit tests (alternative)..."
+test-unit-lsp-server-file: ## Run specific server test file
+	@echo "Running server_spec.lua only..."
 	$(NVIM) --headless --noplugin -u tests/minimal_init.lua \
-		-c "PlenaryBustedFile tests/lua/server_spec.lua {minimal_init = 'tests/minimal_init.lua'}" \
+		-c "lua require('plenary.test_harness').test_directory('tests/lua/', {minimal_init = 'tests/minimal_init.lua', filter = 'server'})" \
 		-c "qa!"
 
 test-integration: ## Run integration tests
