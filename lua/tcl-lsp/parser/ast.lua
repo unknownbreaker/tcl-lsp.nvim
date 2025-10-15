@@ -8,7 +8,12 @@ local M = {}
 local function get_parser_script_path()
   local source = debug.getinfo(1, "S").source
   local file_path = source:sub(2) -- Remove '@' prefix
-  local plugin_root = vim.fn.fnamemodify(file_path, ":h:h:h")
+  -- Go from lua/tcl-lsp/parser/ast.lua -> project root
+  -- :h = lua/tcl-lsp/parser
+  -- :h:h = lua/tcl-lsp
+  -- :h:h:h = lua
+  -- :h:h:h:h = project root
+  local plugin_root = vim.fn.fnamemodify(file_path, ":h:h:h:h")
   return plugin_root .. "/tcl/core/parser.tcl"
 end
 

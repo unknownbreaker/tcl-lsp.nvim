@@ -13,9 +13,13 @@ proc dict_to_json {dict} {
     dict for {key value} $dict {
         set json_key "\"$key\""
 
-        if {[string is list $value] && [llength $value] > 0} {
-            # Check if it's a dict (even number of elements with string keys)
-            if {[llength $value] % 2 == 0} {
+        # Check if value is a list (including empty list)
+        if {[string is list $value]} {
+            # Check if it's an empty list
+            if {[llength $value] == 0} {
+                set json_value "\[\]"
+            } elseif {[llength $value] % 2 == 0} {
+                # Even number of elements - check if it's a dict
                 set first [lindex $value 0]
                 if {[string is alpha [string index $first 0]]} {
                     # Likely a dict
