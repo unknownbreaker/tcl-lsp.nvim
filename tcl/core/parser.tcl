@@ -1,70 +1,20 @@
 #!/usr/bin/env tclsh
 # tcl/core/parser.tcl
-# TCL Parser - Uses TCL's built-in parser to build AST
-# Outputs JSON representation of the AST
+# TCL Parser - Main entry point for parsing TCL code
 
-# Load the AST builder
-set script_dir [file dirname [info script]]
-source [file join $script_dir ast_builder.tcl]
-
-# Simple JSON encoder
-proc dict_to_json {dict} {
-    set items [list]
-    dict for {key value} $dict {
-        set json_key "\"$key\""
-
-        # Check if value is a list (including empty list)
-        if {[string is list $value]} {
-            # Check if it's an empty list
-            if {[llength $value] == 0} {
-                set json_value "\[\]"
-            } elseif {[llength $value] % 2 == 0} {
-                # Even number of elements - check if it's a dict
-                set first [lindex $value 0]
-                if {[string is alpha [string index $first 0]]} {
-                    # Likely a dict
-                    set json_value [dict_to_json $value]
-                } else {
-                    # List of values
-                    set json_value "\[[list_to_json $value]\]"
-                }
-            } else {
-                # Odd number - treat as list
-                set json_value "\[[list_to_json $value]\]"
-            }
-        } elseif {[string is integer $value] || [string is double $value]} {
-            set json_value $value
-        } elseif {$value eq "true" || $value eq "false"} {
-            set json_value $value
-        } else {
-            set json_value "\"[string map {\" \\\" \\ \\\\ \n \\n \r \\r \t \\t} $value]\""
-        }
-
-        lappend items "$json_key: $json_value"
-    }
-
-    return "\{[join $items ", "]\}"
+# Load the AST builder module
+set script_dir [file dirname [file normalize [info script]]]
+if {[catch {source [file join $script_dir ast_builder.tcl]} err]} {
+    puts stderr "Error loading ast_builder.tcl: $err"
+    exit 1
 }
 
-proc list_to_json {list} {
-    set items [list]
-    foreach item $list {
-        if {[string is list $item] && [llength $item] > 0 && [llength $item] % 2 == 0} {
-            lappend items [dict_to_json $item]
-        } elseif {[string is integer $item] || [string is double $item]} {
-            lappend items $item
-        } elseif {$item eq "true" || $item eq "false"} {
-            lappend items $item
-        } else {
-            lappend items "\"[string map {\" \\\" \\ \\\\ \n \\n \r \\r \t \\t} $item]\""
-        }
-    }
-    return [join $items ", "]
-}
-
-# Main entry point
+# Main parsing function
 proc parse_file {filepath} {
-    # Read file content
+    if {![file exists $filepath]} {
+        error "File not found: $filepath"
+    }
+
     if {![file readable $filepath]} {
         error "File not readable: $filepath"
     }
@@ -77,7 +27,7 @@ proc parse_file {filepath} {
     set ast [::ast::build $content $filepath]
 
     # Convert to JSON and output
-    puts [dict_to_json $ast]
+    puts [::ast::to_json $ast]
 }
 
 # Check command line arguments
@@ -90,7 +40,7 @@ set filepath [lindex $argv 0]
 
 # Parse file and handle errors
 if {[catch {parse_file $filepath} error]} {
-    puts stderr "Parse error: $error"
+    puts stderr "Parser error: $error"
     exit 1
 }
 
