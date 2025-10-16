@@ -96,22 +96,14 @@ proc ::ast::build {code {filepath "<string>"}} {
     # Create a safe interpreter for parsing
     set interp [interp create -safe]
 
-    # Handle undefined variables gracefully
-    interp eval $interp {
-        # Unknown command handler - returns empty string
-        proc ::tcl::unknown {args} {
-            return ""
-        }
-    }
-
     # Override commands in the safe interpreter to capture them
-    interp alias $interp proc {} ::ast::capture_proc $interp
+    interp alias $interp proc {} ::ast::capture_proc
     interp alias $interp set {} ::ast::capture_set
     interp alias $interp variable {} ::ast::capture_variable
     interp alias $interp global {} ::ast::capture_global
     interp alias $interp upvar {} ::ast::capture_upvar
     interp alias $interp array {} ::ast::capture_array
-    interp alias $interp namespace {} ::ast::capture_namespace $interp
+    interp alias $interp namespace {} ::ast::capture_namespace
     interp alias $interp package {} ::ast::capture_package
     interp alias $interp if {} ::ast::capture_if
     interp alias $interp while {} ::ast::capture_while
@@ -196,7 +188,7 @@ proc ::ast::build {code {filepath "<string>"}} {
 }
 
 # Capture proc definitions with accurate position tracking
-proc ::ast::capture_proc {interp name params body} {
+proc ::ast::capture_proc {name params body} {
     variable collected_nodes
 
     # Validation
@@ -432,8 +424,8 @@ proc ::ast::capture_array {subcommand args} {
     return ""
 }
 
-# Capture namespace commands with proper handling for eval
-proc ::ast::capture_namespace {interp subcommand args} {
+# Capture namespace commands - store body as text, don't parse recursively
+proc ::ast::capture_namespace {subcommand args} {
     variable collected_nodes
 
     if {$subcommand eq ""} {
@@ -452,7 +444,10 @@ proc ::ast::capture_namespace {interp subcommand args} {
         }
 
         set name [lindex $args 0]
-        set body [lindex $args 1]
+        set body ""
+        if {[llength $args] > 1} {
+            set body [lindex $args 1]
+        }
 
         # Calculate end line for namespace body
         set body_lines [regexp -all "\n" $body]
@@ -462,12 +457,11 @@ proc ::ast::capture_namespace {interp subcommand args} {
             type "namespace" \
             subtype "eval" \
             name $name \
+            body $body \
             range [make_range $line 1 $end_line 1]]
 
-        # Parse the namespace body recursively
-        if {[llength $args] > 1} {
-            catch {interp eval $interp $body}
-        }
+        # DON'T recursively parse the body here
+        # It will be parsed later during symbol analysis
     } elseif {$subcommand eq "import"} {
         lappend collected_nodes [dict create \
             type "namespace_import" \
