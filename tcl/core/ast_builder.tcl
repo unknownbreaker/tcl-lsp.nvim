@@ -16,7 +16,7 @@ namespace eval ::ast {
 proc ::ast::make_range {start_line start_col end_line end_col} {
     return [dict create \
         start [dict create line $start_line column $start_col] \
-        end [dict create line $end_line column $end_col]]
+        end_pos [dict create line $end_line column $end_col]]
 }
 
 # Build line number mapping for position tracking
@@ -85,129 +85,67 @@ proc ::ast::extract_comments {code} {
 # ============================================================================
 
 # Extract all commands from code without executing
+# SIMPLIFIED: Use line-based processing with info complete
 proc ::ast::extract_commands {code start_line} {
     variable debug
 
     set commands [list]
-    set pos 0
-    set code_len [string length $code]
-    set current_line $start_line
+    set current_cmd ""
+    set line_num $start_line
+    set cmd_start_line $start_line
+    set in_command 0
 
-    while {$pos < $code_len} {
-        # Skip whitespace and track line numbers
-        while {$pos < $code_len && [string is space [string index $code $pos]]} {
-            if {[string index $code $pos] eq "\n"} {
-                incr current_line
-            }
-            incr pos
-        }
-
-        if {$pos >= $code_len} break
-
-        # Skip comments
-        if {[string index $code $pos] eq "#"} {
-            while {$pos < $code_len && [string index $code $pos] ne "\n"} {
-                incr pos
-            }
-            if {$pos < $code_len && [string index $code $pos] eq "\n"} {
-                incr current_line
-                incr pos
-            }
+    foreach line [split $code "\n"] {
+        # Skip pure comment lines when not in a command
+        if {!$in_command && [regexp {^\s*#} $line]} {
+            incr line_num
             continue
         }
 
-        # Extract complete command
-        set cmd_start_pos $pos
-        set cmd_start_line $current_line
-        set cmd_text ""
-        set brace_depth 0
-        set in_quotes 0
-        set in_brackets 0
-
-        while {$pos < $code_len} {
-            set char [string index $code $pos]
-            append cmd_text $char
-
-            # Handle backslash escapes
-            if {$char eq "\\"} {
-                incr pos
-                if {$pos < $code_len} {
-                    set next_char [string index $code $pos]
-                    append cmd_text $next_char
-                    if {$next_char eq "\n"} {
-                        incr current_line
-                    }
-                }
-                incr pos
-                continue
-            }
-
-            # Track quotes
-            if {$char eq "\""} {
-                set in_quotes [expr {!$in_quotes}]
-            }
-
-            # Track braces and brackets (only outside quotes)
-            if {!$in_quotes} {
-                if {$char eq "\{"} {
-                    incr brace_depth
-                } elseif {$char eq "\}"} {
-                    incr brace_depth -1
-                } elseif {$char eq "\["} {
-                    incr in_brackets
-                } elseif {$char eq "\]"} {
-                    incr in_brackets -1
-                }
-
-                # Track newlines
-                if {$char eq "\n"} {
-                    incr current_line
-
-                    # Check if command is complete at newline
-                    if {$brace_depth == 0 && $in_brackets == 0 && [info complete $cmd_text]} {
-                        incr pos
-                        break
-                    }
-                }
-
-                # Semicolon ends command at depth 0
-                if {$char eq ";" && $brace_depth == 0 && $in_brackets == 0} {
-                    incr pos
-                    break
-                }
-            }
-
-            incr pos
-
-            # Check if command is complete
-            if {$brace_depth == 0 && $in_brackets == 0 && !$in_quotes} {
-                if {[info complete $cmd_text]} {
-                    # Look ahead to see if next char starts a new command
-                    if {$pos >= $code_len} {
-                        break
-                    }
-                    set next_char [string index $code $pos]
-                    if {$next_char eq "\n" || $next_char eq ";" || [string is space $next_char]} {
-                        break
-                    }
-                }
-            }
+        # Skip empty lines when not in a command
+        if {!$in_command && [string trim $line] eq ""} {
+            incr line_num
+            continue
         }
 
-        set cmd_text [string trim $cmd_text " \t\n;"]
-        if {$cmd_text eq ""} continue
+        # Accumulate lines for current command
+        if {$current_cmd eq ""} {
+            set cmd_start_line $line_num
+        }
+        append current_cmd $line "\n"
+        set in_command 1
 
-        # Count lines in command for end position
-        set lines_in_cmd [count_lines $cmd_text]
-        set cmd_end_line [expr {$cmd_start_line + $lines_in_cmd}]
+        # Check if command is complete
+        if {[info complete $current_cmd]} {
+            set trimmed [string trim $current_cmd]
 
-        lappend commands [dict create \
-            text $cmd_text \
-            start_line $cmd_start_line \
-            end_line $cmd_end_line]
+            # Only add non-empty, non-comment commands
+            if {$trimmed ne "" && ![regexp {^\s*#} $trimmed]} {
+                lappend commands [dict create \
+                    text $trimmed \
+                    start_line $cmd_start_line \
+                    end_line $line_num]
 
-        if {$debug} {
-            puts "  Extracted command at line $cmd_start_line: [string range $cmd_text 0 50]..."
+                if {$debug} {
+                    puts "  Extracted command at line $cmd_start_line: [string range $trimmed 0 50]..."
+                }
+            }
+
+            set current_cmd ""
+            set in_command 0
+        }
+
+        incr line_num
+    }
+
+    # Handle any remaining incomplete command
+    if {$current_cmd ne ""} {
+        set trimmed [string trim $current_cmd]
+        if {$trimmed ne "" && ![regexp {^\s*#} $trimmed]} {
+            lappend commands [dict create \
+                text $trimmed \
+                start_line $cmd_start_line \
+                end_line [expr {$line_num - 1}]]
         }
     }
 
@@ -262,6 +200,9 @@ proc ::ast::parse_command {cmd_dict depth} {
         "upvar" {
             return [parse_upvar $cmd_text $start_line $end_line]
         }
+        "array" {
+            return [parse_array $cmd_text $start_line $end_line]
+        }
         "namespace" {
             return [parse_namespace $cmd_text $start_line $end_line $depth]
         }
@@ -292,6 +233,9 @@ proc ::ast::parse_command {cmd_dict depth} {
         "lappend" {
             return [parse_lappend $cmd_text $start_line $end_line]
         }
+        "puts" {
+            return [parse_puts $cmd_text $start_line $end_line]
+        }
         default {
             # Generic command node
             return [dict create \
@@ -306,7 +250,7 @@ proc ::ast::parse_command {cmd_dict depth} {
 # SPECIFIC COMMAND PARSERS
 # ============================================================================
 
-# Parse proc command (with recursive body scanning)
+# Parse proc command (with recursive body scanning for nested procs only)
 proc ::ast::parse_proc {cmd_text start_line end_line depth} {
     variable debug
 
@@ -359,7 +303,7 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
     set body_lines [count_lines $body]
     set actual_end_line [expr {$start_line + $body_lines + 2}]
 
-    # Create proc node
+    # Create proc node with body text (not parsed commands)
     set proc_node [dict create \
         type "proc" \
         name $name \
@@ -368,12 +312,9 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
         depth $depth \
         range [make_range $start_line 1 $actual_end_line 1]]
 
-    # RECURSIVELY find nested procs in body
-    set nested_nodes [find_all_nodes $body [expr {$start_line + 2}] [expr {$depth + 1}]]
-
-    if {[llength $nested_nodes] > 0} {
-        dict set proc_node nested_nodes $nested_nodes
-    }
+    # NOTE: We DON'T recursively scan the body for commands
+    # The body is just stored as text for now
+    # If needed later, symbol extraction can parse it
 
     return $proc_node
 }
@@ -392,7 +333,7 @@ proc ::ast::parse_set {cmd_text start_line end_line} {
 
     return [dict create \
         type "set" \
-        name $var_name \
+        var_name $var_name \
         value $value \
         range [make_range $start_line 1 $end_line 50]]
 }
@@ -437,21 +378,26 @@ proc ::ast::parse_upvar {cmd_text start_line end_line} {
     }
 
     set args [lrange $cmd_text 1 end]
-    set source ""
-    set target ""
 
+    # upvar can be: upvar level otherVar localVar
+    # or: upvar otherVar localVar (level defaults to 1)
     if {[llength $args] == 2} {
-        set source [lindex $args 0]
-        set target [lindex $args 1]
+        set level "1"
+        set other_var [lindex $args 0]
+        set local_var [lindex $args 1]
     } elseif {[llength $args] >= 3} {
-        set source [lindex $args 1]
-        set target [lindex $args 2]
+        set level [lindex $args 0]
+        set other_var [lindex $args 1]
+        set local_var [lindex $args 2]
+    } else {
+        return ""
     }
 
     return [dict create \
         type "upvar" \
-        source $source \
-        target $target \
+        level $level \
+        other_var $other_var \
+        local_var $local_var \
         range [make_range $start_line 1 $end_line 50]]
 }
 
@@ -477,20 +423,13 @@ proc ::ast::parse_namespace {cmd_text start_line end_line depth} {
         set body_lines [count_lines $body]
         set actual_end_line [expr {$start_line + $body_lines + 1}]
 
-        set ns_node [dict create \
+        # Store body as text, don't recursively parse it
+        return [dict create \
             type "namespace" \
             subtype "eval" \
             name $name \
             body $body \
             range [make_range $start_line 1 $actual_end_line 1]]
-
-        # Recursively parse namespace body
-        set nested_nodes [find_all_nodes $body [expr {$start_line + 1}] [expr {$depth + 1}]]
-        if {[llength $nested_nodes] > 0} {
-            dict set ns_node nested_nodes $nested_nodes
-        }
-
-        return $ns_node
 
     } elseif {$subcommand eq "import"} {
         set patterns [lrange $cmd_text 2 end]
@@ -637,6 +576,36 @@ proc ::ast::parse_lappend {cmd_text start_line end_line} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
+# Parse array command
+proc ::ast::parse_array {cmd_text start_line end_line} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
+        return ""
+    }
+
+    set subcommand [lindex $cmd_text 1]
+    set array_name [lindex $cmd_text 2]
+
+    return [dict create \
+        type "array" \
+        subcommand $subcommand \
+        array_name $array_name \
+        range [make_range $start_line 1 $end_line 50]]
+}
+
+# Parse puts command
+proc ::ast::parse_puts {cmd_text start_line end_line} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+        return ""
+    }
+
+    set args [lrange $cmd_text 1 end]
+
+    return [dict create \
+        type "puts" \
+        args $args \
+        range [make_range $start_line 1 $end_line 50]]
+}
+
 # ============================================================================
 # RECURSIVE NODE FINDER (Main algorithm)
 # ============================================================================
@@ -662,7 +631,8 @@ proc ::ast::find_all_nodes {code start_line {depth 0}} {
     foreach cmd_dict $commands {
         set node [parse_command $cmd_dict $depth]
 
-        if {$node ne ""} {
+        # Only add non-empty nodes
+        if {$node ne "" && [dict size $node] > 0} {
             lappend all_nodes $node
         }
     }
@@ -689,10 +659,20 @@ proc ::ast::dict_to_json {d indent_level} {
 
         append result "\n${next_indent}\"$key\": "
 
-        # Check if value is a list
-        if {[string is list $value] && [llength $value] > 0} {
+        # Check value type carefully to avoid treating strings as lists
+        # First check if it's actually a dict (not just list-like)
+        if {[catch {dict size $value} dict_size] == 0 && $dict_size > 0} {
+            # It's a dict
+            append result [dict_to_json $value [expr {$indent_level + 1}]]
+        } elseif {[string is integer -strict $value] || [string is double -strict $value]} {
+            # Number
+            append result $value
+        } elseif {$value eq "true" || $value eq "false"} {
+            # Boolean
+            append result $value
+        } elseif {[string is list $value] && [llength $value] > 1} {
+            # It's a list with multiple elements
             set first_elem [lindex $value 0]
-            # Check if it's a list of dicts
             if {[catch {dict size $first_elem}] == 0 && [dict size $first_elem] > 0} {
                 # List of dicts
                 append result "\["
@@ -707,7 +687,7 @@ proc ::ast::dict_to_json {d indent_level} {
                 }
                 append result "\n${next_indent}\]"
             } else {
-                # Regular list
+                # Regular list of strings/numbers
                 append result "\["
                 set first_item 1
                 foreach item $value {
@@ -715,21 +695,23 @@ proc ::ast::dict_to_json {d indent_level} {
                         append result ", "
                     }
                     set first_item 0
-                    append result "\"[escape_json $item]\""
+                    if {[string is integer -strict $item] || [string is double -strict $item]} {
+                        append result $item
+                    } else {
+                        append result "\"[escape_json $item]\""
+                    }
                 }
                 append result "\]"
             }
-        } elseif {[catch {dict size $value}] == 0 && [dict size $value] > 0} {
-            # Nested dict
-            append result [dict_to_json $value [expr {$indent_level + 1}]]
-        } elseif {[string is integer -strict $value] || [string is double -strict $value]} {
-            # Number
-            append result $value
-        } elseif {$value eq "true" || $value eq "false"} {
-            # Boolean
-            append result $value
+        } elseif {[llength $value] == 0} {
+            # Empty list or empty string
+            if {$value eq ""} {
+                append result "\"\""
+            } else {
+                append result "\[\]"
+            }
         } else {
-            # String
+            # Single value - treat as string
             append result "\"[escape_json $value]\""
         }
     }
@@ -782,7 +764,7 @@ proc ::ast::build {code {filepath "<string>"}} {
                 range [make_range 1 1 1 1] \
                 error_type "incomplete" \
                 suggestion "Check for missing closing brace \}"]] \
-            had_error true \
+            had_error 1 \
             children [list] \
             comments [list]]
     }
@@ -805,24 +787,13 @@ proc ::ast::build {code {filepath "<string>"}} {
         puts "=== AST Building Complete ===\n"
     }
 
-    # Flatten nested nodes into children list
-    set all_children [list]
-    foreach node $nodes {
-        lappend all_children $node
-
-        # If node has nested_nodes, add them to children too
-        if {[dict exists $node nested_nodes]} {
-            set nested [dict get $node nested_nodes]
-            lappend all_children {*}$nested
-        }
-    }
-
-    # Build root AST
+    # Build root AST - DON'T flatten nested nodes!
+    # Nested nodes should stay within their parent node's nested_nodes field
     return [dict create \
         type "root" \
         filepath $filepath \
         comments $comments \
         children $nodes \
-        had_error false \
+        had_error 0 \
         errors [list]]
 }
