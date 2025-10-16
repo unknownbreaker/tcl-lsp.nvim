@@ -1,39 +1,22 @@
 #!/usr/bin/env tclsh
 # tcl/core/ast_builder.tcl
-# AST Builder - Production-ready TCL parser with accurate positions
+# Production AST Builder - Recursive text-based parsing (NO safe interpreter)
 
 namespace eval ::ast {
     variable current_file "<string>"
     variable line_map
-    variable current_line 1
+    variable debug 0
 }
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
 
 # Create position range
 proc ::ast::make_range {start_line start_col end_line end_col} {
     return [dict create \
         start [dict create line $start_line column $start_col] \
         end [dict create line $end_line column $end_col]]
-}
-
-# Extract comments from source code (before parsing)
-proc ::ast::extract_comments {code} {
-    set comments [list]
-    set line_num 0
-
-    foreach line [split $code "\n"] {
-        incr line_num
-
-        # Match comment lines (lines starting with #, possibly with whitespace)
-        if {[regexp {^(\s*)#(.*)$} $line -> indent comment_text]} {
-            set col [expr {[string length $indent] + 1}]
-            lappend comments [dict create \
-                type "comment" \
-                text [string trim $comment_text] \
-                range [make_range $line_num $col $line_num [string length $line]]]
-        }
-    }
-
-    return $comments
 }
 
 # Build line number mapping for position tracking
@@ -49,7 +32,6 @@ proc ::ast::build_line_map {code} {
             offset $offset \
             length [string length $line]]
 
-        # +1 for newline character
         set offset [expr {$offset + [string length $line] + 1}]
         incr line_num
     }
@@ -73,790 +55,774 @@ proc ::ast::offset_to_line {offset} {
     return [list 1 1]
 }
 
-# Main build function - parses TCL code into AST
-proc ::ast::build {code {filepath "<string>"}} {
-    variable current_file
-    variable current_line
-    set current_file $filepath
-    set current_line 1
-
-    # Build line mapping for accurate position tracking
-    build_line_map $code
-
-    # Extract comments before parsing (they get lost in safe interp)
-    set comments [extract_comments $code]
-
-    # Create root AST node
-    set ast [dict create \
-        type "root" \
-        filepath $filepath \
-        comments $comments \
-        children [list]]
-
-    # Create a safe interpreter for parsing
-    set interp [interp create -safe]
-
-    # Override commands in the safe interpreter to capture them
-    interp alias $interp proc {} ::ast::capture_proc
-    interp alias $interp set {} ::ast::capture_set
-    interp alias $interp variable {} ::ast::capture_variable
-    interp alias $interp global {} ::ast::capture_global
-    interp alias $interp upvar {} ::ast::capture_upvar
-    interp alias $interp array {} ::ast::capture_array
-    interp alias $interp namespace {} ::ast::capture_namespace
-    interp alias $interp package {} ::ast::capture_package
-    interp alias $interp if {} ::ast::capture_if
-    interp alias $interp while {} ::ast::capture_while
-    interp alias $interp for {} ::ast::capture_for
-    interp alias $interp foreach {} ::ast::capture_foreach
-    interp alias $interp switch {} ::ast::capture_switch
-    interp alias $interp expr {} ::ast::capture_expr
-    interp alias $interp list {} ::ast::capture_list
-    interp alias $interp lappend {} ::ast::capture_lappend
-
-    # Add common commands that should just work without side effects
-    interp alias $interp puts {} ::ast::capture_generic puts
-    interp alias $interp return {} ::ast::capture_generic return
-    interp alias $interp incr {} ::ast::capture_generic incr
-    interp alias $interp append {} ::ast::capture_generic append
-    interp alias $interp lindex {} ::ast::capture_generic lindex
-    interp alias $interp llength {} ::ast::capture_generic llength
-    interp alias $interp lrange {} ::ast::capture_generic lrange
-    interp alias $interp lsearch {} ::ast::capture_generic lsearch
-    interp alias $interp join {} ::ast::capture_generic join
-    interp alias $interp split {} ::ast::capture_generic split
-    interp alias $interp string {} ::ast::capture_generic string
-    interp alias $interp dict {} ::ast::capture_generic dict
-    interp alias $interp error {} ::ast::capture_generic error
-    interp alias $interp catch {} ::ast::capture_generic catch
-    interp alias $interp source {} ::ast::capture_generic source
-    interp alias $interp unset {} ::ast::capture_generic unset
-
-    # Variable to collect nodes
-    variable collected_nodes
-    set collected_nodes [list]
-
-    # Try to evaluate with enhanced error detection
-    set had_error 0
-    if {[catch {interp eval $interp $code} err_msg]} {
-        set had_error 1
-
-        # Classify the error
-        set error_node [dict create \
-            type "error" \
-            message $err_msg \
-            range [make_range 1 1 1 1]]
-
-        # Categorize error types
-        if {[string match "*missing close-brace*" $err_msg] || \
-            [string match "*unmatched open brace*" $err_msg]} {
-            dict set error_node error_type "incomplete"
-            dict set error_node suggestion "Check for missing closing brace \}"
-        } elseif {[string match "*wrong # args*" $err_msg]} {
-            dict set error_node error_type "syntax"
-            dict set error_node suggestion "Check command arguments - see error message for details"
-
-            # Extract command name if possible
-            if {[regexp {should be "(\w+)} $err_msg -> cmd_name]} {
-                dict set error_node command $cmd_name
-            }
-        } elseif {[string match "*invalid command*" $err_msg]} {
-            dict set error_node error_type "unknown_command"
-            dict set error_node suggestion "Command may not be defined or may be a typo"
-        } elseif {[string match "*extra characters after*" $err_msg]} {
-            dict set error_node error_type "syntax"
-            dict set error_node suggestion "Check for extra characters or missing braces"
-        } elseif {[string match "*list element in braces*" $err_msg]} {
-            dict set error_node error_type "syntax"
-            dict set error_node suggestion "Check brace usage - may need space after closing brace"
-        } else {
-            dict set error_node error_type "general"
-            dict set error_node suggestion "Review TCL syntax"
-        }
-
-        dict set ast errors [list $error_node]
-    }
-
-    # Add collected nodes even if there were errors
-    dict set ast children $collected_nodes
-    dict set ast had_error $had_error
-
-    # Clean up
-    interp delete $interp
-
-    return $ast
+# Count line numbers in text
+proc ::ast::count_lines {text} {
+    return [expr {[llength [split $text "\n"]] - 1}]
 }
 
-# Capture proc definitions with accurate position tracking
-proc ::ast::capture_proc {name params body} {
-    variable collected_nodes
+# Extract comments from source code
+proc ::ast::extract_comments {code} {
+    set comments [list]
+    set line_num 0
 
-    # Validation
-    if {$name eq ""} {
-        error "Procedure must have a name"
-    }
+    foreach line [split $code "\n"] {
+        incr line_num
 
-    if {[catch {llength $params}]} {
-        error "Invalid parameter list for proc '$name' - must be a valid list"
-    }
-
-    # Get position information from the calling frame
-    set frame [info frame -1]
-    set start_line 1
-    set start_col 1
-
-    if {[dict exists $frame line]} {
-        set start_line [dict get $frame line]
-    }
-
-    # Calculate end line by counting newlines in body
-    set body_lines [regexp -all "\n" $body]
-    set end_line [expr {$start_line + $body_lines + 2}]
-
-    # If we have cmd info, we can get better position
-    if {[dict exists $frame cmd]} {
-        set cmd_text [dict get $frame cmd]
-        if {[regexp {^proc\s+} $cmd_text]} {
-            # We're at the proc definition line
-            set start_col 1
+        if {[regexp {^(\s*)#(.*)$} $line -> indent comment_text]} {
+            set col [expr {[string length $indent] + 1}]
+            lappend comments [dict create \
+                type "comment" \
+                text [string trim $comment_text] \
+                range [make_range $line_num $col $line_num [string length $line]]]
         }
     }
 
-    # Parse parameters with validation
+    return $comments
+}
+
+# ============================================================================
+# COMMAND EXTRACTION (Character-by-character scanning)
+# ============================================================================
+
+# Extract all commands from code without executing
+proc ::ast::extract_commands {code start_line} {
+    variable debug
+
+    set commands [list]
+    set pos 0
+    set code_len [string length $code]
+    set current_line $start_line
+
+    while {$pos < $code_len} {
+        # Skip whitespace and track line numbers
+        while {$pos < $code_len && [string is space [string index $code $pos]]} {
+            if {[string index $code $pos] eq "\n"} {
+                incr current_line
+            }
+            incr pos
+        }
+
+        if {$pos >= $code_len} break
+
+        # Skip comments
+        if {[string index $code $pos] eq "#"} {
+            while {$pos < $code_len && [string index $code $pos] ne "\n"} {
+                incr pos
+            }
+            if {$pos < $code_len && [string index $code $pos] eq "\n"} {
+                incr current_line
+                incr pos
+            }
+            continue
+        }
+
+        # Extract complete command
+        set cmd_start_pos $pos
+        set cmd_start_line $current_line
+        set cmd_text ""
+        set brace_depth 0
+        set in_quotes 0
+        set in_brackets 0
+
+        while {$pos < $code_len} {
+            set char [string index $code $pos]
+            append cmd_text $char
+
+            # Handle backslash escapes
+            if {$char eq "\\"} {
+                incr pos
+                if {$pos < $code_len} {
+                    set next_char [string index $code $pos]
+                    append cmd_text $next_char
+                    if {$next_char eq "\n"} {
+                        incr current_line
+                    }
+                }
+                incr pos
+                continue
+            }
+
+            # Track quotes
+            if {$char eq "\""} {
+                set in_quotes [expr {!$in_quotes}]
+            }
+
+            # Track braces and brackets (only outside quotes)
+            if {!$in_quotes} {
+                if {$char eq "\{"} {
+                    incr brace_depth
+                } elseif {$char eq "\}"} {
+                    incr brace_depth -1
+                } elseif {$char eq "\["} {
+                    incr in_brackets
+                } elseif {$char eq "\]"} {
+                    incr in_brackets -1
+                }
+
+                # Track newlines
+                if {$char eq "\n"} {
+                    incr current_line
+
+                    # Check if command is complete at newline
+                    if {$brace_depth == 0 && $in_brackets == 0 && [info complete $cmd_text]} {
+                        incr pos
+                        break
+                    }
+                }
+
+                # Semicolon ends command at depth 0
+                if {$char eq ";" && $brace_depth == 0 && $in_brackets == 0} {
+                    incr pos
+                    break
+                }
+            }
+
+            incr pos
+
+            # Check if command is complete
+            if {$brace_depth == 0 && $in_brackets == 0 && !$in_quotes} {
+                if {[info complete $cmd_text]} {
+                    # Look ahead to see if next char starts a new command
+                    if {$pos >= $code_len} {
+                        break
+                    }
+                    set next_char [string index $code $pos]
+                    if {$next_char eq "\n" || $next_char eq ";" || [string is space $next_char]} {
+                        break
+                    }
+                }
+            }
+        }
+
+        set cmd_text [string trim $cmd_text " \t\n;"]
+        if {$cmd_text eq ""} continue
+
+        # Count lines in command for end position
+        set lines_in_cmd [count_lines $cmd_text]
+        set cmd_end_line [expr {$cmd_start_line + $lines_in_cmd}]
+
+        lappend commands [dict create \
+            text $cmd_text \
+            start_line $cmd_start_line \
+            end_line $cmd_end_line]
+
+        if {$debug} {
+            puts "  Extracted command at line $cmd_start_line: [string range $cmd_text 0 50]..."
+        }
+    }
+
+    return $commands
+}
+
+# ============================================================================
+# COMMAND PARSING (Using TCL list commands)
+# ============================================================================
+
+# Parse a command into an AST node
+proc ::ast::parse_command {cmd_dict depth} {
+    variable debug
+
+    set cmd_text [dict get $cmd_dict text]
+    set start_line [dict get $cmd_dict start_line]
+    set end_line [dict get $cmd_dict end_line]
+
+    # Validate it's a valid TCL command
+    if {[catch {llength $cmd_text} word_count]} {
+        if {$debug} {
+            puts "  Invalid command syntax, skipping"
+        }
+        return ""
+    }
+
+    if {$word_count == 0} {
+        return ""
+    }
+
+    # Get command name
+    set cmd_name [lindex $cmd_text 0]
+
+    if {$debug} {
+        puts "  Parsing command: $cmd_name at line $start_line (depth $depth)"
+    }
+
+    # Dispatch to specific parser
+    switch -exact -- $cmd_name {
+        "proc" {
+            return [parse_proc $cmd_text $start_line $end_line $depth]
+        }
+        "set" {
+            return [parse_set $cmd_text $start_line $end_line]
+        }
+        "variable" {
+            return [parse_variable $cmd_text $start_line $end_line]
+        }
+        "global" {
+            return [parse_global $cmd_text $start_line $end_line]
+        }
+        "upvar" {
+            return [parse_upvar $cmd_text $start_line $end_line]
+        }
+        "namespace" {
+            return [parse_namespace $cmd_text $start_line $end_line $depth]
+        }
+        "package" {
+            return [parse_package $cmd_text $start_line $end_line]
+        }
+        "if" {
+            return [parse_if $cmd_text $start_line $end_line $depth]
+        }
+        "while" {
+            return [parse_while $cmd_text $start_line $end_line $depth]
+        }
+        "for" {
+            return [parse_for $cmd_text $start_line $end_line $depth]
+        }
+        "foreach" {
+            return [parse_foreach $cmd_text $start_line $end_line $depth]
+        }
+        "switch" {
+            return [parse_switch $cmd_text $start_line $end_line $depth]
+        }
+        "expr" {
+            return [parse_expr $cmd_text $start_line $end_line]
+        }
+        "list" {
+            return [parse_list $cmd_text $start_line $end_line]
+        }
+        "lappend" {
+            return [parse_lappend $cmd_text $start_line $end_line]
+        }
+        default {
+            # Generic command node
+            return [dict create \
+                type "command" \
+                name $cmd_name \
+                range [make_range $start_line 1 $end_line 80]]
+        }
+    }
+}
+
+# ============================================================================
+# SPECIFIC COMMAND PARSERS
+# ============================================================================
+
+# Parse proc command (with recursive body scanning)
+proc ::ast::parse_proc {cmd_text start_line end_line depth} {
+    variable debug
+
+    if {[catch {llength $cmd_text} word_count] || $word_count < 4} {
+        return ""
+    }
+
+    set name [lindex $cmd_text 1]
+    set params [lindex $cmd_text 2]
+    set body [lindex $cmd_text 3]
+
+    if {$debug} {
+        puts "    Found proc '$name' at depth $depth"
+    }
+
+    # Parse parameters
     set param_list [list]
-    set param_idx 0
+    if {[catch {llength $params} param_count]} {
+        set param_count 0
+    }
 
-    foreach param $params {
-        incr param_idx
+    for {set i 0} {$i < $param_count} {incr i} {
+        set param [lindex $params $i]
 
-        if {[llength $param] == 2} {
+        if {[catch {llength $param} param_len]} {
+            continue
+        }
+
+        if {$param_len == 2} {
             # Parameter with default value
-            set param_name [lindex $param 0]
-            set default_val [lindex $param 1]
-
-            if {$param_name eq ""} {
-                error "Parameter $param_idx in proc '$name' has no name"
-            }
-
             lappend param_list [dict create \
-                name $param_name \
-                default $default_val \
-                range [make_range $start_line [expr {10 + $param_idx * 10}] $start_line [expr {10 + $param_idx * 10 + [string length $param_name]}]]]
-        } elseif {[llength $param] == 1} {
+                name [lindex $param 0] \
+                default [lindex $param 1] \
+                range [make_range $start_line 10 $start_line 20]]
+        } elseif {$param_len == 1} {
             # Simple parameter
-            set param_name $param
-
-            if {$param_name eq ""} {
-                error "Parameter $param_idx in proc '$name' cannot be empty"
-            }
-
             set pdict [dict create \
-                name $param_name \
-                range [make_range $start_line [expr {10 + $param_idx * 10}] $start_line [expr {10 + $param_idx * 10 + [string length $param_name]}]]]
+                name $param \
+                range [make_range $start_line 10 $start_line 20]]
 
-            if {$param_name eq "args"} {
+            if {$param eq "args"} {
                 dict set pdict is_varargs true
             }
 
             lappend param_list $pdict
-        } else {
-            error "Invalid parameter format in proc '$name' at position $param_idx"
         }
     }
 
-    lappend collected_nodes [dict create \
+    # Calculate actual end line based on body content
+    set body_lines [count_lines $body]
+    set actual_end_line [expr {$start_line + $body_lines + 2}]
+
+    # Create proc node
+    set proc_node [dict create \
         type "proc" \
         name $name \
         params $param_list \
         body [dict create type "body" text $body] \
-        range [make_range $start_line $start_col $end_line 1]]
+        depth $depth \
+        range [make_range $start_line 1 $actual_end_line 1]]
 
-    return ""
-}
+    # RECURSIVELY find nested procs in body
+    set nested_nodes [find_all_nodes $body [expr {$start_line + 2}] [expr {$depth + 1}]]
 
-# Capture set commands
-proc ::ast::capture_set {varname args} {
-    variable collected_nodes
-
-    if {$varname eq ""} {
-        error "set: variable name cannot be empty"
+    if {[llength $nested_nodes] > 0} {
+        dict set proc_node nested_nodes $nested_nodes
     }
 
+    return $proc_node
+}
+
+# Parse set command
+proc ::ast::parse_set {cmd_text start_line end_line} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+        return ""
+    }
+
+    set var_name [lindex $cmd_text 1]
     set value ""
-    if {[llength $args] > 0} {
-        set value [lindex $args 0]
+    if {$word_count >= 3} {
+        set value [lindex $cmd_text 2]
     }
 
-    # Get position
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
-
-    lappend collected_nodes [dict create \
-        type "variable" \
-        command "set" \
-        name $varname \
+    return [dict create \
+        type "set" \
+        name $var_name \
         value $value \
-        range [make_range $line 1 $line [expr {20 + [string length $varname]}]]]
-
-    return $value
+        range [make_range $start_line 1 $end_line 50]]
 }
 
-# Capture variable commands
-proc ::ast::capture_variable {args} {
-    variable collected_nodes
-
-    if {[llength $args] == 0} {
-        error "variable: missing variable name"
+# Parse variable command
+proc ::ast::parse_variable {cmd_text start_line end_line} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+        return ""
     }
 
-    set varname [lindex $args 0]
-    if {$varname eq ""} {
-        error "variable: name cannot be empty"
-    }
-
+    set var_name [lindex $cmd_text 1]
     set value ""
-    if {[llength $args] > 1} {
-        set value [lindex $args 1]
+    if {$word_count >= 3} {
+        set value [lindex $cmd_text 2]
     }
 
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
-
-    lappend collected_nodes [dict create \
+    return [dict create \
         type "variable" \
-        command "variable" \
-        name $varname \
+        name $var_name \
         value $value \
-        range [make_range $line 1 $line [expr {20 + [string length $varname]}]]]
-
-    return ""
+        range [make_range $start_line 1 $end_line 50]]
 }
 
-# Capture global commands
-proc ::ast::capture_global {args} {
-    variable collected_nodes
-
-    if {[llength $args] == 0} {
-        error "global: missing variable name(s)"
+# Parse global command
+proc ::ast::parse_global {cmd_text start_line end_line} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+        return ""
     }
 
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
+    set vars [lrange $cmd_text 1 end]
 
-    foreach varname $args {
-        if {$varname eq ""} {
-            error "global: variable name cannot be empty"
-        }
-
-        lappend collected_nodes [dict create \
-            type "global" \
-            name $varname \
-            range [make_range $line 1 $line [expr {20 + [string length $varname]}]]]
-    }
-
-    return ""
+    return [dict create \
+        type "global" \
+        vars $vars \
+        range [make_range $start_line 1 $end_line 50]]
 }
 
-# Capture upvar commands
-proc ::ast::capture_upvar {args} {
-    variable collected_nodes
-
-    if {[llength $args] < 2} {
-        error "upvar: wrong # args: should be \"upvar ?level? otherVar localVar ?otherVar localVar ...?\""
+# Parse upvar command
+proc ::ast::parse_upvar {cmd_text start_line end_line} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
+        return ""
     }
 
-    # upvar can have level, source, target or just source target
+    set args [lrange $cmd_text 1 end]
+    set source ""
+    set target ""
+
     if {[llength $args] == 2} {
         set source [lindex $args 0]
         set target [lindex $args 1]
     } elseif {[llength $args] >= 3} {
         set source [lindex $args 1]
         set target [lindex $args 2]
-    } else {
-        set source ""
-        set target ""
     }
 
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
-
-    lappend collected_nodes [dict create \
+    return [dict create \
         type "upvar" \
         source $source \
         target $target \
-        range [make_range $line 1 $line 50]]
-
-    return ""
+        range [make_range $start_line 1 $end_line 50]]
 }
 
-# Capture array commands
-proc ::ast::capture_array {subcommand args} {
-    variable collected_nodes
-
-    if {$subcommand eq ""} {
-        error "array: missing subcommand"
+# Parse namespace command
+proc ::ast::parse_namespace {cmd_text start_line end_line depth} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+        return ""
     }
 
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
-
-    lappend collected_nodes [dict create \
-        type "array" \
-        subcommand $subcommand \
-        args $args \
-        range [make_range $line 1 $line 50]]
-
-    return ""
-}
-
-# Capture namespace commands - store body as text, don't parse recursively
-proc ::ast::capture_namespace {subcommand args} {
-    variable collected_nodes
-
-    if {$subcommand eq ""} {
-        error "namespace: missing subcommand"
-    }
-
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
+    set subcommand [lindex $cmd_text 1]
 
     if {$subcommand eq "eval"} {
-        if {[llength $args] < 1} {
-            error "namespace eval: missing namespace name"
+        if {$word_count < 3} {
+            return ""
         }
 
-        set name [lindex $args 0]
+        set name [lindex $cmd_text 2]
         set body ""
-        if {[llength $args] > 1} {
-            set body [lindex $args 1]
+        if {$word_count >= 4} {
+            set body [lindex $cmd_text 3]
         }
 
-        # Calculate end line for namespace body
-        set body_lines [regexp -all "\n" $body]
-        set end_line [expr {$line + $body_lines + 1}]
+        set body_lines [count_lines $body]
+        set actual_end_line [expr {$start_line + $body_lines + 1}]
 
-        lappend collected_nodes [dict create \
+        set ns_node [dict create \
             type "namespace" \
             subtype "eval" \
             name $name \
             body $body \
-            range [make_range $line 1 $end_line 1]]
+            range [make_range $start_line 1 $actual_end_line 1]]
 
-        # DON'T recursively parse the body here
-        # It will be parsed later during symbol analysis
+        # Recursively parse namespace body
+        set nested_nodes [find_all_nodes $body [expr {$start_line + 1}] [expr {$depth + 1}]]
+        if {[llength $nested_nodes] > 0} {
+            dict set ns_node nested_nodes $nested_nodes
+        }
+
+        return $ns_node
+
     } elseif {$subcommand eq "import"} {
-        lappend collected_nodes [dict create \
+        set patterns [lrange $cmd_text 2 end]
+        return [dict create \
             type "namespace_import" \
-            patterns $args \
-            range [make_range $line 1 $line 50]]
-    } else {
-        lappend collected_nodes [dict create \
-            type "namespace" \
-            subtype $subcommand \
-            args $args \
-            range [make_range $line 1 $line 50]]
+            patterns $patterns \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
-    return ""
+    return [dict create \
+        type "namespace" \
+        subtype $subcommand \
+        args [lrange $cmd_text 2 end] \
+        range [make_range $start_line 1 $end_line 50]]
 }
 
-# Capture package commands
-proc ::ast::capture_package {subcommand args} {
-    variable collected_nodes
-
-    if {$subcommand eq ""} {
-        error "package: missing subcommand"
+# Parse package command
+proc ::ast::parse_package {cmd_text start_line end_line} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
+        return ""
     }
 
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
+    set subcommand [lindex $cmd_text 1]
+    set package_name [lindex $cmd_text 2]
+    set version ""
+    if {$word_count >= 4} {
+        set version [lindex $cmd_text 3]
     }
 
     if {$subcommand eq "require"} {
-        if {[llength $args] < 1} {
-            error "package require: missing package name"
-        }
-
-        set pkgname [lindex $args 0]
-        set version ""
-        if {[llength $args] > 1} {
-            set version [lindex $args 1]
-        }
-
-        lappend collected_nodes [dict create \
+        return [dict create \
             type "package_require" \
-            package_name $pkgname \
+            package_name $package_name \
             version $version \
-            range [make_range $line 1 $line [expr {20 + [string length $pkgname]}]]]
+            range [make_range $start_line 1 $end_line 50]]
     } elseif {$subcommand eq "provide"} {
-        if {[llength $args] < 2} {
-            error "package provide: missing package name or version"
-        }
-
-        set pkgname [lindex $args 0]
-        set version [lindex $args 1]
-
-        lappend collected_nodes [dict create \
+        return [dict create \
             type "package_provide" \
-            package_name $pkgname \
+            package_name $package_name \
             version $version \
-            range [make_range $line 1 $line [expr {20 + [string length $pkgname]}]]]
-    } else {
-        lappend collected_nodes [dict create \
-            type "package" \
-            subcommand $subcommand \
-            args $args \
-            range [make_range $line 1 $line 50]]
+            range [make_range $start_line 1 $end_line 50]]
     }
 
     return ""
 }
 
-# Capture if statements with full if/elseif/else support
-proc ::ast::capture_if {args} {
-    variable collected_nodes
-
-    if {[llength $args] < 2} {
-        error "if: wrong # args: should be \"if expr1 body1 ?elseif expr2 body2 ...? ?else bodyN?\""
+# Parse if command
+proc ::ast::parse_if {cmd_text start_line end_line depth} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
+        return ""
     }
 
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
+    return [dict create \
+        type "if" \
+        range [make_range $start_line 1 $end_line 50]]
+}
+
+# Parse while command
+proc ::ast::parse_while {cmd_text start_line end_line depth} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
+        return ""
     }
 
-    # TCL if syntax: if cond body ?elseif cond body ...? ?else body?
-    set condition [lindex $args 0]
-    set then_body ""
-    set else_body ""
-    set elseif_clauses [list]
+    return [dict create \
+        type "while" \
+        range [make_range $start_line 1 $end_line 50]]
+}
 
-    # Calculate approximate end line
-    set all_text [join $args " "]
-    set body_lines [regexp -all "\n" $all_text]
-    set end_line [expr {$line + $body_lines}]
+# Parse for command
+proc ::ast::parse_for {cmd_text start_line end_line depth} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 5} {
+        return ""
+    }
 
-    # Simple parsing of if arguments
-    set i 1
-    while {$i < [llength $args]} {
-        set arg [lindex $args $i]
-        if {$arg eq "then"} {
-            incr i
-            continue
-        } elseif {$arg eq "else"} {
-            incr i
-            if {$i < [llength $args]} {
-                set else_body [lindex $args $i]
-            }
-            incr i
-        } elseif {$arg eq "elseif"} {
-            incr i
-            if {$i < [llength $args]} {
-                set elseif_cond [lindex $args $i]
-                incr i
-                if {$i < [llength $args]} {
-                    set elseif_body [lindex $args $i]
-                    lappend elseif_clauses [dict create condition $elseif_cond body $elseif_body]
-                }
-            }
-            incr i
-        } else {
-            # Assume it's the then-body
-            set then_body $arg
-            incr i
+    return [dict create \
+        type "for" \
+        range [make_range $start_line 1 $end_line 50]]
+}
+
+# Parse foreach command
+proc ::ast::parse_foreach {cmd_text start_line end_line depth} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 4} {
+        return ""
+    }
+
+    return [dict create \
+        type "foreach" \
+        range [make_range $start_line 1 $end_line 50]]
+}
+
+# Parse switch command
+proc ::ast::parse_switch {cmd_text start_line end_line depth} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
+        return ""
+    }
+
+    return [dict create \
+        type "switch" \
+        cases [list] \
+        range [make_range $start_line 1 $end_line 50]]
+}
+
+# Parse expr command
+proc ::ast::parse_expr {cmd_text start_line end_line} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+        return ""
+    }
+
+    set expression [lindex $cmd_text 1]
+
+    return [dict create \
+        type "expr" \
+        expression $expression \
+        range [make_range $start_line 1 $end_line 50]]
+}
+
+# Parse list command
+proc ::ast::parse_list {cmd_text start_line end_line} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+        return ""
+    }
+
+    set elements [lrange $cmd_text 1 end]
+
+    return [dict create \
+        type "list" \
+        elements $elements \
+        range [make_range $start_line 1 $end_line 50]]
+}
+
+# Parse lappend command
+proc ::ast::parse_lappend {cmd_text start_line end_line} {
+    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
+        return ""
+    }
+
+    set var_name [lindex $cmd_text 1]
+    set value [lindex $cmd_text 2]
+
+    return [dict create \
+        type "lappend" \
+        name $var_name \
+        value $value \
+        range [make_range $start_line 1 $end_line 50]]
+}
+
+# ============================================================================
+# RECURSIVE NODE FINDER (Main algorithm)
+# ============================================================================
+
+# Find all nodes recursively (procs can be nested!)
+proc ::ast::find_all_nodes {code start_line {depth 0}} {
+    variable debug
+
+    set all_nodes [list]
+
+    if {$debug} {
+        puts "Scanning at depth $depth, starting line $start_line"
+    }
+
+    # Extract commands from this code block
+    set commands [extract_commands $code $start_line]
+
+    if {$debug} {
+        puts "  Found [llength $commands] commands"
+    }
+
+    # Parse each command
+    foreach cmd_dict $commands {
+        set node [parse_command $cmd_dict $depth]
+
+        if {$node ne ""} {
+            lappend all_nodes $node
         }
     }
 
-    set node [dict create \
-        type "if" \
-        condition $condition \
-        then_body $then_body \
-        range [make_range $line 1 $end_line 1]]
-
-    if {[llength $elseif_clauses] > 0} {
-        dict set node elseif_clauses $elseif_clauses
-    }
-
-    if {$else_body ne ""} {
-        dict set node else_body $else_body
-    }
-
-    lappend collected_nodes $node
-
-    return 0
+    return $all_nodes
 }
 
-# Capture while loops
-proc ::ast::capture_while {condition body} {
-    variable collected_nodes
+# ============================================================================
+# JSON CONVERSION
+# ============================================================================
 
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
+proc ::ast::dict_to_json {d indent_level} {
+    set indent [string repeat "  " $indent_level]
+    set next_indent [string repeat "  " [expr {$indent_level + 1}]]
 
-    set body_lines [regexp -all "\n" $body]
-    set end_line [expr {$line + $body_lines + 1}]
-
-    lappend collected_nodes [dict create \
-        type "while" \
-        condition $condition \
-        range [make_range $line 1 $end_line 1]]
-
-    return ""
-}
-
-# Capture for loops
-proc ::ast::capture_for {init test next body} {
-    variable collected_nodes
-
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
-
-    set body_lines [regexp -all "\n" $body]
-    set end_line [expr {$line + $body_lines + 1}]
-
-    lappend collected_nodes [dict create \
-        type "for" \
-        init $init \
-        test $test \
-        next $next \
-        range [make_range $line 1 $end_line 1]]
-
-    return ""
-}
-
-# Capture foreach loops
-proc ::ast::capture_foreach {varname list body} {
-    variable collected_nodes
-
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
-
-    set body_lines [regexp -all "\n" $body]
-    set end_line [expr {$line + $body_lines + 1}]
-
-    lappend collected_nodes [dict create \
-        type "foreach" \
-        var_name $varname \
-        list $list \
-        range [make_range $line 1 $end_line 1]]
-
-    return ""
-}
-
-# Capture switch statements
-proc ::ast::capture_switch {args} {
-    variable collected_nodes
-
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
-
-    set all_text [join $args " "]
-    set body_lines [regexp -all "\n" $all_text]
-    set end_line [expr {$line + $body_lines + 1}]
-
-    lappend collected_nodes [dict create \
-        type "switch" \
-        args $args \
-        range [make_range $line 1 $end_line 1]]
-
-    return ""
-}
-
-# Capture expr commands
-proc ::ast::capture_expr {args} {
-    variable collected_nodes
-
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
-
-    lappend collected_nodes [dict create \
-        type "expr" \
-        expression [lindex $args 0] \
-        range [make_range $line 1 $line 50]]
-
-    return 0
-}
-
-# Capture list commands
-proc ::ast::capture_list {args} {
-    variable collected_nodes
-
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
-
-    lappend collected_nodes [dict create \
-        type "list" \
-        elements $args \
-        range [make_range $line 1 $line 50]]
-
-    return $args
-}
-
-# Capture lappend commands
-proc ::ast::capture_lappend {varname args} {
-    variable collected_nodes
-
-    if {$varname eq ""} {
-        error "lappend: variable name cannot be empty"
-    }
-
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
-
-    lappend collected_nodes [dict create \
-        type "lappend" \
-        varname $varname \
-        values $args \
-        range [make_range $line 1 $line 50]]
-
-    return $args
-}
-
-# Capture generic commands (puts, return, etc.)
-proc ::ast::capture_generic {cmdname args} {
-    variable collected_nodes
-
-    set frame [info frame -1]
-    set line 1
-    if {[dict exists $frame line]} {
-        set line [dict get $frame line]
-    }
-
-    lappend collected_nodes [dict create \
-        type "command" \
-        name $cmdname \
-        args $args \
-        range [make_range $line 1 $line 50]]
-
-    return ""
-}
-
-# Convert dict to JSON
-proc ::ast::dict_to_json {d {indent 0}} {
-    set ind [string repeat " " $indent]
-    set items [list]
+    set result "\{"
+    set first 1
 
     dict for {key value} $d {
-        set json_key "\"$key\""
+        if {!$first} {
+            append result ","
+        }
+        set first 0
 
-        # Handle different value types
-        if {[string is integer -strict $value] || [string is double -strict $value]} {
-            set json_value $value
-        } elseif {[string is boolean -strict $value]} {
-            set json_value [expr {$value ? "true" : "false"}]
-        } elseif {[llength $value] > 1} {
-            # Only treat as list/dict if it has multiple elements
-            # Check if it's a dict or list
-            set is_dict 0
-            if {[llength $value] % 2 == 0} {
-                if {[catch {dict size $value}] == 0} {
-                    set is_dict 1
+        append result "\n${next_indent}\"$key\": "
+
+        # Check if value is a list
+        if {[string is list $value] && [llength $value] > 0} {
+            set first_elem [lindex $value 0]
+            # Check if it's a list of dicts
+            if {[catch {dict size $first_elem}] == 0 && [dict size $first_elem] > 0} {
+                # List of dicts
+                append result "\["
+                set first_item 1
+                foreach item $value {
+                    if {!$first_item} {
+                        append result ","
+                    }
+                    set first_item 0
+                    append result "\n$next_indent  "
+                    append result [dict_to_json $item [expr {$indent_level + 2}]]
                 }
-            }
-
-            if {$is_dict} {
-                set json_value [dict_to_json $value [expr {$indent + 2}]]
+                append result "\n${next_indent}\]"
             } else {
-                set json_value [list_to_json $value [expr {$indent + 2}]]
+                # Regular list
+                append result "\["
+                set first_item 1
+                foreach item $value {
+                    if {!$first_item} {
+                        append result ", "
+                    }
+                    set first_item 0
+                    append result "\"[escape_json $item]\""
+                }
+                append result "\]"
             }
+        } elseif {[catch {dict size $value}] == 0 && [dict size $value] > 0} {
+            # Nested dict
+            append result [dict_to_json $value [expr {$indent_level + 1}]]
+        } elseif {[string is integer -strict $value] || [string is double -strict $value]} {
+            # Number
+            append result $value
+        } elseif {$value eq "true" || $value eq "false"} {
+            # Boolean
+            append result $value
         } else {
-            # Single element or string - treat as string
-            set escaped [string map {
-                \\  \\\\
-                \"  \\\"
-                \n  \\n
-                \r  \\r
-                \t  \\t
-            } $value]
-            set json_value "\"$escaped\""
+            # String
+            append result "\"[escape_json $value]\""
         }
-
-        lappend items "$ind  $json_key: $json_value"
     }
 
-    return "\{\n[join $items ",\n"]\n$ind\}"
+    append result "\n${indent}\}"
+    return $result
 }
 
-# Convert list to JSON array
-proc ::ast::list_to_json {lst {indent 0}} {
-    set ind [string repeat " " $indent]
-    set items [list]
-
-    foreach item $lst {
-        # Check if item is a dict (has even length and is valid dict)
-        set is_dict 0
-        if {[llength $item] > 1 && [llength $item] % 2 == 0} {
-            if {[catch {dict size $item}] == 0} {
-                set is_dict 1
-            }
-        }
-
-        if {$is_dict} {
-            lappend items [dict_to_json $item [expr {$indent + 2}]]
-        } elseif {[string is integer -strict $item] || [string is double -strict $item]} {
-            lappend items $item
-        } else {
-            set escaped [string map {
-                \\  \\\\
-                \"  \\\"
-                \n  \\n
-                \r  \\r
-                \t  \\t
-            } $item]
-            lappend items "\"$escaped\""
-        }
-    }
-
-    if {[llength $items] == 0} {
-        return "\[\]"
-    }
-
-    return "\[\n$ind  [join $items ",\n$ind  "]\n$ind\]"
+proc ::ast::escape_json {str} {
+    set str [string map {
+        \\ \\\\
+        \" \\\"
+        \n \\n
+        \r \\r
+        \t \\t
+    } $str]
+    return $str
 }
 
-# Convert AST to JSON string
 proc ::ast::to_json {ast} {
     return [dict_to_json $ast 0]
+}
+
+# ============================================================================
+# MAIN BUILD FUNCTION
+# ============================================================================
+
+proc ::ast::build {code {filepath "<string>"}} {
+    variable current_file
+    variable debug
+
+    set current_file $filepath
+
+    if {$debug} {
+        puts "\n=== Building AST for $filepath ==="
+        puts "Code length: [string length $code] chars"
+    }
+
+    # Check if code is complete
+    if {![info complete $code]} {
+        if {$debug} {
+            puts "ERROR: Incomplete TCL code"
+        }
+        return [dict create \
+            type "root" \
+            filepath $filepath \
+            errors [list [dict create \
+                type "error" \
+                message "missing close-brace" \
+                range [make_range 1 1 1 1] \
+                error_type "incomplete" \
+                suggestion "Check for missing closing brace \}"]] \
+            had_error true \
+            children [list] \
+            comments [list]]
+    }
+
+    # Build line mapping
+    build_line_map $code
+
+    # Extract comments
+    set comments [extract_comments $code]
+
+    if {$debug} {
+        puts "Found [llength $comments] comments"
+    }
+
+    # Find all nodes (recursively)
+    set nodes [find_all_nodes $code 1 0]
+
+    if {$debug} {
+        puts "Found [llength $nodes] total nodes"
+        puts "=== AST Building Complete ===\n"
+    }
+
+    # Flatten nested nodes into children list
+    set all_children [list]
+    foreach node $nodes {
+        lappend all_children $node
+
+        # If node has nested_nodes, add them to children too
+        if {[dict exists $node nested_nodes]} {
+            set nested [dict get $node nested_nodes]
+            lappend all_children {*}$nested
+        }
+    }
+
+    # Build root AST
+    return [dict create \
+        type "root" \
+        filepath $filepath \
+        comments $comments \
+        children $nodes \
+        had_error false \
+        errors [list]]
 }
