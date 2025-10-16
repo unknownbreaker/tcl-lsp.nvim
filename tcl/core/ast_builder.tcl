@@ -777,9 +777,6 @@ proc ::ast::dict_to_json {d indent_level} {
     set result "\{\n"
     set first 1
 
-    # Fields that should always be strings (not numbers)
-    set string_fields [list "default" "level" "version" "value"]
-
     dict for {key value} $d {
         if {!$first} {
             append result ",\n"
@@ -788,65 +785,108 @@ proc ::ast::dict_to_json {d indent_level} {
 
         append result "${next_indent}\"$key\": "
 
-        # Force certain fields to be strings
-        set force_string [expr {$key in $string_fields}]
-
-        if {[string is list -strict $value] && [llength $value] > 0} {
-            # Check if it's a dict or list
-            if {[expr {[llength $value] % 2 == 0}] && [catch {dict size $value} size] == 0} {
-                # It's a dict
-                append result [dict_to_json $value [expr {$indent_level + 1}]]
-            } else {
-                # It's a list - check if list of dicts or primitives
-                set first_elem [lindex $value 0]
-                if {[string is list -strict $first_elem] && [catch {dict size $first_elem}] == 0} {
-                    # List of dicts
-                    append result "\[\n"
-                    set first_item 1
-                    foreach item $value {
-                        if {!$first_item} {
-                            append result ",\n"
-                        }
-                        set first_item 0
-                        append result "${next_indent}  "
-                        append result [dict_to_json $item [expr {$indent_level + 2}]]
-                    }
-                    append result "\n${next_indent}\]"
-                } else {
-                    # List of strings/numbers
-                    append result "\["
-                    set first_item 1
-                    foreach item $value {
-                        if {!$first_item} {
-                            append result ", "
-                        }
-                        set first_item 0
-                        if {!$force_string && ([string is integer -strict $item] || [string is double -strict $item])} {
-                            append result $item
-                        } else {
-                            append result "\"[escape_json $item]\""
-                        }
-                    }
-                    append result "\]"
-                }
-            }
-        } else {
-            # Scalar value - check type
-            if {$force_string} {
-                # Always quote these fields
-                append result "\"[escape_json $value]\""
-            } elseif {[string is integer -strict $value] || [string is double -strict $value]} {
-                # Numeric value
-                append result $value
-            } else {
-                # String value
-                append result "\"[escape_json $value]\""
-            }
-        }
+        # Serialize the value based on its type
+        append result [serialize_value $value $key $indent_level]
     }
 
     append result "\n${indent}\}"
     return $result
+}
+
+# Helper function to serialize a single value
+proc ::ast::serialize_value {value key indent_level} {
+    set next_indent [string repeat "  " [expr {$indent_level + 1}]]
+
+    # Fields that should always be strings (not numbers)
+    set string_fields [list "default" "level" "version"]
+    set force_string [expr {[lsearch -exact $string_fields $key] >= 0}]
+
+    # Fields that are known to be arrays/lists
+    set array_fields [list "children" "comments" "errors" "parameters" "branches" "cases" "patterns" "variables" "elements" "args" "nested_nodes"]
+    set is_array_field [expr {[lsearch -exact $array_fields $key] >= 0}]
+
+    # Special case: "body" can be either a string OR an array of nodes
+    if {$key eq "body"} {
+        # Check if it looks like a dict (parsed nodes)
+        set len [llength $value]
+        if {$len > 1 && [expr {$len % 2 == 0}] && [catch {dict size $value}] == 0} {
+            # It's a dict (single node)
+            return [dict_to_json $value [expr {$indent_level + 1}]]
+        } elseif {$len > 0} {
+            set first_elem [lindex $value 0]
+            set first_len [llength $first_elem]
+            if {$first_len > 1 && [expr {$first_len % 2 == 0}] && [catch {dict size $first_elem}] == 0} {
+                # It's a list of dicts (array of nodes)
+                set is_array_field 1
+            } else {
+                # It's a string (raw TCL code)
+                return "\"[escape_json $value]\""
+            }
+        } else {
+            # Empty body
+            return "\"\""
+        }
+    }
+
+    set list_length [llength $value]
+
+    # Handle based on whether it's an array field or not
+    if {!$is_array_field} {
+        # Scalar field - serialize as single value
+        if {$force_string} {
+            return "\"[escape_json $value]\""
+        } elseif {$value eq ""} {
+            return "\"\""
+        } elseif {[string is integer -strict $value]} {
+            return $value
+        } elseif {[string is double -strict $value]} {
+            return $value
+        } else {
+            return "\"[escape_json $value]\""
+        }
+    }
+
+    # Array field - serialize as JSON array
+    if {$list_length == 0} {
+        return "\[\]"
+    }
+
+    # Check if it's a list of dicts or primitives
+    set first_elem [lindex $value 0]
+    set first_len [llength $first_elem]
+
+    if {$first_len > 1 && [expr {$first_len % 2 == 0}] && [catch {dict size $first_elem}] == 0} {
+        # List of dicts
+        set result "\[\n"
+        set first_item 1
+        foreach item $value {
+            if {!$first_item} {
+                append result ",\n"
+            }
+            set first_item 0
+            append result "${next_indent}  "
+            append result [dict_to_json $item [expr {$indent_level + 2}]]
+        }
+        append result "\n${next_indent}\]"
+        return $result
+    } else {
+        # List of primitives
+        set result "\["
+        set first_item 1
+        foreach item $value {
+            if {!$first_item} {
+                append result ", "
+            }
+            set first_item 0
+            if {[string is integer -strict $item] || [string is double -strict $item]} {
+                append result $item
+            } else {
+                append result "\"[escape_json $item]\""
+            }
+        }
+        append result "\]"
+        return $result
+    }
 }
 
 proc ::ast::escape_json {str} {
