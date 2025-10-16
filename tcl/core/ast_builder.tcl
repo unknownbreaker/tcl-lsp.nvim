@@ -659,21 +659,40 @@ proc ::ast::dict_to_json {d indent_level} {
 
         append result "\n${next_indent}\"$key\": "
 
-        # Check value type carefully to avoid treating strings as lists
-        # First check if it's actually a dict (not just list-like)
-        if {[catch {dict size $value} dict_size] == 0 && $dict_size > 0} {
-            # It's a dict
+        # Special handling for known list fields
+        set is_list_field [expr {$key eq "children" || $key eq "params" || $key eq "comments" ||
+                                 $key eq "errors" || $key eq "vars" || $key eq "patterns" ||
+                                 $key eq "args" || $key eq "cases" || $key eq "elements" ||
+                                 $key eq "nested_nodes"}]
+
+        # Check if it's a dict (must have even number of elements and be valid dict)
+        set is_dict 0
+        if {[catch {dict size $value} dsize] == 0 && $dsize > 0} {
+            set is_dict 1
+        }
+
+        if {$is_dict} {
+            # It's a nested dict
             append result [dict_to_json $value [expr {$indent_level + 1}]]
         } elseif {[string is integer -strict $value] || [string is double -strict $value]} {
             # Number
             append result $value
-        } elseif {$value eq "true" || $value eq "false"} {
-            # Boolean
-            append result $value
-        } elseif {[string is list $value] && [llength $value] > 1} {
-            # It's a list with multiple elements
+        } elseif {$value eq ""} {
+            # Empty string or empty list
+            if {$is_list_field} {
+                append result "\[\]"
+            } else {
+                append result "\"\""
+            }
+        } elseif {$is_list_field && [llength $value] > 0} {
+            # It's a list field with values
             set first_elem [lindex $value 0]
-            if {[catch {dict size $first_elem}] == 0 && [dict size $first_elem] > 0} {
+            set has_dict_items 0
+            if {[catch {dict size $first_elem} fsize] == 0 && $fsize > 0} {
+                set has_dict_items 1
+            }
+
+            if {$has_dict_items} {
                 # List of dicts
                 append result "\["
                 set first_item 1
@@ -687,7 +706,7 @@ proc ::ast::dict_to_json {d indent_level} {
                 }
                 append result "\n${next_indent}\]"
             } else {
-                # Regular list of strings/numbers
+                # List of strings/numbers
                 append result "\["
                 set first_item 1
                 foreach item $value {
@@ -703,15 +722,8 @@ proc ::ast::dict_to_json {d indent_level} {
                 }
                 append result "\]"
             }
-        } elseif {[llength $value] == 0} {
-            # Empty list or empty string
-            if {$value eq ""} {
-                append result "\"\""
-            } else {
-                append result "\[\]"
-            }
         } else {
-            # Single value - treat as string
+            # Default: treat as string
             append result "\"[escape_json $value]\""
         }
     }
