@@ -101,6 +101,27 @@ function M.parse(code, filepath)
     return nil, err
   end
 
+  -- FIXED: Check if AST has errors and convert to nil return
+  -- This makes tests that expect nil for syntax errors work correctly
+  if ast.had_error and ast.had_error == 1 then
+    local error_messages = {}
+
+    if ast.errors and type(ast.errors) == "table" then
+      for _, error_node in ipairs(ast.errors) do
+        if type(error_node) == "table" and error_node.message then
+          table.insert(error_messages, error_node.message)
+        end
+      end
+    end
+
+    local error_msg = "Syntax error"
+    if #error_messages > 0 then
+      error_msg = table.concat(error_messages, "; ")
+    end
+
+    return nil, error_msg
+  end
+
   return ast, nil
 end
 

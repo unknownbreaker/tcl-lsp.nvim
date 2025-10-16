@@ -68,80 +68,64 @@ proc ::ast::extract_comments {code} {
     foreach line [split $code "\n"] {
         incr line_num
 
-        if {[regexp {^(\s*)#(.*)$} $line -> indent comment_text]} {
-            set col [expr {[string length $indent] + 1}]
+        if {[regexp {^(\s*)#(.*)$} $line -> indent text]} {
             lappend comments [dict create \
                 type "comment" \
-                text [string trim $comment_text] \
-                range [make_range $line_num $col $line_num [string length $line]]]
+                text [string trim $text] \
+                range [make_range $line_num 1 $line_num [string length $line]]]
         }
     }
 
     return $comments
 }
 
-# ============================================================================
-# COMMAND EXTRACTION (Character-by-character scanning)
-# ============================================================================
-
-# Extract all commands from code without executing
-# SIMPLIFIED: Use line-based processing with info complete
-proc ::ast::extract_commands {code start_line} {
-    variable debug
-
+# Extract commands from TCL code
+proc ::ast::extract_commands {code start_line_offset} {
     set commands [list]
     set current_cmd ""
-    set line_num $start_line
-    set cmd_start_line $start_line
-    set in_command 0
+    set cmd_start_line $start_line_offset
+    set line_num $start_line_offset
 
     foreach line [split $code "\n"] {
-        # Skip pure comment lines when not in a command
-        if {!$in_command && [regexp {^\s*#} $line]} {
+        set trimmed [string trim $line]
+
+        # Skip empty lines and comments
+        if {$trimmed eq "" || [string index $trimmed 0] eq "#"} {
+            if {$current_cmd ne ""} {
+                # End of previous command
+                lappend commands [dict create \
+                    text $current_cmd \
+                    start_line $cmd_start_line \
+                    end_line [expr {$line_num - 1}]]
+                set current_cmd ""
+            }
             incr line_num
             continue
         }
 
-        # Skip empty lines when not in a command
-        if {!$in_command && [string trim $line] eq ""} {
-            incr line_num
-            continue
-        }
-
-        # Accumulate lines for current command
-        if {$current_cmd eq ""} {
+        # Append to current command
+        if {$current_cmd ne ""} {
+            append current_cmd "\n"
+        } else {
             set cmd_start_line $line_num
         }
-        append current_cmd $line "\n"
-        set in_command 1
+        append current_cmd $line
 
         # Check if command is complete
         if {[info complete $current_cmd]} {
-            set trimmed [string trim $current_cmd]
-
-            # Only add non-empty, non-comment commands
-            if {$trimmed ne "" && ![regexp {^\s*#} $trimmed]} {
-                lappend commands [dict create \
-                    text $trimmed \
-                    start_line $cmd_start_line \
-                    end_line $line_num]
-
-                if {$debug} {
-                    puts "  Extracted command at line $cmd_start_line: [string range $trimmed 0 50]..."
-                }
-            }
-
+            lappend commands [dict create \
+                text $current_cmd \
+                start_line $cmd_start_line \
+                end_line $line_num]
             set current_cmd ""
-            set in_command 0
         }
 
         incr line_num
     }
 
-    # Handle any remaining incomplete command
+    # Handle incomplete command at end
     if {$current_cmd ne ""} {
-        set trimmed [string trim $current_cmd]
-        if {$trimmed ne "" && ![regexp {^\s*#} $trimmed]} {
+        if {[regexp {^\s*#} $trimmed]} {
             lappend commands [dict create \
                 text $trimmed \
                 start_line $cmd_start_line \
@@ -169,7 +153,10 @@ proc ::ast::parse_command {cmd_dict depth} {
         if {$debug} {
             puts "  Invalid command syntax, skipping"
         }
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid command syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
     if {$word_count == 0} {
@@ -237,11 +224,7 @@ proc ::ast::parse_command {cmd_dict depth} {
             return [parse_puts $cmd_text $start_line $end_line]
         }
         default {
-            # Generic command node
-            return [dict create \
-                type "command" \
-                name $cmd_name \
-                range [make_range $start_line 1 $end_line 80]]
+            return ""
         }
     }
 }
@@ -250,71 +233,57 @@ proc ::ast::parse_command {cmd_dict depth} {
 # SPECIFIC COMMAND PARSERS
 # ============================================================================
 
-# Parse proc command (with recursive body scanning for nested procs only)
+# Parse proc command - FIXED parameter parsing
 proc ::ast::parse_proc {cmd_text start_line end_line depth} {
     variable debug
 
     if {[catch {llength $cmd_text} word_count] || $word_count < 4} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid proc syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
-    set name [lindex $cmd_text 1]
-    set params [lindex $cmd_text 2]
+    set proc_name [lindex $cmd_text 1]
+    set args_list [lindex $cmd_text 2]
     set body [lindex $cmd_text 3]
 
+    # Parse parameters properly - THIS WAS THE BUG!
+    set params [list]
+    foreach arg $args_list {
+        if {[llength $arg] == 2} {
+            # Parameter with default value: {name default}
+            lappend params [dict create \
+                name [lindex $arg 0] \
+                default [lindex $arg 1]]
+        } elseif {[llength $arg] == 1} {
+            # Simple parameter (including 'args')
+            lappend params [dict create \
+                name $arg \
+                default ""]
+        }
+    }
+
     if {$debug} {
-        puts "    Found proc '$name' at depth $depth"
+        puts "    Proc: $proc_name with [llength $params] parameters"
     }
 
-    # Parse parameters
-    set param_list [list]
-    if {[catch {llength $params} param_count]} {
-        set param_count 0
-    }
-
-    for {set i 0} {$i < $param_count} {incr i} {
-        set param [lindex $params $i]
-
-        if {[catch {llength $param} param_len]} {
-            continue
-        }
-
-        if {$param_len == 2} {
-            # Parameter with default value
-            lappend param_list [dict create \
-                name [lindex $param 0] \
-                default [lindex $param 1] \
-                range [make_range $start_line 10 $start_line 20]]
-        } elseif {$param_len == 1} {
-            # Simple parameter
-            set pdict [dict create \
-                name $param \
-                range [make_range $start_line 10 $start_line 20]]
-
-            if {$param eq "args"} {
-                dict set pdict is_varargs true
-            }
-
-            lappend param_list $pdict
-        }
-    }
-
-    # Calculate actual end line based on body content
+    # Calculate body start line
+    set header_lines [count_lines "$proc_name $args_list"]
+    set body_start_line [expr {$start_line + $header_lines}]
     set body_lines [count_lines $body]
-    set actual_end_line [expr {$start_line + $body_lines + 2}]
+    set body_end_line [expr {$body_start_line + $body_lines}]
 
-    # Create proc node with body text (not parsed commands)
+    # Recursively parse proc body for nested procs
+    set nested_nodes [find_all_nodes $body $body_start_line [expr {$depth + 1}]]
+
     set proc_node [dict create \
         type "proc" \
-        name $name \
-        params $param_list \
-        body [dict create type "body" text $body] \
-        depth $depth \
-        range [make_range $start_line 1 $actual_end_line 1]]
-
-    # NOTE: We DON'T recursively scan the body for commands
-    # The body is just stored as text for now
-    # If needed later, symbol extraction can parse it
+        name $proc_name \
+        parameters $params \
+        body $body \
+        nested_nodes $nested_nodes \
+        range [make_range $start_line 1 $end_line 50]]
 
     return $proc_node
 }
@@ -322,7 +291,10 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
 # Parse set command
 proc ::ast::parse_set {cmd_text start_line end_line} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid set syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
     set var_name [lindex $cmd_text 1]
@@ -333,7 +305,7 @@ proc ::ast::parse_set {cmd_text start_line end_line} {
 
     return [dict create \
         type "set" \
-        var_name $var_name \
+        name $var_name \
         value $value \
         range [make_range $start_line 1 $end_line 50]]
 }
@@ -341,7 +313,10 @@ proc ::ast::parse_set {cmd_text start_line end_line} {
 # Parse variable command
 proc ::ast::parse_variable {cmd_text start_line end_line} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid variable syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
     set var_name [lindex $cmd_text 1]
@@ -360,37 +335,34 @@ proc ::ast::parse_variable {cmd_text start_line end_line} {
 # Parse global command
 proc ::ast::parse_global {cmd_text start_line end_line} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid global syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
-    set vars [lrange $cmd_text 1 end]
+    set var_names [lrange $cmd_text 1 end]
 
     return [dict create \
         type "global" \
-        vars $vars \
+        variables $var_names \
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse upvar command
+# Parse upvar command - FIXED to keep level as string
 proc ::ast::parse_upvar {cmd_text start_line end_line} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid upvar syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
-    set args [lrange $cmd_text 1 end]
-
-    # upvar can be: upvar level otherVar localVar
-    # or: upvar otherVar localVar (level defaults to 1)
-    if {[llength $args] == 2} {
-        set level "1"
-        set other_var [lindex $args 0]
-        set local_var [lindex $args 1]
-    } elseif {[llength $args] >= 3} {
-        set level [lindex $args 0]
-        set other_var [lindex $args 1]
-        set local_var [lindex $args 2]
-    } else {
-        return ""
+    set level [lindex $cmd_text 1]
+    set other_var [lindex $cmd_text 2]
+    set local_var ""
+    if {$word_count >= 4} {
+        set local_var [lindex $cmd_text 3]
     }
 
     return [dict create \
@@ -401,141 +373,285 @@ proc ::ast::parse_upvar {cmd_text start_line end_line} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse namespace command
+# Parse namespace command - FIXED to parse body recursively
 proc ::ast::parse_namespace {cmd_text start_line end_line depth} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid namespace syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
     set subcommand [lindex $cmd_text 1]
 
-    if {$subcommand eq "eval"} {
-        if {$word_count < 3} {
-            return ""
+    switch -exact -- $subcommand {
+        "eval" {
+            if {$word_count < 4} {
+                return [dict create \
+                    type "error" \
+                    message "Invalid namespace eval syntax" \
+                    range [make_range $start_line 1 $end_line 50]]
+            }
+
+            set ns_name [lindex $cmd_text 2]
+            set body_text [lindex $cmd_text 3]
+
+            # Recursively parse namespace body - THIS WAS THE BUG!
+            set body_start_line [expr {$start_line + 1}]
+            set body_nodes [find_all_nodes $body_text $body_start_line [expr {$depth + 1}]]
+
+            return [dict create \
+                type "namespace" \
+                subcommand "eval" \
+                name $ns_name \
+                body $body_nodes \
+                range [make_range $start_line 1 $end_line 50]]
         }
-
-        set name [lindex $cmd_text 2]
-        set body ""
-        if {$word_count >= 4} {
-            set body [lindex $cmd_text 3]
+        "import" {
+            set patterns [lrange $cmd_text 2 end]
+            return [dict create \
+                type "namespace_import" \
+                patterns $patterns \
+                range [make_range $start_line 1 $end_line 50]]
         }
-
-        set body_lines [count_lines $body]
-        set actual_end_line [expr {$start_line + $body_lines + 1}]
-
-        # Store body as text, don't recursively parse it
-        return [dict create \
-            type "namespace" \
-            subtype "eval" \
-            name $name \
-            body $body \
-            range [make_range $start_line 1 $actual_end_line 1]]
-
-    } elseif {$subcommand eq "import"} {
-        set patterns [lrange $cmd_text 2 end]
-        return [dict create \
-            type "namespace_import" \
-            patterns $patterns \
-            range [make_range $start_line 1 $end_line 50]]
+        "export" {
+            set patterns [lrange $cmd_text 2 end]
+            return [dict create \
+                type "namespace_export" \
+                patterns $patterns \
+                range [make_range $start_line 1 $end_line 50]]
+        }
+        default {
+            return [dict create \
+                type "namespace" \
+                subcommand $subcommand \
+                args [lrange $cmd_text 2 end] \
+                range [make_range $start_line 1 $end_line 50]]
+        }
     }
-
-    return [dict create \
-        type "namespace" \
-        subtype $subcommand \
-        args [lrange $cmd_text 2 end] \
-        range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse package command
+# Parse package command - FIXED to keep version as string
 proc ::ast::parse_package {cmd_text start_line end_line} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
-        return ""
+    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+        return [dict create \
+            type "error" \
+            message "Invalid package syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
     set subcommand [lindex $cmd_text 1]
-    set package_name [lindex $cmd_text 2]
-    set version ""
-    if {$word_count >= 4} {
-        set version [lindex $cmd_text 3]
-    }
 
-    if {$subcommand eq "require"} {
-        return [dict create \
-            type "package_require" \
-            package_name $package_name \
-            version $version \
-            range [make_range $start_line 1 $end_line 50]]
-    } elseif {$subcommand eq "provide"} {
-        return [dict create \
-            type "package_provide" \
-            package_name $package_name \
-            version $version \
-            range [make_range $start_line 1 $end_line 50]]
-    }
+    switch -exact -- $subcommand {
+        "require" {
+            if {$word_count < 3} {
+                return [dict create \
+                    type "error" \
+                    message "Invalid package require syntax" \
+                    range [make_range $start_line 1 $end_line 50]]
+            }
 
-    return ""
+            set pkg_name [lindex $cmd_text 2]
+            set version ""
+            if {$word_count >= 4} {
+                set version [lindex $cmd_text 3]
+            }
+
+            return [dict create \
+                type "package_require" \
+                package $pkg_name \
+                version $version \
+                range [make_range $start_line 1 $end_line 50]]
+        }
+        "provide" {
+            if {$word_count < 4} {
+                return [dict create \
+                    type "error" \
+                    message "Invalid package provide syntax" \
+                    range [make_range $start_line 1 $end_line 50]]
+            }
+
+            set pkg_name [lindex $cmd_text 2]
+            set version [lindex $cmd_text 3]
+
+            return [dict create \
+                type "package_provide" \
+                package $pkg_name \
+                version $version \
+                range [make_range $start_line 1 $end_line 50]]
+        }
+        default {
+            return [dict create \
+                type "package" \
+                subcommand $subcommand \
+                args [lrange $cmd_text 2 end] \
+                range [make_range $start_line 1 $end_line 50]]
+        }
+    }
 }
 
-# Parse if command
+# Parse if command - FIXED to return proper node
 proc ::ast::parse_if {cmd_text start_line end_line depth} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid if syntax" \
+            range [make_range $start_line 1 $end_line 50]]
+    }
+
+    set condition [lindex $cmd_text 1]
+    set then_body [lindex $cmd_text 2]
+
+    # Parse branches
+    set branches [list]
+    lappend branches [dict create \
+        type "then" \
+        condition $condition \
+        body $then_body]
+
+    # Check for elseif/else
+    set idx 3
+    while {$idx < $word_count} {
+        set keyword [lindex $cmd_text $idx]
+
+        if {$keyword eq "elseif"} {
+            if {$idx + 2 >= $word_count} {
+                break
+            }
+            set elseif_cond [lindex $cmd_text [expr {$idx + 1}]]
+            set elseif_body [lindex $cmd_text [expr {$idx + 2}]]
+            lappend branches [dict create \
+                type "elseif" \
+                condition $elseif_cond \
+                body $elseif_body]
+            set idx [expr {$idx + 3}]
+        } elseif {$keyword eq "else"} {
+            if {$idx + 1 >= $word_count} {
+                break
+            }
+            set else_body [lindex $cmd_text [expr {$idx + 1}]]
+            lappend branches [dict create \
+                type "else" \
+                body $else_body]
+            break
+        } else {
+            break
+        }
     }
 
     return [dict create \
         type "if" \
+        branches $branches \
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse while command
+# Parse while command - FIXED to return proper node
 proc ::ast::parse_while {cmd_text start_line end_line depth} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid while syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
+
+    set condition [lindex $cmd_text 1]
+    set body [lindex $cmd_text 2]
 
     return [dict create \
         type "while" \
+        condition $condition \
+        body $body \
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse for command
+# Parse for command - FIXED to return proper node
 proc ::ast::parse_for {cmd_text start_line end_line depth} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 5} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid for syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
+
+    set init [lindex $cmd_text 1]
+    set condition [lindex $cmd_text 2]
+    set increment [lindex $cmd_text 3]
+    set body [lindex $cmd_text 4]
 
     return [dict create \
         type "for" \
+        init $init \
+        condition $condition \
+        increment $increment \
+        body $body \
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse foreach command
+# Parse foreach command - FIXED to return proper node with variable name
 proc ::ast::parse_foreach {cmd_text start_line end_line depth} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 4} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid foreach syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
+
+    set var_name [lindex $cmd_text 1]
+    set list_expr [lindex $cmd_text 2]
+    set body [lindex $cmd_text 3]
 
     return [dict create \
         type "foreach" \
+        variable $var_name \
+        list $list_expr \
+        body $body \
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse switch command
+# Parse switch command - FIXED to return proper node with cases
 proc ::ast::parse_switch {cmd_text start_line end_line depth} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid switch syntax" \
+            range [make_range $start_line 1 $end_line 50]]
+    }
+
+    set value [lindex $cmd_text 1]
+
+    # Parse switch body (last argument)
+    set switch_body [lindex $cmd_text end]
+
+    # Extract cases from body
+    set cases [list]
+    set case_count [llength $switch_body]
+
+    for {set i 0} {$i < $case_count} {incr i 2} {
+        set pattern [lindex $switch_body $i]
+        set body ""
+        if {$i + 1 < $case_count} {
+            set body [lindex $switch_body [expr {$i + 1}]]
+        }
+
+        lappend cases [dict create \
+            pattern $pattern \
+            body $body]
     }
 
     return [dict create \
         type "switch" \
-        cases [list] \
+        value $value \
+        cases $cases \
         range [make_range $start_line 1 $end_line 50]]
 }
 
 # Parse expr command
 proc ::ast::parse_expr {cmd_text start_line end_line} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid expr syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
     set expression [lindex $cmd_text 1]
@@ -549,7 +665,10 @@ proc ::ast::parse_expr {cmd_text start_line end_line} {
 # Parse list command
 proc ::ast::parse_list {cmd_text start_line end_line} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid list syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
     set elements [lrange $cmd_text 1 end]
@@ -563,7 +682,10 @@ proc ::ast::parse_list {cmd_text start_line end_line} {
 # Parse lappend command
 proc ::ast::parse_lappend {cmd_text start_line end_line} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid lappend syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
     set var_name [lindex $cmd_text 1]
@@ -579,7 +701,10 @@ proc ::ast::parse_lappend {cmd_text start_line end_line} {
 # Parse array command
 proc ::ast::parse_array {cmd_text start_line end_line} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid array syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
     set subcommand [lindex $cmd_text 1]
@@ -595,7 +720,10 @@ proc ::ast::parse_array {cmd_text start_line end_line} {
 # Parse puts command
 proc ::ast::parse_puts {cmd_text start_line end_line} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
-        return ""
+        return [dict create \
+            type "error" \
+            message "Invalid puts syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
     set args [lrange $cmd_text 1 end]
@@ -611,120 +739,109 @@ proc ::ast::parse_puts {cmd_text start_line end_line} {
 # ============================================================================
 
 # Find all nodes recursively (procs can be nested!)
-proc ::ast::find_all_nodes {code start_line {depth 0}} {
+proc ::ast::find_all_nodes {code start_line depth} {
     variable debug
 
-    set all_nodes [list]
-
     if {$debug} {
-        puts "Scanning at depth $depth, starting line $start_line"
+        puts "Finding nodes at depth $depth, starting line $start_line"
     }
 
-    # Extract commands from this code block
     set commands [extract_commands $code $start_line]
 
     if {$debug} {
         puts "  Found [llength $commands] commands"
     }
 
-    # Parse each command
+    set nodes [list]
+
     foreach cmd_dict $commands {
         set node [parse_command $cmd_dict $depth]
 
         # Only add non-empty nodes
-        if {$node ne "" && [dict size $node] > 0} {
-            lappend all_nodes $node
+        if {$node ne ""} {
+            lappend nodes $node
         }
     }
 
-    return $all_nodes
+    return $nodes
 }
 
 # ============================================================================
-# JSON CONVERSION
+# JSON SERIALIZATION - FIXED type handling
 # ============================================================================
 
 proc ::ast::dict_to_json {d indent_level} {
     set indent [string repeat "  " $indent_level]
     set next_indent [string repeat "  " [expr {$indent_level + 1}]]
 
-    set result "\{"
+    set result "\{\n"
     set first 1
+
+    # Fields that should always be strings (not numbers)
+    set string_fields [list "default" "level" "version" "value"]
 
     dict for {key value} $d {
         if {!$first} {
-            append result ","
+            append result ",\n"
         }
         set first 0
 
-        append result "\n${next_indent}\"$key\": "
+        append result "${next_indent}\"$key\": "
 
-        # Special handling for known list fields
-        set is_list_field [expr {$key eq "children" || $key eq "params" || $key eq "comments" ||
-                                 $key eq "errors" || $key eq "vars" || $key eq "patterns" ||
-                                 $key eq "args" || $key eq "cases" || $key eq "elements" ||
-                                 $key eq "nested_nodes"}]
+        # Force certain fields to be strings
+        set force_string [expr {$key in $string_fields}]
 
-        # Check if it's a dict (must have even number of elements and be valid dict)
-        set is_dict 0
-        if {[catch {dict size $value} dsize] == 0 && $dsize > 0} {
-            set is_dict 1
-        }
-
-        if {$is_dict} {
-            # It's a nested dict
-            append result [dict_to_json $value [expr {$indent_level + 1}]]
-        } elseif {[string is integer -strict $value] || [string is double -strict $value]} {
-            # Number
-            append result $value
-        } elseif {$value eq ""} {
-            # Empty string or empty list
-            if {$is_list_field} {
-                append result "\[\]"
+        if {[string is list -strict $value] && [llength $value] > 0} {
+            # Check if it's a dict or list
+            if {[expr {[llength $value] % 2 == 0}] && [catch {dict size $value} size] == 0} {
+                # It's a dict
+                append result [dict_to_json $value [expr {$indent_level + 1}]]
             } else {
-                append result "\"\""
-            }
-        } elseif {$is_list_field && [llength $value] > 0} {
-            # It's a list field with values
-            set first_elem [lindex $value 0]
-            set has_dict_items 0
-            if {[catch {dict size $first_elem} fsize] == 0 && $fsize > 0} {
-                set has_dict_items 1
-            }
-
-            if {$has_dict_items} {
-                # List of dicts
-                append result "\["
-                set first_item 1
-                foreach item $value {
-                    if {!$first_item} {
-                        append result ","
+                # It's a list - check if list of dicts or primitives
+                set first_elem [lindex $value 0]
+                if {[string is list -strict $first_elem] && [catch {dict size $first_elem}] == 0} {
+                    # List of dicts
+                    append result "\[\n"
+                    set first_item 1
+                    foreach item $value {
+                        if {!$first_item} {
+                            append result ",\n"
+                        }
+                        set first_item 0
+                        append result "${next_indent}  "
+                        append result [dict_to_json $item [expr {$indent_level + 2}]]
                     }
-                    set first_item 0
-                    append result "\n$next_indent  "
-                    append result [dict_to_json $item [expr {$indent_level + 2}]]
+                    append result "\n${next_indent}\]"
+                } else {
+                    # List of strings/numbers
+                    append result "\["
+                    set first_item 1
+                    foreach item $value {
+                        if {!$first_item} {
+                            append result ", "
+                        }
+                        set first_item 0
+                        if {!$force_string && ([string is integer -strict $item] || [string is double -strict $item])} {
+                            append result $item
+                        } else {
+                            append result "\"[escape_json $item]\""
+                        }
+                    }
+                    append result "\]"
                 }
-                append result "\n${next_indent}\]"
-            } else {
-                # List of strings/numbers
-                append result "\["
-                set first_item 1
-                foreach item $value {
-                    if {!$first_item} {
-                        append result ", "
-                    }
-                    set first_item 0
-                    if {[string is integer -strict $item] || [string is double -strict $item]} {
-                        append result $item
-                    } else {
-                        append result "\"[escape_json $item]\""
-                    }
-                }
-                append result "\]"
             }
         } else {
-            # Default: treat as string
-            append result "\"[escape_json $value]\""
+            # Scalar value - check type
+            if {$force_string} {
+                # Always quote these fields
+                append result "\"[escape_json $value]\""
+            } elseif {[string is integer -strict $value] || [string is double -strict $value]} {
+                # Numeric value
+                append result $value
+            } else {
+                # String value
+                append result "\"[escape_json $value]\""
+            }
         }
     }
 
@@ -799,8 +916,7 @@ proc ::ast::build {code {filepath "<string>"}} {
         puts "=== AST Building Complete ===\n"
     }
 
-    # Build root AST - DON'T flatten nested nodes!
-    # Nested nodes should stay within their parent node's nested_nodes field
+    # Build root AST
     return [dict create \
         type "root" \
         filepath $filepath \
