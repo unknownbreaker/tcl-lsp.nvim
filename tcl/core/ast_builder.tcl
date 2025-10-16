@@ -838,6 +838,13 @@ proc ::ast::serialize_value {value key indent_level} {
 
     set list_length [llength $value]
 
+    # CRITICAL FIX: Check if value is a dict (nested object) BEFORE treating as scalar
+    # This handles fields like "range", "start", "end_pos" which are dicts
+    if {!$is_array_field && $list_length > 1 && [expr {$list_length % 2 == 0}] && [catch {dict size $value}] == 0} {
+        # It's a dict/object - serialize recursively
+        return [dict_to_json $value [expr {$indent_level + 1}]]
+    }
+
     # Handle based on whether it's an array field or not
     if {!$is_array_field} {
         # Scalar field - serialize as single value
