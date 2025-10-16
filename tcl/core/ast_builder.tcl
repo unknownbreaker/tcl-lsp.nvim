@@ -233,7 +233,7 @@ proc ::ast::parse_command {cmd_dict depth} {
 # SPECIFIC COMMAND PARSERS
 # ============================================================================
 
-# Parse proc command - FIXED parameter parsing
+# Parse proc command - FIXED parameter parsing and body structure
 proc ::ast::parse_proc {cmd_text start_line end_line depth} {
     variable debug
 
@@ -248,7 +248,7 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
     set args_list [lindex $cmd_text 2]
     set body [lindex $cmd_text 3]
 
-    # Parse parameters properly - THIS WAS THE BUG!
+    # Parse parameters properly
     set params [list]
     foreach arg $args_list {
         if {[llength $arg] == 2} {
@@ -277,12 +277,17 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
     # Recursively parse proc body for nested procs
     set nested_nodes [find_all_nodes $body $body_start_line [expr {$depth + 1}]]
 
+    # FIXED: Create body structure with children for tests
+    # Tests expect body.children, not separate nested_nodes field
+    set body_node [dict create \
+        children $nested_nodes]
+
+    # FIXED: Use 'params' not 'parameters'
     set proc_node [dict create \
         type "proc" \
         name $proc_name \
-        parameters $params \
-        body $body \
-        nested_nodes $nested_nodes \
+        params $params \
+        body $body_node \
         range [make_range $start_line 1 $end_line 50]]
 
     return $proc_node
@@ -396,7 +401,7 @@ proc ::ast::parse_namespace {cmd_text start_line end_line depth} {
             set ns_name [lindex $cmd_text 2]
             set body_text [lindex $cmd_text 3]
 
-            # Recursively parse namespace body - THIS WAS THE BUG!
+            # Recursively parse namespace body
             set body_start_line [expr {$start_line + 1}]
             set body_nodes [find_all_nodes $body_text $body_start_line [expr {$depth + 1}]]
 
@@ -431,7 +436,7 @@ proc ::ast::parse_namespace {cmd_text start_line end_line depth} {
     }
 }
 
-# Parse package command - FIXED to keep version as string
+# Parse package command - FIXED to use 'package' not 'package_name'
 proc ::ast::parse_package {cmd_text start_line end_line} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
         return [dict create \
@@ -457,6 +462,7 @@ proc ::ast::parse_package {cmd_text start_line end_line} {
                 set version [lindex $cmd_text 3]
             }
 
+            # FIXED: Use 'package' not 'package_name'
             return [dict create \
                 type "package_require" \
                 package $pkg_name \
@@ -474,6 +480,7 @@ proc ::ast::parse_package {cmd_text start_line end_line} {
             set pkg_name [lindex $cmd_text 2]
             set version [lindex $cmd_text 3]
 
+            # FIXED: Use 'package' not 'package_name'
             return [dict create \
                 type "package_provide" \
                 package $pkg_name \
@@ -802,7 +809,8 @@ proc ::ast::serialize_value {value key indent_level} {
     set force_string [expr {[lsearch -exact $string_fields $key] >= 0}]
 
     # Fields that are known to be arrays/lists
-    set array_fields [list "children" "comments" "errors" "parameters" "branches" "cases" "patterns" "variables" "elements" "args" "nested_nodes"]
+    # FIXED: Added 'params' to the list
+    set array_fields [list "children" "comments" "errors" "params" "parameters" "branches" "cases" "patterns" "variables" "elements" "args" "nested_nodes"]
     set is_array_field [expr {[lsearch -exact $array_fields $key] >= 0}]
 
     # Special case: "body" can be either a string OR an array of nodes
@@ -924,12 +932,13 @@ proc ::ast::build {code {filepath "<string>"}} {
         if {$debug} {
             puts "ERROR: Incomplete TCL code"
         }
+        # FIXED: Error message now includes "syntax" keyword
         return [dict create \
             type "root" \
             filepath $filepath \
             errors [list [dict create \
                 type "error" \
-                message "missing close-brace" \
+                message "Syntax error: missing close-brace" \
                 range [make_range 1 1 1 1] \
                 error_type "incomplete" \
                 suggestion "Check for missing closing brace \}"]] \

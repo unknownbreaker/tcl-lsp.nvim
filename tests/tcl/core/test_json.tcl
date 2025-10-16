@@ -3,7 +3,9 @@
 
 # Load the ast_builder
 set script_dir [file dirname [file normalize [info script]]]
-source [file join [file dirname $script_dir] tcl core ast_builder.tcl]
+# Go up 3 levels to project root: tests/tcl/core -> tests/tcl -> tests -> root
+set project_root [file dirname [file dirname [file dirname $script_dir]]]
+source [file join $project_root tcl core ast_builder.tcl]
 
 # Test 1: Simple scalar values
 puts "Test 1: Scalar values"
