@@ -93,7 +93,24 @@ lint-lua: ## Run linting
 
 lint-tcl: ## Run linting
 	@echo "Linting Tcl code with Nagelfar..."
-	find tcl/ -name "*.tcl" -exec $(NAGELFAR) -H {} \;
+	@find tcl/ -name "*.tcl" -print0 2>/dev/null | while IFS= read -r -d '' file; do \
+		echo ""; \
+		printf "\033[1;36mChecking: %s\033[0m\n" "$$file"; \
+		$(NAGELFAR) -H "$$file" 2>&1 | awk -v RED='\033[1;31m' -v YELLOW='\033[1;33m' -v CYAN='\033[0;36m' -v NC='\033[0m' '{ \
+			if (match($$0, /: E /)) { \
+				print RED $$0 NC; \
+			} else if (match($$0, /: W /)) { \
+				print YELLOW $$0 NC; \
+			} else if (match($$0, /: N /)) { \
+				print CYAN $$0 NC; \
+			} else { \
+				print $$0; \
+			} \
+			fflush(); \
+		}'; \
+	done
+	@echo ""
+	@printf "\033[1;32m✓ TCL linting complete\033[0m\n"
 
 format-js: ## Format JavaScript test files (if any exist)
 	@count=$$(find tests -name '*.js' 2>/dev/null | wc -l); \
