@@ -149,14 +149,66 @@ proc ::ast::extract_commands {code start_line_offset} {
 
 # Helper: Safely get list element without triggering command substitution
 proc ::ast::safe_lindex {text index} {
-    # Try normal lindex first
-    if {[catch {set result [lindex $text $index]} err] == 0} {
+    # Try to parse as a list directly without executing substitutions
+    # Use catch to handle cases where text contains command substitutions
+    if {[catch {llength $text} word_count] == 0 && [catch {lindex $text $index} result] == 0} {
+        # Successfully got the element - this works for most cases
         return $result
     }
 
-    # If that fails (due to substitutions), fall back to regexp
-    # This is not perfect but handles common cases
-    set words [regexp -all -inline {\S+} $text]
+    # If that failed, it's because of command substitution like [expr ...]
+    # Fall back to manual parsing that respects TCL word boundaries
+
+    set words [list]
+    set current_word ""
+    set in_braces 0
+    set in_brackets 0
+    set in_quotes 0
+    set i 0
+    set len [string length $text]
+
+    while {$i < $len} {
+        set char [string index $text $i]
+
+        # Track nesting
+        if {!$in_quotes} {
+            if {$char eq "\{"} {
+                incr in_braces
+            } elseif {$char eq "\}"} {
+                incr in_braces -1
+            } elseif {$char eq "\["} {
+                incr in_brackets
+            } elseif {$char eq "\]"} {
+                incr in_brackets -1
+            }
+        }
+
+        if {$char eq "\""} {
+            set in_quotes [expr {!$in_quotes}]
+        }
+
+        # Word boundary: space when not nested
+        if {$char eq " " || $char eq "\t"} {
+            if {$in_braces == 0 && $in_brackets == 0 && !$in_quotes} {
+                if {$current_word ne ""} {
+                    lappend words $current_word
+                    set current_word ""
+                }
+                incr i
+                continue
+            }
+        }
+
+        append current_word $char
+        incr i
+    }
+
+    # Add last word
+    if {$current_word ne ""} {
+        lappend words $current_word
+    }
+
+    # Return requested index
     if {$index < [llength $words]} {
         return [lindex $words $index]
     }
