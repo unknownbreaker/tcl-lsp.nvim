@@ -837,8 +837,8 @@ proc ::ast::serialize_value {value key indent_level} {
     set force_string [expr {[lsearch -exact $string_fields $key] >= 0}]
 
     # Fields that are known to be arrays/lists
-    # FIXED: Added 'params' to the list
-    set array_fields [list "children" "comments" "errors" "params" "parameters" "branches" "cases" "patterns" "variables" "elements" "args" "nested_nodes"]
+    # FIXED: Added 'params' and 'vars' to the list
+    set array_fields [list "children" "comments" "errors" "params" "parameters" "branches" "cases" "patterns" "variables" "vars" "elements" "args" "nested_nodes" "elseif_branches"]
     set is_array_field [expr {[lsearch -exact $array_fields $key] >= 0}]
 
     # Special case: "body" can be either a string OR an array of nodes

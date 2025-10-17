@@ -103,7 +103,8 @@ function M.parse(code, filepath)
 
   -- FIXED: Check if AST has errors and convert to nil return
   -- This makes tests that expect nil for syntax errors work correctly
-  if ast.had_error and ast.had_error == 1 then
+  -- Handle both number (1) and boolean (true) from JSON parsing
+  if ast.had_error and (ast.had_error == 1 or ast.had_error == true) then
     local error_messages = {}
 
     if ast.errors and type(ast.errors) == "table" then
