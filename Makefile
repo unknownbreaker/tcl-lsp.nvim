@@ -8,6 +8,7 @@ NVIM ?= nvim
 LUA ?= lua
 TCLSH ?= tclsh
 BUSTED ?= busted
+NAGELFAR ?= nagelfar
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -65,32 +66,52 @@ test-coverage: ## Generate test coverage report
 	busted tests/lua --coverage --verbose
 	luacov
 
-lint: lint-js lint-lua lint-tcl ## Run all linting
+lint: lint-lua lint-tcl lint-js ## Run all linting
 	@echo "All linting completed"
 
-lint-js: ## Lint JavaScript test files
-	@echo "Linting JavaScript files..."
-	npm run lint
+lint-js: ## Lint JavaScript test files (if any exist)
+	@count=$$(find tests -name '*.js' 2>/dev/null | wc -l); \
+	if [ $$count -gt 0 ]; then \
+		echo "Linting $$count JavaScript file(s)..."; \
+		npm run lint; \
+	else \
+		echo "No JavaScript files found, skipping JS linting..."; \
+	fi
 
-lint-js-fix: ## Fix JavaScript linting issues
-	@echo "Fixing JavaScript linting issues..."
-	npm run lint:fix
+lint-js-fix: ## Fix JavaScript linting issues (if any exist)
+	@count=$$(find tests -name '*.js' 2>/dev/null | wc -l); \
+	if [ $$count -gt 0 ]; then \
+		echo "Fixing JavaScript linting issues in $$count file(s)..."; \
+		npm run lint:fix; \
+	else \
+		echo "No JavaScript files found, skipping JS linting fixes..."; \
+	fi
 
 lint-lua: ## Run linting
 	@echo "Linting Lua code..."
 	luacheck lua/ tests/
 
 lint-tcl: ## Run linting
-	@echo "Linting Tcl code..."
-	tclchecker tcl/
+	@echo "Linting Tcl code with Nagelfar..."
+	find tcl/ -name "*.tcl" -exec $(NAGELFAR) -H {} \;
 
-format-js: ## Format JavaScript test files
-	@echo "Formatting JavaScript files..."
-	npm run format
+format-js: ## Format JavaScript test files (if any exist)
+	@count=$$(find tests -name '*.js' 2>/dev/null | wc -l); \
+	if [ $$count -gt 0 ]; then \
+		echo "Formatting $$count JavaScript file(s)..."; \
+		npm run format; \
+	else \
+		echo "No JavaScript files found, skipping JS formatting..."; \
+	fi
 
-format-js-check: ## Check JavaScript formatting
-	@echo "Checking JavaScript formatting..."
-	npm run format:check
+format-js-check: ## Check JavaScript formatting (if any exist)
+	@count=$$(find tests -name '*.js' 2>/dev/null | wc -l); \
+	if [ $$count -gt 0 ]; then \
+		echo "Checking formatting of $$count JavaScript file(s)..."; \
+		npm run format:check; \
+	else \
+		echo "No JavaScript files found, skipping JS format checking..."; \
+	fi
 
 format-lua: ## Format code
 	@echo "Formatting Lua code..."
@@ -100,7 +121,7 @@ format-tcl: ## Format code
 	@echo "Formatting Tcl code..."
 	find tcl/ -name "*.tcl" -exec tclFormatter {} \;
 
-format: format-lua format-tcl ## Run all formatting
+format: format-lua format-tcl format-js ## Run all formatting
 	@echo "All formatting completed"
 
 check: lint test ## Run checks and tests
@@ -122,4 +143,3 @@ docs: ## Generate documentation
 release: check docs ## Prepare release
 	@echo "Preparing release..."
 	@scripts/prepare_release.sh
-
