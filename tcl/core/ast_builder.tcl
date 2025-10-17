@@ -85,20 +85,24 @@ proc ::ast::extract_commands {code start_line_offset} {
     set current_cmd ""
     set cmd_start_line $start_line_offset
     set line_num $start_line_offset
+    set brace_depth 0
 
     foreach line [split $code "\n"] {
         set trimmed [string trim $line]
 
-        # Skip empty lines and comments
-        if {$trimmed eq "" || [string index $trimmed 0] eq "#"} {
-            if {$current_cmd ne ""} {
-                # End of previous command
-                lappend commands [dict create \
-                    text $current_cmd \
-                    start_line $cmd_start_line \
-                    end_line [expr {$line_num - 1}]]
-                set current_cmd ""
+        # Track brace depth to know when we're inside a block
+        # Count opening and closing braces on this line
+        for {set i 0} {$i < [string length $line]} {incr i} {
+            set char [string index $line $i]
+            if {$char eq "\{"} {
+                incr brace_depth
+            } elseif {$char eq "\}"} {
+                incr brace_depth -1
             }
+        }
+
+        # Skip empty lines and comments ONLY if we're not accumulating a command
+        if {$current_cmd eq "" && ($trimmed eq "" || [string index $trimmed 0] eq "#")} {
             incr line_num
             continue
         }
@@ -112,7 +116,10 @@ proc ::ast::extract_commands {code start_line_offset} {
         append current_cmd $line
 
         # Check if command is complete
-        if {[info complete $current_cmd]} {
+        # A command is complete when:
+        # 1. info complete says it's complete AND
+        # 2. We're at brace depth 0 (not inside any blocks)
+        if {[info complete $current_cmd] && $brace_depth == 0} {
             lappend commands [dict create \
                 text $current_cmd \
                 start_line $cmd_start_line \
@@ -125,12 +132,12 @@ proc ::ast::extract_commands {code start_line_offset} {
 
     # Handle incomplete command at end
     if {$current_cmd ne ""} {
-        if {[regexp {^\s*#} $trimmed]} {
-            lappend commands [dict create \
-                text $trimmed \
-                start_line $cmd_start_line \
-                end_line [expr {$line_num - 1}]]
-        }
+        # If we have accumulated command but never completed it, still add it
+        # This handles cases where the last command is incomplete
+        lappend commands [dict create \
+            text $current_cmd \
+            start_line $cmd_start_line \
+            end_line [expr {$line_num - 1}]]
     }
 
     return $commands
@@ -253,9 +260,18 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
     foreach arg $args_list {
         if {[llength $arg] == 2} {
             # Parameter with default value: {name default}
+            set param_name [lindex $arg 0]
+            set param_default [lindex $arg 1]
+
+            # Strip surrounding quotes from default value if present
+            # e.g., {operation "add"} should have default "add" not "\"add\""
+            if {[string index $param_default 0] eq "\"" && [string index $param_default end] eq "\""} {
+                set param_default [string range $param_default 1 end-1]
+            }
+
             lappend params [dict create \
-                name [lindex $arg 0] \
-                default [lindex $arg 1]]
+                name $param_name \
+                default $param_default]
         } elseif {[llength $arg] == 1} {
             # Simple parameter (including 'args')
             # Don't include 'default' key for params without defaults
@@ -1001,6 +1017,24 @@ proc ::ast::build {code {filepath "<string>"}} {
 
     if {$debug} {
         puts "Found [llength $nodes] total nodes"
+    }
+
+    # Check for error nodes in children
+    set error_nodes [list]
+    foreach node $nodes {
+        if {[dict exists $node type] && [dict get $node type] eq "error"} {
+            lappend error_nodes $node
+        }
+    }
+
+    # Set had_error flag if any errors found
+    set had_error 0
+    if {[llength $error_nodes] > 0} {
+        set had_error 1
+    }
+
+    if {$debug} {
+        puts "Found [llength $error_nodes] errors"
         puts "=== AST Building Complete ===\n"
     }
 
@@ -1010,6 +1044,6 @@ proc ::ast::build {code {filepath "<string>"}} {
         filepath $filepath \
         comments $comments \
         children $nodes \
-        had_error 0 \
-        errors [list]]
+        had_error $had_error \
+        errors $error_nodes]
 }
