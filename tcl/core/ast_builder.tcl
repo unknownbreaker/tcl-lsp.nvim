@@ -228,25 +228,28 @@ proc ::ast::parse_command {cmd_dict depth} {
     set end_line [dict get $cmd_dict end_line]
 
     # Validate it's a valid TCL command
-    # CRITICAL: Wrap in braces to prevent command substitution execution
-    # When parsing "set x [expr 1]", we don't want TCL to actually execute [expr 1]
-    set safe_cmd "\{$cmd_text\}"
-    if {[catch {llength $safe_cmd} word_count]} {
-        if {$debug} {
-            puts "  Invalid command syntax, skipping"
-        }
-        return [dict create \
-            type "error" \
-            message "Invalid command syntax" \
-            range [make_range $start_line 1 $end_line 50]]
-    }
+    # Check for command substitutions to decide how to count words
+    set has_substitution [regexp {\[} $cmd_text]
 
-    # Now get actual word count from original command
-    # Use list to safely parse
-    if {[catch {set word_count [llength $cmd_text]} err]} {
-        # If this fails, command has substitutions - use alternate parsing
-        # Just count space-separated words as approximation
-        set word_count [llength [split [string trim $cmd_text]]]
+    if {!$has_substitution} {
+        # No substitutions - safe to use llength
+        if {[catch {llength $cmd_text} word_count]} {
+            if {$debug} {
+                puts "  Invalid command syntax, skipping"
+            }
+            return [dict create \
+                type "error" \
+                message "Invalid command syntax" \
+                range [make_range $start_line 1 $end_line 50]]
+        }
+    } else {
+        # Has substitutions - count words manually
+        set word_count 0
+        foreach word [split $cmd_text] {
+            if {[string trim $word] ne ""} {
+                incr word_count
+            }
+        }
     }
 
     if {$word_count == 0} {
@@ -341,9 +344,9 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set proc_name [lindex $cmd_text 1]
-    set args_list [lindex $cmd_text 2]
-    set body [lindex $cmd_text 3]
+    set proc_name [safe_lindex $cmd_text 1]
+    set args_list [safe_lindex $cmd_text 2]
+    set body [safe_lindex $cmd_text 3]
 
     # Parse parameters properly
     set params [list]
@@ -407,17 +410,30 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
 
 # Parse set command - FIXED: use var_name field and safe_lindex
 proc ::ast::parse_set {cmd_text start_line end_line} {
-    # Use safe word count
-    set safe_cmd "\{$cmd_text\}"
-    if {[catch {llength $safe_cmd} word_count] || $word_count < 2} {
-        # Try alternate counting
-        set word_count [llength [regexp -all -inline {\S+} $cmd_text]]
-        if {$word_count < 2} {
-            return [dict create \
-                type "error" \
-                message "Invalid set syntax" \
-                range [make_range $start_line 1 $end_line 50]]
+    # Count words safely - check for command substitutions first
+    set has_substitution [regexp {\[} $cmd_text]
+
+    if {!$has_substitution} {
+        # Safe to use normal llength
+        if {[catch {llength $cmd_text} word_count]} {
+            set word_count 0
         }
+    } else {
+        # Has command substitutions - count manually
+        # This gives us approximate count but that's okay
+        set word_count 0
+        foreach word [split $cmd_text] {
+            if {[string trim $word] ne ""} {
+                incr word_count
+            }
+        }
+    }
+
+    if {$word_count < 2} {
+        return [dict create \
+            type "error" \
+            message "Invalid set syntax" \
+            range [make_range $start_line 1 $end_line 50]]
     }
 
     set var_name [safe_lindex $cmd_text 1]
@@ -442,10 +458,10 @@ proc ::ast::parse_variable {cmd_text start_line end_line} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set var_name [lindex $cmd_text 1]
+    set var_name [safe_lindex $cmd_text 1]
     set value ""
     if {$word_count >= 3} {
-        set value [lindex $cmd_text 2]
+        set value [safe_lindex $cmd_text 2]
     }
 
     return [dict create \
@@ -481,11 +497,11 @@ proc ::ast::parse_upvar {cmd_text start_line end_line} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set level [lindex $cmd_text 1]
-    set other_var [lindex $cmd_text 2]
+    set level [safe_lindex $cmd_text 1]
+    set other_var [safe_lindex $cmd_text 2]
     set local_var ""
     if {$word_count >= 4} {
-        set local_var [lindex $cmd_text 3]
+        set local_var [safe_lindex $cmd_text 3]
     }
 
     return [dict create \
@@ -505,7 +521,7 @@ proc ::ast::parse_namespace {cmd_text start_line end_line depth} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set subcommand [lindex $cmd_text 1]
+    set subcommand [safe_lindex $cmd_text 1]
 
     switch -exact -- $subcommand {
         "eval" {
@@ -516,8 +532,8 @@ proc ::ast::parse_namespace {cmd_text start_line end_line depth} {
                     range [make_range $start_line 1 $end_line 50]]
             }
 
-            set ns_name [lindex $cmd_text 2]
-            set body_text [lindex $cmd_text 3]
+            set ns_name [safe_lindex $cmd_text 2]
+            set body_text [safe_lindex $cmd_text 3]
 
             # Recursively parse namespace body
             set body_start_line [expr {$start_line + 1}]
@@ -563,7 +579,7 @@ proc ::ast::parse_package {cmd_text start_line end_line} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set subcommand [lindex $cmd_text 1]
+    set subcommand [safe_lindex $cmd_text 1]
 
     switch -exact -- $subcommand {
         "require" {
@@ -574,10 +590,10 @@ proc ::ast::parse_package {cmd_text start_line end_line} {
                     range [make_range $start_line 1 $end_line 50]]
             }
 
-            set pkg_name [lindex $cmd_text 2]
+            set pkg_name [safe_lindex $cmd_text 2]
             set version ""
             if {$word_count >= 4} {
-                set version [lindex $cmd_text 3]
+                set version [safe_lindex $cmd_text 3]
             }
 
             # FIXED: Use 'package_name' as tests expect
@@ -595,8 +611,8 @@ proc ::ast::parse_package {cmd_text start_line end_line} {
                     range [make_range $start_line 1 $end_line 50]]
             }
 
-            set pkg_name [lindex $cmd_text 2]
-            set version [lindex $cmd_text 3]
+            set pkg_name [safe_lindex $cmd_text 2]
+            set version [safe_lindex $cmd_text 3]
 
             # FIXED: Use 'package' not 'package_name'
             return [dict create \
@@ -624,8 +640,8 @@ proc ::ast::parse_if {cmd_text start_line end_line depth} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set condition [lindex $cmd_text 1]
-    set then_body [lindex $cmd_text 2]
+    set condition [safe_lindex $cmd_text 1]
+    set then_body [safe_lindex $cmd_text 2]
 
     # Start building the if node
     set if_node [dict create \
@@ -641,14 +657,14 @@ proc ::ast::parse_if {cmd_text start_line end_line depth} {
 
     set idx 3
     while {$idx < $word_count} {
-        set keyword [lindex $cmd_text $idx]
+        set keyword [safe_lindex $cmd_text $idx]
 
         if {$keyword eq "elseif"} {
             if {$idx + 2 >= $word_count} {
                 break
             }
-            set elseif_cond [lindex $cmd_text [expr {$idx + 1}]]
-            set elseif_body [lindex $cmd_text [expr {$idx + 2}]]
+            set elseif_cond [safe_lindex $cmd_text [expr {$idx + 1}]]
+            set elseif_body [safe_lindex $cmd_text [expr {$idx + 2}]]
             lappend elseif_branches [dict create \
                 condition $elseif_cond \
                 body $elseif_body]
@@ -657,7 +673,7 @@ proc ::ast::parse_if {cmd_text start_line end_line depth} {
             if {$idx + 1 >= $word_count} {
                 break
             }
-            set else_body [lindex $cmd_text [expr {$idx + 1}]]
+            set else_body [safe_lindex $cmd_text [expr {$idx + 1}]]
             set has_else 1
             break
         } else {
@@ -687,8 +703,8 @@ proc ::ast::parse_while {cmd_text start_line end_line depth} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set condition [lindex $cmd_text 1]
-    set body [lindex $cmd_text 2]
+    set condition [safe_lindex $cmd_text 1]
+    set body [safe_lindex $cmd_text 2]
 
     return [dict create \
         type "while" \
@@ -706,10 +722,10 @@ proc ::ast::parse_for {cmd_text start_line end_line depth} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set init [lindex $cmd_text 1]
-    set condition [lindex $cmd_text 2]
-    set increment [lindex $cmd_text 3]
-    set body [lindex $cmd_text 4]
+    set init [safe_lindex $cmd_text 1]
+    set condition [safe_lindex $cmd_text 2]
+    set increment [safe_lindex $cmd_text 3]
+    set body [safe_lindex $cmd_text 4]
 
     return [dict create \
         type "for" \
@@ -729,9 +745,9 @@ proc ::ast::parse_foreach {cmd_text start_line end_line depth} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set var_name [lindex $cmd_text 1]
-    set list_var [lindex $cmd_text 2]
-    set body [lindex $cmd_text 3]
+    set var_name [safe_lindex $cmd_text 1]
+    set list_var [safe_lindex $cmd_text 2]
+    set body [safe_lindex $cmd_text 3]
 
     return [dict create \
         type "foreach" \
@@ -750,10 +766,10 @@ proc ::ast::parse_switch {cmd_text start_line end_line depth} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set value [lindex $cmd_text 1]
+    set value [safe_lindex $cmd_text 1]
 
     # Parse switch body (last argument)
-    set switch_body [lindex $cmd_text end]
+    set switch_body [safe_lindex $cmd_text end]
 
     # Extract cases from body
     set cases [list]
@@ -787,7 +803,7 @@ proc ::ast::parse_expr {cmd_text start_line end_line} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set expression [lindex $cmd_text 1]
+    set expression [safe_lindex $cmd_text 1]
 
     return [dict create \
         type "expr" \
@@ -821,8 +837,8 @@ proc ::ast::parse_lappend {cmd_text start_line end_line} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set var_name [lindex $cmd_text 1]
-    set value [lindex $cmd_text 2]
+    set var_name [safe_lindex $cmd_text 1]
+    set value [safe_lindex $cmd_text 2]
 
     return [dict create \
         type "lappend" \
@@ -840,8 +856,8 @@ proc ::ast::parse_array {cmd_text start_line end_line} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set subcommand [lindex $cmd_text 1]
-    set array_name [lindex $cmd_text 2]
+    set subcommand [safe_lindex $cmd_text 1]
+    set array_name [safe_lindex $cmd_text 2]
 
     return [dict create \
         type "array" \
