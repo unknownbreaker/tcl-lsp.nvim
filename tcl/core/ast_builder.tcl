@@ -147,6 +147,23 @@ proc ::ast::extract_commands {code start_line_offset} {
 # COMMAND PARSING (Using TCL list commands)
 # ============================================================================
 
+# Helper: Safely get list element without triggering command substitution
+proc ::ast::safe_lindex {text index} {
+    # Try normal lindex first
+    if {[catch {set result [lindex $text $index]} err] == 0} {
+        return $result
+    }
+
+    # If that fails (due to substitutions), fall back to regexp
+    # This is not perfect but handles common cases
+    set words [regexp -all -inline {\S+} $text]
+    if {$index < [llength $words]} {
+        return [lindex $words $index]
+    }
+
+    return ""
+}
+
 # Parse a command into an AST node
 proc ::ast::parse_command {cmd_dict depth} {
     variable debug
@@ -156,7 +173,10 @@ proc ::ast::parse_command {cmd_dict depth} {
     set end_line [dict get $cmd_dict end_line]
 
     # Validate it's a valid TCL command
-    if {[catch {llength $cmd_text} word_count]} {
+    # CRITICAL: Wrap in braces to prevent command substitution execution
+    # When parsing "set x [expr 1]", we don't want TCL to actually execute [expr 1]
+    set safe_cmd "\{$cmd_text\}"
+    if {[catch {llength $safe_cmd} word_count]} {
         if {$debug} {
             puts "  Invalid command syntax, skipping"
         }
@@ -166,12 +186,27 @@ proc ::ast::parse_command {cmd_dict depth} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
+    # Now get actual word count from original command
+    # Use list to safely parse
+    if {[catch {set word_count [llength $cmd_text]} err]} {
+        # If this fails, command has substitutions - use alternate parsing
+        # Just count space-separated words as approximation
+        set word_count [llength [split [string trim $cmd_text]]]
+    }
+
     if {$word_count == 0} {
         return ""
     }
 
-    # Get command name
-    set cmd_name [lindex $cmd_text 0]
+    # Get command name safely without triggering substitution
+    # Use regexp to extract first word
+    if {[regexp {^\s*(\S+)} $cmd_text -> cmd_name] == 0} {
+        # Couldn't extract command name
+        return [dict create \
+            type "error" \
+            message "Cannot determine command name" \
+            range [make_range $start_line 1 $end_line 50]]
+    }
 
     if {$debug} {
         puts "  Parsing command: $cmd_name at line $start_line (depth $depth)"
@@ -315,19 +350,25 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
     return $proc_node
 }
 
-# Parse set command - FIXED: use var_name field
+# Parse set command - FIXED: use var_name field and safe_lindex
 proc ::ast::parse_set {cmd_text start_line end_line} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
-        return [dict create \
-            type "error" \
-            message "Invalid set syntax" \
-            range [make_range $start_line 1 $end_line 50]]
+    # Use safe word count
+    set safe_cmd "\{$cmd_text\}"
+    if {[catch {llength $safe_cmd} word_count] || $word_count < 2} {
+        # Try alternate counting
+        set word_count [llength [regexp -all -inline {\S+} $cmd_text]]
+        if {$word_count < 2} {
+            return [dict create \
+                type "error" \
+                message "Invalid set syntax" \
+                range [make_range $start_line 1 $end_line 50]]
+        }
     }
 
-    set var_name [lindex $cmd_text 1]
+    set var_name [safe_lindex $cmd_text 1]
     set value ""
     if {$word_count >= 3} {
-        set value [lindex $cmd_text 2]
+        set value [safe_lindex $cmd_text 2]
     }
 
     return [dict create \
