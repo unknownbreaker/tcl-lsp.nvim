@@ -804,8 +804,9 @@ proc ::ast::dict_to_json {d indent_level} {
 proc ::ast::serialize_value {value key indent_level} {
     set next_indent [string repeat "  " [expr {$indent_level + 1}]]
 
-    # Fields that should always be strings (not numbers)
-    set string_fields [list "default" "level" "version"]
+    # Fields that should always be strings (not numbers or dicts)
+    # CRITICAL: These fields may contain multiple words but should always be strings
+    set string_fields [list "default" "level" "version" "message" "suggestion" "text" "expression" "condition" "init" "increment" "other_var" "local_var" "subcommand" "array_name" "pattern" "list"]
     set force_string [expr {[lsearch -exact $string_fields $key] >= 0}]
 
     # Fields that are known to be arrays/lists
@@ -838,6 +839,12 @@ proc ::ast::serialize_value {value key indent_level} {
 
     set list_length [llength $value]
 
+    # CRITICAL: Check force_string FIRST, before dict detection
+    # This prevents multi-word strings from being treated as dicts
+    if {$force_string} {
+        return "\"[escape_json $value]\""
+    }
+
     # CRITICAL FIX: Check if value is a dict (nested object) BEFORE treating as scalar
     # This handles fields like "range", "start", "end_pos" which are dicts
     if {!$is_array_field && $list_length > 1 && [expr {$list_length % 2 == 0}] && [catch {dict size $value}] == 0} {
@@ -848,9 +855,7 @@ proc ::ast::serialize_value {value key indent_level} {
     # Handle based on whether it's an array field or not
     if {!$is_array_field} {
         # Scalar field - serialize as single value
-        if {$force_string} {
-            return "\"[escape_json $value]\""
-        } elseif {$value eq ""} {
+        if {$value eq ""} {
             return "\"\""
         } elseif {[string is integer -strict $value]} {
             return $value
