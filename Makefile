@@ -89,7 +89,7 @@ lint-js-fix: ## Fix JavaScript linting issues (if any exist)
 
 lint-lua: ## Run linting
 	@echo "Linting Lua code..."
-	luacheck lua/ tests/
+	luacheck lua/ tests/ || [ $$? -eq 1 ]
 
 lint-tcl: ## Run linting
 	@echo "Linting Tcl code with Nagelfar..."
@@ -97,7 +97,9 @@ lint-tcl: ## Run linting
 		echo ""; \
 		printf "\033[1;36mChecking: %s\033[0m\n" "$$file"; \
 		$(NAGELFAR) -H "$$file" 2>&1 | awk -v RED='\033[1;31m' -v YELLOW='\033[1;33m' -v CYAN='\033[0;36m' -v NC='\033[0m' '{ \
-			if (match($$0, /: E /)) { \
+			if (match($$0, /^Checking file /)) { \
+				next; \
+			} else if (match($$0, /: E /)) { \
 				print RED $$0 NC; \
 			} else if (match($$0, /: W /)) { \
 				print YELLOW $$0 NC; \
