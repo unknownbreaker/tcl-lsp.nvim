@@ -1,6 +1,18 @@
 #!/usr/bin/env tclsh
 # tcl/core/ast_builder.tcl
-# Production AST Builder - Recursive text-based parsing (NO safe interpreter)
+# Production AST Builder - Uses literal tokenizer for accurate parsing
+#
+# This AST builder constructs an Abstract Syntax Tree from TCL source code
+# without executing or evaluating the code. It uses a literal tokenizer to
+# preserve exact source text representation, which is critical for Language
+# Server Protocol (LSP) features like go-to-definition and refactoring.
+
+# Load the tokenizer module
+set script_dir [file dirname [file normalize [info script]]]
+if {[catch {source [file join $script_dir tokenizer.tcl]} err]} {
+    puts stderr "Error loading tokenizer.tcl: $err"
+    exit 1
+}
 
 namespace eval ::ast {
     variable current_file "<string>"
@@ -8,18 +20,33 @@ namespace eval ::ast {
     variable debug 0
 }
 
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
+# ===========================================================================
+# UTILITY FUNCTIONS - Position tracking and helpers
+# ===========================================================================
 
-# Create position range
+# Create a position range for AST nodes
+#
+# Args:
+#   start_line, start_col - Starting position
+#   end_line, end_col     - Ending position
+#
+# Returns:
+#   Dict with start and end_pos keys
+#
 proc ::ast::make_range {start_line start_col end_line end_col} {
     return [dict create \
         start [dict create line $start_line column $start_col] \
         end_pos [dict create line $end_line column $end_col]]
 }
 
-# Build line number mapping for position tracking
+# Build a line number mapping for the source code
+#
+# This enables us to convert byte offsets to line/column positions,
+# which is necessary for LSP range information.
+#
+# Args:
+#   code - The source code to map
+#
 proc ::ast::build_line_map {code} {
     variable line_map
     set line_map [dict create]
@@ -37,7 +64,14 @@ proc ::ast::build_line_map {code} {
     }
 }
 
-# Get line number from code offset
+# Convert a byte offset to line and column number
+#
+# Args:
+#   offset - Byte offset into the source code
+#
+# Returns:
+#   List of {line_num column_num}
+#
 proc ::ast::offset_to_line {offset} {
     variable line_map
 
@@ -55,12 +89,28 @@ proc ::ast::offset_to_line {offset} {
     return [list 1 1]
 }
 
-# Count line numbers in text
+# Count the number of lines in a text string
+#
+# Args:
+#   text - The text to count lines in
+#
+# Returns:
+#   Number of lines
+#
 proc ::ast::count_lines {text} {
     return [expr {[llength [split $text "\n"]] - 1}]
 }
 
 # Extract comments from source code
+#
+# Comments in TCL start with # at the beginning of a line (after whitespace)
+#
+# Args:
+#   code - The source code
+#
+# Returns:
+#   List of comment dicts with type, text, and line keys
+#
 proc ::ast::extract_comments {code} {
     set comments [list]
     set line_num 0
@@ -68,32 +118,83 @@ proc ::ast::extract_comments {code} {
     foreach line [split $code "\n"] {
         incr line_num
 
-        if {[regexp {^(\s*)#(.*)$} $line -> indent text]} {
+        # Match comment lines: optional whitespace + # + comment text
+        if {[regexp {^(\s*)#(.*)} $line -> indent text]} {
             lappend comments [dict create \
                 type "comment" \
-                text [string trim $text] \
-                range [make_range $line_num 1 $line_num [string length $line]]]
+                text $text \
+                line $line_num]
         }
     }
 
     return $comments
 }
 
-# Extract commands from TCL code
-proc ::ast::extract_commands {code start_line_offset} {
+# ===========================================================================
+# COMMAND EXTRACTION - Breaking source into individual commands
+# ===========================================================================
+
+# Extract individual TCL commands from source code
+#
+# This function splits the source into separate commands, handling:
+#   - Multi-line commands (incomplete until braces balanced)
+#   - Comments (single and multi-line)
+#   - Empty lines
+#
+# Args:
+#   code       - The source code
+#   start_line - Line number to start from (for nested parsing)
+#
+# Returns:
+#   List of command dicts with text, start_line, end_line keys
+#
+proc ::ast::extract_commands {code start_line} {
+    variable debug
+
     set commands [list]
+    set lines [split $code "\n"]
+    set line_num $start_line
     set current_cmd ""
-    set cmd_start_line $start_line_offset
-    set line_num $start_line_offset
+    set cmd_start_line $start_line
     set brace_depth 0
+    set in_comment 0
 
-    foreach line [split $code "\n"] {
+    foreach line $lines {
+        # Handle multi-line comments (lines ending with \)
+        if {$in_comment} {
+            if {[string index [string trimright $line] end] ne "\\"} {
+                set in_comment 0
+            }
+            incr line_num
+            continue
+        }
+
+        # Skip comment lines
+        if {[regexp {^\s*#} $line]} {
+            # Check if this comment continues on next line
+            if {[string index [string trimright $line] end] eq "\\"} {
+                set in_comment 1
+            }
+            incr line_num
+            continue
+        }
+
+        # Skip empty lines
         set trimmed [string trim $line]
+        if {$trimmed eq ""} {
+            incr line_num
+            continue
+        }
 
-        # Track brace depth to know when we're inside a block
-        # Count opening and closing braces on this line
-        for {set i 0} {$i < [string length $line]} {incr i} {
-            set char [string index $line $i]
+        # Start new command if we're not in the middle of one
+        if {$current_cmd eq ""} {
+            set cmd_start_line $line_num
+        }
+
+        append current_cmd $line "\n"
+
+        # Track brace depth to know when command is complete
+        foreach char [split $line ""] {
             if {$char eq "\{"} {
                 incr brace_depth
             } elseif {$char eq "\}"} {
@@ -101,23 +202,8 @@ proc ::ast::extract_commands {code start_line_offset} {
             }
         }
 
-        # Skip empty lines and comments ONLY if we're not accumulating a command
-        if {$current_cmd eq "" && ($trimmed eq "" || [string index $trimmed 0] eq "#")} {
-            incr line_num
-            continue
-        }
-
-        # Append to current command
-        if {$current_cmd ne ""} {
-            append current_cmd "\n"
-        } else {
-            set cmd_start_line $line_num
-        }
-        append current_cmd $line
-
-        # Check if command is complete
-        # A command is complete when:
-        # 1. info complete says it's complete AND
+        # Command is complete when:
+        # 1. TCL says it's complete ([info complete])
         # 2. We're at brace depth 0 (not inside any blocks)
         if {[info complete $current_cmd] && $brace_depth == 0} {
             lappend commands [dict create \
@@ -130,10 +216,8 @@ proc ::ast::extract_commands {code start_line_offset} {
         incr line_num
     }
 
-    # Handle incomplete command at end
+    # Handle incomplete command at end of file
     if {$current_cmd ne ""} {
-        # If we have accumulated command but never completed it, still add it
-        # This handles cases where the last command is incomplete
         lappend commands [dict create \
             text $current_cmd \
             start_line $cmd_start_line \
@@ -143,83 +227,22 @@ proc ::ast::extract_commands {code start_line_offset} {
     return $commands
 }
 
-# ============================================================================
-# COMMAND PARSING (Using TCL list commands)
-# ============================================================================
+# ===========================================================================
+# COMMAND PARSING - Converting command text to AST nodes
+# ===========================================================================
 
-# Helper: Safely get list element without triggering command substitution
-proc ::ast::safe_lindex {text index} {
-    # Check if text contains command substitutions or other special cases
-    # that would cause lindex to fail or execute
-    set has_substitution [regexp {\[} $text]
-
-    if {!$has_substitution} {
-        # No command substitutions - safe to use normal lindex
-        if {[catch {lindex $text $index} result] == 0} {
-            return $result
-        }
-    }
-
-    # Use manual parsing for safety when there are substitutions
-    # or when normal lindex failed
-    set words [list]
-    set current_word ""
-    set in_braces 0
-    set in_brackets 0
-    set in_quotes 0
-    set i 0
-    set len [string length $text]
-
-    while {$i < $len} {
-        set char [string index $text $i]
-
-        # Track nesting
-        if {!$in_quotes} {
-            if {$char eq "\{"} {
-                incr in_braces
-            } elseif {$char eq "\}"} {
-                incr in_braces -1
-            } elseif {$char eq "\["} {
-                incr in_brackets
-            } elseif {$char eq "\]"} {
-                incr in_brackets -1
-            }
-        }
-
-        if {$char eq "\""} {
-            set in_quotes [expr {!$in_quotes}]
-        }
-
-        # Word boundary: space when not nested
-        if {$char eq " " || $char eq "\t"} {
-            if {$in_braces == 0 && $in_brackets == 0 && !$in_quotes} {
-                if {$current_word ne ""} {
-                    lappend words $current_word
-                    set current_word ""
-                }
-                incr i
-                continue
-            }
-        }
-
-        append current_word $char
-        incr i
-    }
-
-    # Add last word
-    if {$current_word ne ""} {
-        lappend words $current_word
-    }
-
-    # Return requested index
-    if {$index < [llength $words]} {
-        return [lindex $words $index]
-    }
-
-    return ""
-}
-
-# Parse a command into an AST node
+# Parse a single command into an AST node
+#
+# This is the main dispatch function that determines the command type
+# and calls the appropriate specialized parser.
+#
+# Args:
+#   cmd_dict - Dict with text, start_line, end_line keys
+#   depth    - Nesting depth (for recursive parsing)
+#
+# Returns:
+#   AST node dict, or empty string if not a recognized command
+#
 proc ::ast::parse_command {cmd_dict depth} {
     variable debug
 
@@ -227,50 +250,21 @@ proc ::ast::parse_command {cmd_dict depth} {
     set start_line [dict get $cmd_dict start_line]
     set end_line [dict get $cmd_dict end_line]
 
-    # Validate it's a valid TCL command
-    # Check for command substitutions to decide how to count words
-    set has_substitution [regexp {\[} $cmd_text]
-
-    if {!$has_substitution} {
-        # No substitutions - safe to use llength
-        if {[catch {llength $cmd_text} word_count]} {
-            if {$debug} {
-                puts "  Invalid command syntax, skipping"
-            }
-            return [dict create \
-                type "error" \
-                message "Invalid command syntax" \
-                range [make_range $start_line 1 $end_line 50]]
-        }
-    } else {
-        # Has substitutions - count words manually
-        set word_count 0
-        foreach word [split $cmd_text] {
-            if {[string trim $word] ne ""} {
-                incr word_count
-            }
-        }
-    }
+    # Use tokenizer to count words (not llength which evaluates!)
+    set word_count [::tokenizer::count_tokens $cmd_text]
 
     if {$word_count == 0} {
         return ""
     }
 
-    # Get command name safely without triggering substitution
-    # Use regexp to extract first word
-    if {[regexp {^\s*(\S+)} $cmd_text -> cmd_name] == 0} {
-        # Couldn't extract command name
-        return [dict create \
-            type "error" \
-            message "Cannot determine command name" \
-            range [make_range $start_line 1 $end_line 50]]
-    }
+    # Get command name using tokenizer (not lindex which evaluates!)
+    set cmd_name [::tokenizer::get_token $cmd_text 0]
 
     if {$debug} {
         puts "  Parsing command: $cmd_name at line $start_line (depth $depth)"
     }
 
-    # Dispatch to specific parser
+    # Dispatch to specialized parser based on command name
     switch -exact -- $cmd_name {
         "proc" {
             return [parse_proc $cmd_text $start_line $end_line $depth]
@@ -324,40 +318,60 @@ proc ::ast::parse_command {cmd_dict depth} {
             return [parse_puts $cmd_text $start_line $end_line]
         }
         default {
+            # Unknown command - skip it
             return ""
         }
     }
 }
 
-# ============================================================================
-# SPECIFIC COMMAND PARSERS
-# ============================================================================
+# ===========================================================================
+# SPECIALIZED COMMAND PARSERS
+# ===========================================================================
+# Each parser extracts the structure of a specific TCL command type
+# and returns an AST node with the appropriate fields.
 
-# Parse proc command - FIXED parameter parsing and body structure
+# Parse a proc (procedure) definition
+#
+# Syntax: proc name {args} {body}
+#
 proc ::ast::parse_proc {cmd_text start_line end_line depth} {
     variable debug
 
-    if {[catch {llength $cmd_text} word_count] || $word_count < 4} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+    if {$word_count < 4} {
         return [dict create \
             type "error" \
             message "Invalid proc syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set proc_name [safe_lindex $cmd_text 1]
-    set args_list [safe_lindex $cmd_text 2]
-    set body [safe_lindex $cmd_text 3]
+    set proc_name [::tokenizer::get_token $cmd_text 1]
+    set args_list_raw [::tokenizer::get_token $cmd_text 2]
+    set body_raw [::tokenizer::get_token $cmd_text 3]
 
-    # Parse parameters properly
+    # Remove surrounding braces from args and body
+    # (they're part of the literal token)
+    if {[string index $args_list_raw 0] eq "\{" && [string index $args_list_raw end] eq "\}"} {
+        set args_list [string range $args_list_raw 1 end-1]
+    } else {
+        set args_list $args_list_raw
+    }
+
+    if {[string index $body_raw 0] eq "\{" && [string index $body_raw end] eq "\}"} {
+        set body [string range $body_raw 1 end-1]
+    } else {
+        set body $body_raw
+    }
+
+    # Parse parameters - can be simple names or {name default} pairs
     set params [list]
     foreach arg $args_list {
         if {[llength $arg] == 2} {
-            # Parameter with default value: {name default}
+            # Parameter with default value
             set param_name [lindex $arg 0]
             set param_default [lindex $arg 1]
 
-            # Strip surrounding quotes from default value if present
-            # e.g., {operation "add"} should have default "add" not "\"add\""
+            # Strip quotes from default if present
             if {[string index $param_default 0] eq "\"" && [string index $param_default end] eq "\""} {
                 set param_default [string range $param_default 1 end-1]
             }
@@ -366,11 +380,10 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
                 name $param_name \
                 default $param_default]
         } elseif {[llength $arg] == 1} {
-            # Simple parameter (including 'args')
-            # Don't include 'default' key for params without defaults
+            # Simple parameter
             set param_dict [dict create name $arg]
 
-            # Check if this is a varargs parameter
+            # Special handling for 'args' (varargs parameter)
             if {$arg eq "args"} {
                 dict set param_dict is_varargs 1
             }
@@ -383,21 +396,12 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
         puts "    Proc: $proc_name with [llength $params] parameters"
     }
 
-    # Calculate body start line
-    set header_lines [count_lines "$proc_name $args_list"]
-    set body_start_line [expr {$start_line + $header_lines}]
-    set body_lines [count_lines $body]
-    set body_end_line [expr {$body_start_line + $body_lines}]
-
-    # Recursively parse proc body for nested procs
+    # Recursively parse the procedure body
+    set body_start_line [expr {$start_line + 1}]
     set nested_nodes [find_all_nodes $body $body_start_line [expr {$depth + 1}]]
 
-    # FIXED: Create body structure with children for tests
-    # Tests expect body.children, not separate nested_nodes field
-    set body_node [dict create \
-        children $nested_nodes]
+    set body_node [dict create children $nested_nodes]
 
-    # FIXED: Use 'params' not 'parameters'
     set proc_node [dict create \
         type "proc" \
         name $proc_name \
@@ -408,26 +412,14 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
     return $proc_node
 }
 
-# Parse set command - FIXED: use var_name field and safe_lindex
+# Parse a set command (variable assignment)
+#
+# Syntax: set varname [value]
+#
+# This is a CRITICAL parser - it must preserve exact text representation!
+#
 proc ::ast::parse_set {cmd_text start_line end_line} {
-    # Count words safely - check for command substitutions first
-    set has_substitution [regexp {\[} $cmd_text]
-
-    if {!$has_substitution} {
-        # Safe to use normal llength
-        if {[catch {llength $cmd_text} word_count]} {
-            set word_count 0
-        }
-    } else {
-        # Has command substitutions - count manually
-        # This gives us approximate count but that's okay
-        set word_count 0
-        foreach word [split $cmd_text] {
-            if {[string trim $word] ne ""} {
-                incr word_count
-            }
-        }
-    }
+    set word_count [::tokenizer::count_tokens $cmd_text]
 
     if {$word_count < 2} {
         return [dict create \
@@ -436,10 +428,11 @@ proc ::ast::parse_set {cmd_text start_line end_line} {
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set var_name [safe_lindex $cmd_text 1]
+    # Extract tokens literally (no evaluation!)
+    set var_name [::tokenizer::get_token $cmd_text 1]
     set value ""
     if {$word_count >= 3} {
-        set value [safe_lindex $cmd_text 2]
+        set value [::tokenizer::get_token $cmd_text 2]
     }
 
     return [dict create \
@@ -449,19 +442,24 @@ proc ::ast::parse_set {cmd_text start_line end_line} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse variable command
+# Parse a variable declaration
+#
+# Syntax: variable name [value]
+#
 proc ::ast::parse_variable {cmd_text start_line end_line} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 2} {
         return [dict create \
             type "error" \
             message "Invalid variable syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set var_name [safe_lindex $cmd_text 1]
+    set var_name [::tokenizer::get_token $cmd_text 1]
     set value ""
     if {$word_count >= 3} {
-        set value [safe_lindex $cmd_text 2]
+        set value [::tokenizer::get_token $cmd_text 2]
     }
 
     return [dict create \
@@ -471,16 +469,25 @@ proc ::ast::parse_variable {cmd_text start_line end_line} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse global command - FIXED: use vars field name
+# Parse a global variable declaration
+#
+# Syntax: global var1 [var2 ...]
+#
 proc ::ast::parse_global {cmd_text start_line end_line} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 2} {
         return [dict create \
             type "error" \
             message "Invalid global syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set var_names [lrange $cmd_text 1 end]
+    # Get all variable names after 'global'
+    set var_names [list]
+    for {set i 1} {$i < $word_count} {incr i} {
+        lappend var_names [::tokenizer::get_token $cmd_text $i]
+    }
 
     return [dict create \
         type "global" \
@@ -488,20 +495,25 @@ proc ::ast::parse_global {cmd_text start_line end_line} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse upvar command - FIXED to keep level as string
+# Parse an upvar declaration
+#
+# Syntax: upvar level otherVar myVar
+#
 proc ::ast::parse_upvar {cmd_text start_line end_line} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 3} {
         return [dict create \
             type "error" \
             message "Invalid upvar syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set level [safe_lindex $cmd_text 1]
-    set other_var [safe_lindex $cmd_text 2]
+    set level [::tokenizer::get_token $cmd_text 1]
+    set other_var [::tokenizer::get_token $cmd_text 2]
     set local_var ""
     if {$word_count >= 4} {
-        set local_var [safe_lindex $cmd_text 3]
+        set local_var [::tokenizer::get_token $cmd_text 3]
     }
 
     return [dict create \
@@ -512,16 +524,47 @@ proc ::ast::parse_upvar {cmd_text start_line end_line} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse namespace command - FIXED to parse body recursively
+# Parse an array command
+#
+# Syntax: array subcommand arrayName [...]
+#
+proc ::ast::parse_array {cmd_text start_line end_line} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 3} {
+        return [dict create \
+            type "error" \
+            message "Invalid array syntax" \
+            range [make_range $start_line 1 $end_line 50]]
+    }
+
+    set subcommand [::tokenizer::get_token $cmd_text 1]
+    set array_name [::tokenizer::get_token $cmd_text 2]
+
+    return [dict create \
+        type "array" \
+        subcommand $subcommand \
+        array_name $array_name \
+        range [make_range $start_line 1 $end_line 50]]
+}
+
+# Parse a namespace command
+#
+# Syntax: namespace eval name {body}
+#         namespace import pattern
+#         namespace export pattern
+#
 proc ::ast::parse_namespace {cmd_text start_line end_line depth} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 2} {
         return [dict create \
             type "error" \
             message "Invalid namespace syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set subcommand [safe_lindex $cmd_text 1]
+    set subcommand [::tokenizer::get_token $cmd_text 1]
 
     switch -exact -- $subcommand {
         "eval" {
@@ -532,8 +575,15 @@ proc ::ast::parse_namespace {cmd_text start_line end_line depth} {
                     range [make_range $start_line 1 $end_line 50]]
             }
 
-            set ns_name [safe_lindex $cmd_text 2]
-            set body_text [safe_lindex $cmd_text 3]
+            set ns_name [::tokenizer::get_token $cmd_text 2]
+            set body_raw [::tokenizer::get_token $cmd_text 3]
+
+            # Remove braces from body
+            if {[string index $body_raw 0] eq "\{" && [string index $body_raw end] eq "\}"} {
+                set body_text [string range $body_raw 1 end-1]
+            } else {
+                set body_text $body_raw
+            }
 
             # Recursively parse namespace body
             set body_start_line [expr {$start_line + 1}]
@@ -546,17 +596,16 @@ proc ::ast::parse_namespace {cmd_text start_line end_line depth} {
                 body $body_nodes \
                 range [make_range $start_line 1 $end_line 50]]
         }
-        "import" {
-            set patterns [lrange $cmd_text 2 end]
+        "import" - "export" {
+            # Collect all patterns
+            set patterns [list]
+            for {set i 2} {$i < $word_count} {incr i} {
+                lappend patterns [::tokenizer::get_token $cmd_text $i]
+            }
+
+            set type_name "namespace_${subcommand}"
             return [dict create \
-                type "namespace_import" \
-                patterns $patterns \
-                range [make_range $start_line 1 $end_line 50]]
-        }
-        "export" {
-            set patterns [lrange $cmd_text 2 end]
-            return [dict create \
-                type "namespace_export" \
+                type $type_name \
                 patterns $patterns \
                 range [make_range $start_line 1 $end_line 50]]
         }
@@ -564,22 +613,27 @@ proc ::ast::parse_namespace {cmd_text start_line end_line depth} {
             return [dict create \
                 type "namespace" \
                 subcommand $subcommand \
-                args [lrange $cmd_text 2 end] \
                 range [make_range $start_line 1 $end_line 50]]
         }
     }
 }
 
-# Parse package command - FIXED to use 'package' not 'package_name'
+# Parse a package command
+#
+# Syntax: package require pkgName [version]
+#         package provide pkgName version
+#
 proc ::ast::parse_package {cmd_text start_line end_line} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 2} {
         return [dict create \
             type "error" \
             message "Invalid package syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set subcommand [safe_lindex $cmd_text 1]
+    set subcommand [::tokenizer::get_token $cmd_text 1]
 
     switch -exact -- $subcommand {
         "require" {
@@ -590,13 +644,12 @@ proc ::ast::parse_package {cmd_text start_line end_line} {
                     range [make_range $start_line 1 $end_line 50]]
             }
 
-            set pkg_name [safe_lindex $cmd_text 2]
+            set pkg_name [::tokenizer::get_token $cmd_text 2]
             set version ""
             if {$word_count >= 4} {
-                set version [safe_lindex $cmd_text 3]
+                set version [::tokenizer::get_token $cmd_text 3]
             }
 
-            # FIXED: Use 'package_name' as tests expect
             return [dict create \
                 type "package_require" \
                 package_name $pkg_name \
@@ -611,10 +664,9 @@ proc ::ast::parse_package {cmd_text start_line end_line} {
                     range [make_range $start_line 1 $end_line 50]]
             }
 
-            set pkg_name [safe_lindex $cmd_text 2]
-            set version [safe_lindex $cmd_text 3]
+            set pkg_name [::tokenizer::get_token $cmd_text 2]
+            set version [::tokenizer::get_token $cmd_text 3]
 
-            # FIXED: Use 'package' not 'package_name'
             return [dict create \
                 type "package_provide" \
                 package $pkg_name \
@@ -625,46 +677,49 @@ proc ::ast::parse_package {cmd_text start_line end_line} {
             return [dict create \
                 type "package" \
                 subcommand $subcommand \
-                args [lrange $cmd_text 2 end] \
                 range [make_range $start_line 1 $end_line 50]]
         }
     }
 }
 
-# Parse if command - FIXED to match test expectations
+# Parse an if statement
+#
+# Syntax: if {condition} {then_body} [elseif {condition} {body}]* [else {body}]
+#
 proc ::ast::parse_if {cmd_text start_line end_line depth} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 3} {
         return [dict create \
             type "error" \
             message "Invalid if syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set condition [safe_lindex $cmd_text 1]
-    set then_body [safe_lindex $cmd_text 2]
+    set condition [::tokenizer::get_token $cmd_text 1]
+    set then_body [::tokenizer::get_token $cmd_text 2]
 
-    # Start building the if node
     set if_node [dict create \
         type "if" \
         condition $condition \
         then_body $then_body \
         range [make_range $start_line 1 $end_line 50]]
 
-    # Parse elseif/else
+    # Parse optional elseif and else clauses
     set elseif_branches [list]
     set else_body ""
     set has_else 0
 
     set idx 3
     while {$idx < $word_count} {
-        set keyword [safe_lindex $cmd_text $idx]
+        set keyword [::tokenizer::get_token $cmd_text $idx]
 
         if {$keyword eq "elseif"} {
             if {$idx + 2 >= $word_count} {
                 break
             }
-            set elseif_cond [safe_lindex $cmd_text [expr {$idx + 1}]]
-            set elseif_body [safe_lindex $cmd_text [expr {$idx + 2}]]
+            set elseif_cond [::tokenizer::get_token $cmd_text [expr {$idx + 1}]]
+            set elseif_body [::tokenizer::get_token $cmd_text [expr {$idx + 2}]]
             lappend elseif_branches [dict create \
                 condition $elseif_cond \
                 body $elseif_body]
@@ -673,7 +728,7 @@ proc ::ast::parse_if {cmd_text start_line end_line depth} {
             if {$idx + 1 >= $word_count} {
                 break
             }
-            set else_body [safe_lindex $cmd_text [expr {$idx + 1}]]
+            set else_body [::tokenizer::get_token $cmd_text [expr {$idx + 1}]]
             set has_else 1
             break
         } else {
@@ -681,12 +736,10 @@ proc ::ast::parse_if {cmd_text start_line end_line depth} {
         }
     }
 
-    # Add elseif_branches if any exist
     if {[llength $elseif_branches] > 0} {
         dict set if_node elseif_branches $elseif_branches
     }
 
-    # Add else_body if it exists
     if {$has_else} {
         dict set if_node else_body $else_body
     }
@@ -694,17 +747,22 @@ proc ::ast::parse_if {cmd_text start_line end_line depth} {
     return $if_node
 }
 
-# Parse while command - FIXED to return proper node
+# Parse a while loop
+#
+# Syntax: while {condition} {body}
+#
 proc ::ast::parse_while {cmd_text start_line end_line depth} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 3} {
         return [dict create \
             type "error" \
             message "Invalid while syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set condition [safe_lindex $cmd_text 1]
-    set body [safe_lindex $cmd_text 2]
+    set condition [::tokenizer::get_token $cmd_text 1]
+    set body [::tokenizer::get_token $cmd_text 2]
 
     return [dict create \
         type "while" \
@@ -713,19 +771,24 @@ proc ::ast::parse_while {cmd_text start_line end_line depth} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse for command - FIXED to return proper node
+# Parse a for loop
+#
+# Syntax: for {init} {condition} {increment} {body}
+#
 proc ::ast::parse_for {cmd_text start_line end_line depth} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 5} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 5} {
         return [dict create \
             type "error" \
             message "Invalid for syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set init [safe_lindex $cmd_text 1]
-    set condition [safe_lindex $cmd_text 2]
-    set increment [safe_lindex $cmd_text 3]
-    set body [safe_lindex $cmd_text 4]
+    set init [::tokenizer::get_token $cmd_text 1]
+    set condition [::tokenizer::get_token $cmd_text 2]
+    set increment [::tokenizer::get_token $cmd_text 3]
+    set body [::tokenizer::get_token $cmd_text 4]
 
     return [dict create \
         type "for" \
@@ -736,18 +799,23 @@ proc ::ast::parse_for {cmd_text start_line end_line depth} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse foreach command - FIXED to return proper node with var_name
+# Parse a foreach loop
+#
+# Syntax: foreach varname list {body}
+#
 proc ::ast::parse_foreach {cmd_text start_line end_line depth} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 4} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 4} {
         return [dict create \
             type "error" \
             message "Invalid foreach syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set var_name [safe_lindex $cmd_text 1]
-    set list_var [safe_lindex $cmd_text 2]
-    set body [safe_lindex $cmd_text 3]
+    set var_name [::tokenizer::get_token $cmd_text 1]
+    set list_var [::tokenizer::get_token $cmd_text 2]
+    set body [::tokenizer::get_token $cmd_text 3]
 
     return [dict create \
         type "foreach" \
@@ -757,21 +825,31 @@ proc ::ast::parse_foreach {cmd_text start_line end_line depth} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse switch command - FIXED to return proper node with cases
+# Parse a switch statement
+#
+# Syntax: switch value {pattern1 body1 pattern2 body2 ...}
+#
 proc ::ast::parse_switch {cmd_text start_line end_line depth} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 3} {
         return [dict create \
             type "error" \
             message "Invalid switch syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set value [safe_lindex $cmd_text 1]
+    set value [::tokenizer::get_token $cmd_text 1]
+    set switch_body_raw [::tokenizer::get_token $cmd_text end]
 
-    # Parse switch body (last argument)
-    set switch_body [safe_lindex $cmd_text end]
+    # Remove braces from switch body
+    if {[string index $switch_body_raw 0] eq "\{" && [string index $switch_body_raw end] eq "\}"} {
+        set switch_body [string range $switch_body_raw 1 end-1]
+    } else {
+        set switch_body $switch_body_raw
+    }
 
-    # Extract cases from body
+    # Parse case patterns and bodies
     set cases [list]
     set case_count [llength $switch_body]
 
@@ -794,16 +872,21 @@ proc ::ast::parse_switch {cmd_text start_line end_line depth} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse expr command
+# Parse an expr command
+#
+# Syntax: expr {expression}
+#
 proc ::ast::parse_expr {cmd_text start_line end_line} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 2} {
         return [dict create \
             type "error" \
             message "Invalid expr syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set expression [safe_lindex $cmd_text 1]
+    set expression [::tokenizer::get_token $cmd_text 1]
 
     return [dict create \
         type "expr" \
@@ -811,16 +894,24 @@ proc ::ast::parse_expr {cmd_text start_line end_line} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse list command
+# Parse a list command
+#
+# Syntax: list element1 [element2 ...]
+#
 proc ::ast::parse_list {cmd_text start_line end_line} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 2} {
         return [dict create \
             type "error" \
             message "Invalid list syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set elements [lrange $cmd_text 1 end]
+    set elements [list]
+    for {set i 1} {$i < $word_count} {incr i} {
+        lappend elements [::tokenizer::get_token $cmd_text $i]
+    }
 
     return [dict create \
         type "list" \
@@ -828,17 +919,22 @@ proc ::ast::parse_list {cmd_text start_line end_line} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse lappend command
+# Parse an lappend command
+#
+# Syntax: lappend varname value
+#
 proc ::ast::parse_lappend {cmd_text start_line end_line} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 3} {
         return [dict create \
             type "error" \
             message "Invalid lappend syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set var_name [safe_lindex $cmd_text 1]
-    set value [safe_lindex $cmd_text 2]
+    set var_name [::tokenizer::get_token $cmd_text 1]
+    set value [::tokenizer::get_token $cmd_text 2]
 
     return [dict create \
         type "lappend" \
@@ -847,35 +943,25 @@ proc ::ast::parse_lappend {cmd_text start_line end_line} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse array command
-proc ::ast::parse_array {cmd_text start_line end_line} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
-        return [dict create \
-            type "error" \
-            message "Invalid array syntax" \
-            range [make_range $start_line 1 $end_line 50]]
-    }
-
-    set subcommand [safe_lindex $cmd_text 1]
-    set array_name [safe_lindex $cmd_text 2]
-
-    return [dict create \
-        type "array" \
-        subcommand $subcommand \
-        array_name $array_name \
-        range [make_range $start_line 1 $end_line 50]]
-}
-
-# Parse puts command
+# Parse a puts command
+#
+# Syntax: puts [options] string
+#
 proc ::ast::parse_puts {cmd_text start_line end_line} {
-    if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
+    set word_count [::tokenizer::count_tokens $cmd_text]
+
+    if {$word_count < 2} {
         return [dict create \
             type "error" \
             message "Invalid puts syntax" \
             range [make_range $start_line 1 $end_line 50]]
     }
 
-    set args [lrange $cmd_text 1 end]
+    # Collect all arguments
+    set args [list]
+    for {set i 1} {$i < $word_count} {incr i} {
+        lappend args [::tokenizer::get_token $cmd_text $i]
+    }
 
     return [dict create \
         type "puts" \
@@ -883,30 +969,32 @@ proc ::ast::parse_puts {cmd_text start_line end_line} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# ============================================================================
-# RECURSIVE NODE FINDER (Main algorithm)
-# ============================================================================
+# ===========================================================================
+# RECURSIVE PARSING
+# ===========================================================================
 
-# Find all nodes recursively (procs can be nested!)
+# Find all AST nodes in a code block recursively
+#
+# This function handles nested structures like procs inside namespaces.
+#
+# Args:
+#   code       - The code block to parse
+#   start_line - Starting line number
+#   depth      - Nesting depth
+#
+# Returns:
+#   List of AST nodes
+#
 proc ::ast::find_all_nodes {code start_line depth} {
     variable debug
 
-    if {$debug} {
-        puts "Finding nodes at depth $depth, starting line $start_line"
-    }
-
+    # Extract individual commands from the code
     set commands [extract_commands $code $start_line]
-
-    if {$debug} {
-        puts "  Found [llength $commands] commands"
-    }
-
     set nodes [list]
 
+    # Parse each command into an AST node
     foreach cmd_dict $commands {
         set node [parse_command $cmd_dict $depth]
-
-        # Only add non-empty nodes
         if {$node ne ""} {
             lappend nodes $node
         }
@@ -915,122 +1003,50 @@ proc ::ast::find_all_nodes {code start_line depth} {
     return $nodes
 }
 
-# ============================================================================
-# JSON SERIALIZATION - FIXED type handling
-# ============================================================================
+# ===========================================================================
+# JSON SERIALIZATION
+# ===========================================================================
+# Convert AST to JSON format for communication with the Lua layer
 
-proc ::ast::dict_to_json {d indent_level} {
+proc ::ast::dict_to_json {dict_data {indent_level 0}} {
     set indent [string repeat "  " $indent_level]
     set next_indent [string repeat "  " [expr {$indent_level + 1}]]
 
     set result "\{\n"
-    set first 1
+    set first_key 1
 
-    dict for {key value} $d {
-        if {!$first} {
+    dict for {key value} $dict_data {
+        if {!$first_key} {
             append result ",\n"
         }
-        set first 0
+        set first_key 0
 
         append result "${next_indent}\"$key\": "
 
-        # Serialize the value based on its type
-        append result [serialize_value $value $key $indent_level]
+        if {[string is list $value] && [llength $value] > 0} {
+            append result [list_to_json $value [expr {$indent_level + 1}]]
+        } elseif {[string is dict $value]} {
+            append result [dict_to_json $value [expr {$indent_level + 1}]]
+        } elseif {[string is integer -strict $value] || [string is double -strict $value]} {
+            append result $value
+        } else {
+            append result "\"[escape_json $value]\""
+        }
     }
 
     append result "\n${indent}\}"
     return $result
 }
 
-# Helper function to serialize a single value
-proc ::ast::serialize_value {value key indent_level} {
-    set next_indent [string repeat "  " [expr {$indent_level + 1}]]
+proc ::ast::list_to_json {value {indent_level 0}} {
+    set next_indent [string repeat "  " $indent_level]
 
-    # Fields that should be booleans (true/false not 0/1)
-    set boolean_fields [list "is_varargs" "had_error"]
-    set is_boolean [expr {[lsearch -exact $boolean_fields $key] >= 0}]
-
-    if {$is_boolean} {
-        # Convert 1/0 or true/false to JSON boolean
-        if {$value eq "1" || $value eq "true"} {
-            return "true"
-        } else {
-            return "false"
-        }
-    }
-
-    # Fields that should always be strings (not numbers or dicts)
-    # CRITICAL: These fields may contain multiple words but should always be strings
-    set string_fields [list "default" "level" "version" "message" "suggestion" "text" "expression" "condition" "init" "increment" "other_var" "local_var" "subcommand" "array_name" "pattern" "list"]
-    set force_string [expr {[lsearch -exact $string_fields $key] >= 0}]
-
-    # Fields that are known to be arrays/lists
-    # FIXED: Added 'params' and 'vars' to the list
-    set array_fields [list "children" "comments" "errors" "params" "parameters" "branches" "cases" "patterns" "variables" "vars" "elements" "args" "nested_nodes" "elseif_branches"]
-    set is_array_field [expr {[lsearch -exact $array_fields $key] >= 0}]
-
-    # Special case: "body" can be either a string OR an array of nodes
-    if {$key eq "body"} {
-        # Check if it looks like a dict (parsed nodes)
-        set len [llength $value]
-        if {$len > 1 && [expr {$len % 2 == 0}] && [catch {dict size $value}] == 0} {
-            # It's a dict (single node)
-            return [dict_to_json $value [expr {$indent_level + 1}]]
-        } elseif {$len > 0} {
-            set first_elem [lindex $value 0]
-            set first_len [llength $first_elem]
-            if {$first_len > 1 && [expr {$first_len % 2 == 0}] && [catch {dict size $first_elem}] == 0} {
-                # It's a list of dicts (array of nodes)
-                set is_array_field 1
-            } else {
-                # It's a string (raw TCL code)
-                return "\"[escape_json $value]\""
-            }
-        } else {
-            # Empty body
-            return "\"\""
-        }
-    }
-
-    set list_length [llength $value]
-
-    # CRITICAL: Check force_string FIRST, before dict detection
-    # This prevents multi-word strings from being treated as dicts
-    if {$force_string} {
-        return "\"[escape_json $value]\""
-    }
-
-    # CRITICAL FIX: Check if value is a dict (nested object) BEFORE treating as scalar
-    # This handles fields like "range", "start", "end_pos" which are dicts
-    if {!$is_array_field && $list_length > 1 && [expr {$list_length % 2 == 0}] && [catch {dict size $value}] == 0} {
-        # It's a dict/object - serialize recursively
-        return [dict_to_json $value [expr {$indent_level + 1}]]
-    }
-
-    # Handle based on whether it's an array field or not
-    if {!$is_array_field} {
-        # Scalar field - serialize as single value
-        if {$value eq ""} {
-            return "\"\""
-        } elseif {[string is integer -strict $value]} {
-            return $value
-        } elseif {[string is double -strict $value]} {
-            return $value
-        } else {
-            return "\"[escape_json $value]\""
-        }
-    }
-
-    # Array field - serialize as JSON array
-    if {$list_length == 0} {
+    if {[llength $value] == 0} {
         return "\[\]"
     }
 
-    # Check if it's a list of dicts or primitives
     set first_elem [lindex $value 0]
-    set first_len [llength $first_elem]
-
-    if {$first_len > 1 && [expr {$first_len % 2 == 0}] && [catch {dict size $first_elem}] == 0} {
+    if {[string is dict $first_elem] && [dict size $first_elem] > 0} {
         # List of dicts
         set result "\[\n"
         set first_item 1
@@ -1079,10 +1095,21 @@ proc ::ast::to_json {ast} {
     return [dict_to_json $ast 0]
 }
 
-# ============================================================================
+# ===========================================================================
 # MAIN BUILD FUNCTION
-# ============================================================================
+# ===========================================================================
 
+# Build an Abstract Syntax Tree from TCL source code
+#
+# This is the main entry point that coordinates the entire parsing process.
+#
+# Args:
+#   code     - The TCL source code to parse
+#   filepath - Path to the source file (for error reporting)
+#
+# Returns:
+#   AST dict with type, filepath, comments, children, had_error, errors keys
+#
 proc ::ast::build {code {filepath "<string>"}} {
     variable current_file
     variable debug
@@ -1094,12 +1121,11 @@ proc ::ast::build {code {filepath "<string>"}} {
         puts "Code length: [string length $code] chars"
     }
 
-    # Check if code is complete
+    # Check if the code is syntactically complete
     if {![info complete $code]} {
         if {$debug} {
             puts "ERROR: Incomplete TCL code"
         }
-        # FIXED: Error message now includes "syntax" keyword
         return [dict create \
             type "root" \
             filepath $filepath \
@@ -1114,7 +1140,7 @@ proc ::ast::build {code {filepath "<string>"}} {
             comments [list]]
     }
 
-    # Build line mapping
+    # Build position tracking map
     build_line_map $code
 
     # Extract comments
@@ -1124,14 +1150,14 @@ proc ::ast::build {code {filepath "<string>"}} {
         puts "Found [llength $comments] comments"
     }
 
-    # Find all nodes (recursively)
+    # Parse all top-level nodes
     set nodes [find_all_nodes $code 1 0]
 
     if {$debug} {
         puts "Found [llength $nodes] total nodes"
     }
 
-    # Check for error nodes in children
+    # Collect any error nodes
     set error_nodes [list]
     foreach node $nodes {
         if {[dict exists $node type] && [dict get $node type] eq "error"} {
@@ -1139,7 +1165,6 @@ proc ::ast::build {code {filepath "<string>"}} {
         }
     }
 
-    # Set had_error flag if any errors found
     set had_error 0
     if {[llength $error_nodes] > 0} {
         set had_error 1
@@ -1150,7 +1175,7 @@ proc ::ast::build {code {filepath "<string>"}} {
         puts "=== AST Building Complete ===\n"
     }
 
-    # Build root AST
+    # Return the complete AST
     return [dict create \
         type "root" \
         filepath $filepath \
