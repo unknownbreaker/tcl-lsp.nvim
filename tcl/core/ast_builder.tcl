@@ -149,16 +149,19 @@ proc ::ast::extract_commands {code start_line_offset} {
 
 # Helper: Safely get list element without triggering command substitution
 proc ::ast::safe_lindex {text index} {
-    # Try to parse as a list directly without executing substitutions
-    # Use catch to handle cases where text contains command substitutions
-    if {[catch {llength $text} word_count] == 0 && [catch {lindex $text $index} result] == 0} {
-        # Successfully got the element - this works for most cases
-        return $result
+    # Check if text contains command substitutions or other special cases
+    # that would cause lindex to fail or execute
+    set has_substitution [regexp {\[} $text]
+
+    if {!$has_substitution} {
+        # No command substitutions - safe to use normal lindex
+        if {[catch {lindex $text $index} result] == 0} {
+            return $result
+        }
     }
 
-    # If that failed, it's because of command substitution like [expr ...]
-    # Fall back to manual parsing that respects TCL word boundaries
-
+    # Use manual parsing for safety when there are substitutions
+    # or when normal lindex failed
     set words [list]
     set current_word ""
     set in_braces 0
