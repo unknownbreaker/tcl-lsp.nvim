@@ -258,9 +258,15 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
                 default [lindex $arg 1]]
         } elseif {[llength $arg] == 1} {
             # Simple parameter (including 'args')
-            lappend params [dict create \
-                name $arg \
-                default ""]
+            # Don't include 'default' key for params without defaults
+            set param_dict [dict create name $arg]
+
+            # Check if this is a varargs parameter
+            if {$arg eq "args"} {
+                dict set param_dict is_varargs 1
+            }
+
+            lappend params $param_dict
         }
     }
 
@@ -293,7 +299,7 @@ proc ::ast::parse_proc {cmd_text start_line end_line depth} {
     return $proc_node
 }
 
-# Parse set command
+# Parse set command - FIXED: use var_name field
 proc ::ast::parse_set {cmd_text start_line end_line} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
         return [dict create \
@@ -310,7 +316,7 @@ proc ::ast::parse_set {cmd_text start_line end_line} {
 
     return [dict create \
         type "set" \
-        name $var_name \
+        var_name $var_name \
         value $value \
         range [make_range $start_line 1 $end_line 50]]
 }
@@ -337,7 +343,7 @@ proc ::ast::parse_variable {cmd_text start_line end_line} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse global command
+# Parse global command - FIXED: use vars field name
 proc ::ast::parse_global {cmd_text start_line end_line} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 2} {
         return [dict create \
@@ -350,7 +356,7 @@ proc ::ast::parse_global {cmd_text start_line end_line} {
 
     return [dict create \
         type "global" \
-        variables $var_names \
+        vars $var_names \
         range [make_range $start_line 1 $end_line 50]]
 }
 
@@ -462,10 +468,10 @@ proc ::ast::parse_package {cmd_text start_line end_line} {
                 set version [lindex $cmd_text 3]
             }
 
-            # FIXED: Use 'package' not 'package_name'
+            # FIXED: Use 'package_name' as tests expect
             return [dict create \
                 type "package_require" \
-                package $pkg_name \
+                package_name $pkg_name \
                 version $version \
                 range [make_range $start_line 1 $end_line 50]]
         }
@@ -497,7 +503,7 @@ proc ::ast::parse_package {cmd_text start_line end_line} {
     }
 }
 
-# Parse if command - FIXED to return proper node
+# Parse if command - FIXED to match test expectations
 proc ::ast::parse_if {cmd_text start_line end_line depth} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 3} {
         return [dict create \
@@ -509,14 +515,18 @@ proc ::ast::parse_if {cmd_text start_line end_line depth} {
     set condition [lindex $cmd_text 1]
     set then_body [lindex $cmd_text 2]
 
-    # Parse branches
-    set branches [list]
-    lappend branches [dict create \
-        type "then" \
+    # Start building the if node
+    set if_node [dict create \
+        type "if" \
         condition $condition \
-        body $then_body]
+        then_body $then_body \
+        range [make_range $start_line 1 $end_line 50]]
 
-    # Check for elseif/else
+    # Parse elseif/else
+    set elseif_branches [list]
+    set else_body ""
+    set has_else 0
+
     set idx 3
     while {$idx < $word_count} {
         set keyword [lindex $cmd_text $idx]
@@ -527,8 +537,7 @@ proc ::ast::parse_if {cmd_text start_line end_line depth} {
             }
             set elseif_cond [lindex $cmd_text [expr {$idx + 1}]]
             set elseif_body [lindex $cmd_text [expr {$idx + 2}]]
-            lappend branches [dict create \
-                type "elseif" \
+            lappend elseif_branches [dict create \
                 condition $elseif_cond \
                 body $elseif_body]
             set idx [expr {$idx + 3}]
@@ -537,19 +546,24 @@ proc ::ast::parse_if {cmd_text start_line end_line depth} {
                 break
             }
             set else_body [lindex $cmd_text [expr {$idx + 1}]]
-            lappend branches [dict create \
-                type "else" \
-                body $else_body]
+            set has_else 1
             break
         } else {
             break
         }
     }
 
-    return [dict create \
-        type "if" \
-        branches $branches \
-        range [make_range $start_line 1 $end_line 50]]
+    # Add elseif_branches if any exist
+    if {[llength $elseif_branches] > 0} {
+        dict set if_node elseif_branches $elseif_branches
+    }
+
+    # Add else_body if it exists
+    if {$has_else} {
+        dict set if_node else_body $else_body
+    }
+
+    return $if_node
 }
 
 # Parse while command - FIXED to return proper node
@@ -594,7 +608,7 @@ proc ::ast::parse_for {cmd_text start_line end_line depth} {
         range [make_range $start_line 1 $end_line 50]]
 }
 
-# Parse foreach command - FIXED to return proper node with variable name
+# Parse foreach command - FIXED to return proper node with var_name
 proc ::ast::parse_foreach {cmd_text start_line end_line depth} {
     if {[catch {llength $cmd_text} word_count] || $word_count < 4} {
         return [dict create \
@@ -604,13 +618,13 @@ proc ::ast::parse_foreach {cmd_text start_line end_line depth} {
     }
 
     set var_name [lindex $cmd_text 1]
-    set list_expr [lindex $cmd_text 2]
+    set list_var [lindex $cmd_text 2]
     set body [lindex $cmd_text 3]
 
     return [dict create \
         type "foreach" \
-        variable $var_name \
-        list $list_expr \
+        var_name $var_name \
+        list $list_var \
         body $body \
         range [make_range $start_line 1 $end_line 50]]
 }
@@ -803,6 +817,19 @@ proc ::ast::dict_to_json {d indent_level} {
 # Helper function to serialize a single value
 proc ::ast::serialize_value {value key indent_level} {
     set next_indent [string repeat "  " [expr {$indent_level + 1}]]
+
+    # Fields that should be booleans (true/false not 0/1)
+    set boolean_fields [list "is_varargs" "had_error"]
+    set is_boolean [expr {[lsearch -exact $boolean_fields $key] >= 0}]
+
+    if {$is_boolean} {
+        # Convert 1/0 or true/false to JSON boolean
+        if {$value eq "1" || $value eq "true"} {
+            return "true"
+        } else {
+            return "false"
+        }
+    }
 
     # Fields that should always be strings (not numbers or dicts)
     # CRITICAL: These fields may contain multiple words but should always be strings
