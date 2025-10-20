@@ -26,7 +26,7 @@ namespace eval ::ast::utils {
 proc ::ast::utils::make_range {start_line start_col end_line end_col} {
     return [dict create \
         start [dict create line $start_line column $start_col] \
-        end [dict create line $end_line column $end_col]]
+        end_pos [dict create line $end_line column $end_col]]
 }
 
 # Build a line number mapping for source code
