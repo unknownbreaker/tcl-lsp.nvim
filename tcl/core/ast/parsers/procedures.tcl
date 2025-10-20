@@ -53,7 +53,7 @@ proc ::ast::parsers::procedures::parse_proc {cmd_text start_line end_line depth}
     return [dict create \
         type "proc" \
         name $proc_name \
-        parameters $params \
+        params $params \
         body $body \
         range [::ast::utils::make_range $start_line 1 $end_line 1] \
         depth $depth]
