@@ -29,6 +29,7 @@ namespace eval ::ast::parsers::variables {
 #   cmd_text   - The set command text
 #   start_line - Starting line number
 #   end_line   - Ending line number
+#   depth      - Nesting depth
 #
 # Returns:
 #   AST node dict for the variable assignment
@@ -75,6 +76,7 @@ proc ::ast::parsers::variables::parse_set {cmd_text start_line end_line depth} {
 #   cmd_text   - The variable command text
 #   start_line - Starting line number
 #   end_line   - Ending line number
+#   depth      - Nesting depth
 #
 # Returns:
 #   AST node dict for the variable declaration
@@ -115,6 +117,7 @@ proc ::ast::parsers::variables::parse_variable {cmd_text start_line end_line dep
 #   cmd_text   - The global command text
 #   start_line - Starting line number
 #   end_line   - Ending line number
+#   depth      - Nesting depth
 #
 # Returns:
 #   AST node dict with vars as array
@@ -159,6 +162,7 @@ proc ::ast::parsers::variables::parse_global {cmd_text start_line end_line depth
 #   cmd_text   - The upvar command text
 #   start_line - Starting line number
 #   end_line   - Ending line number
+#   depth      - Nesting depth
 #
 # Returns:
 #   AST node dict for the upvar declaration
@@ -200,6 +204,7 @@ proc ::ast::parsers::variables::parse_upvar {cmd_text start_line end_line depth}
 #   cmd_text   - The array set command text
 #   start_line - Starting line number
 #   end_line   - Ending line number
+#   depth      - Nesting depth
 #
 # Returns:
 #   AST node dict for the array set
@@ -283,7 +288,7 @@ if {[info script] eq $argv0} {
     # Test 1: set with string value (preserves quotes)
     puts "Test 1: set x \"hello\" - should preserve quotes"
     set cmd1 {set x "hello"}
-    set result1 [::ast::parsers::variables::parse_set $cmd1 1 1]
+    set result1 [::ast::parsers::variables::parse_set $cmd1 1 1 0]
     test "set with string" $result1 {
         "var_name" {var_name} "x"
         "value" {value} {"hello"}
@@ -292,7 +297,7 @@ if {[info script] eq $argv0} {
     # Test 2: set with numeric value (keeps as string)
     puts "Test 2: set x 42 - should keep as string"
     set cmd2 {set x 42}
-    set result2 [::ast::parsers::variables::parse_set $cmd2 1 1]
+    set result2 [::ast::parsers::variables::parse_set $cmd2 1 1 0]
     test "set with number" $result2 {
         "var_name" {var_name} "x"
         "value" {value} "42"
@@ -301,7 +306,7 @@ if {[info script] eq $argv0} {
     # Test 3: global with multiple vars (returns array)
     puts "Test 3: global x y z - should return array of vars"
     set cmd3 {global x y z}
-    set result3 [::ast::parsers::variables::parse_global $cmd3 1 1]
+    set result3 [::ast::parsers::variables::parse_global $cmd3 1 1 0]
     if {[dict get $result3 type] eq "global"} {
         set vars [dict get $result3 vars]
         if {[llength $vars] == 3} {
@@ -326,7 +331,7 @@ if {[info script] eq $argv0} {
     # Test 4: upvar with level as string
     puts "Test 4: upvar 1 other local - level should be string"
     set cmd4 {upvar 1 other local}
-    set result4 [::ast::parsers::variables::parse_upvar $cmd4 1 1]
+    set result4 [::ast::parsers::variables::parse_upvar $cmd4 1 1 0]
     test "upvar level" $result4 {
         "level" {level} "1"
         "other_var" {other_var} "other"
