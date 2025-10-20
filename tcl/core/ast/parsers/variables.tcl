@@ -22,7 +22,7 @@ proc ::ast::parsers::variables::parse_set {cmd_text start_line end_line depth} {
 
     return [dict create \
         type "set" \
-        name $var_name \
+        var_name $var_name \
         value $value \
         range [::ast::utils::make_range $start_line 1 $end_line 1] \
         depth $depth]
@@ -39,7 +39,7 @@ proc ::ast::parsers::variables::parse_global {cmd_text start_line end_line depth
 
     return [dict create \
         type "global" \
-        variables $var_names \
+        vars $var_names \
         range [::ast::utils::make_range $start_line 1 $end_line 1] \
         depth $depth]
 }
@@ -91,7 +91,7 @@ proc ::ast::parsers::variables::parse_array {cmd_text start_line end_line depth}
         set pairs [::tokenizer::get_token $cmd_text 3]
 
         return [dict create \
-            type "array_set" \
+            type "array" \
             array_name $array_name \
             pairs $pairs \
             range [::ast::utils::make_range $start_line 1 $end_line 1] \
