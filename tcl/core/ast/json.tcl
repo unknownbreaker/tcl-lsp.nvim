@@ -46,36 +46,70 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
         set value_len [llength $value]
 
         if {$value_len > 1} {
-            # Multiple elements - could be a list or a dict
-            # Check if it's a dict by trying dict operations
-            # ⭐ FIX: Use catch {dict size} instead of [string is dict]
-            set is_dict 0
-            if {[catch {dict size $value} size] == 0 && $size > 0} {
-                # It's a valid dict with content
-                set is_dict 1
+            # Multiple elements - could be:
+            # 1. A list of dicts: [list [dict create ...] [dict create ...]]
+            # 2. A dict itself: [dict create key1 val1 key2 val2]
+            # 3. A list of primitives: [list "a" "b" "c"]
+
+            # Check if first element is a dict to determine if it's a list of dicts
+            set first_elem [lindex $value 0]
+            set is_list_of_dicts 0
+            if {[catch {dict size $first_elem} size] == 0 && $size > 0} {
+                # First element is a dict - likely a list of dicts
+                set is_list_of_dicts 1
             }
 
-            if {$is_dict} {
-                append result [dict_to_json $value [expr {$indent_level + 1}]]
-            } else {
-                # It's a list
+            if {$is_list_of_dicts} {
+                # It's a list of dicts
                 append result [list_to_json $value [expr {$indent_level + 1}]]
+            } else {
+                # Try to treat as dict first
+                set is_dict 0
+                if {[catch {dict size $value} size] == 0 && $size > 0} {
+                    # It's a valid dict with content
+                    set is_dict 1
+                }
+
+                if {$is_dict} {
+                    append result [dict_to_json $value [expr {$indent_level + 1}]]
+                } else {
+                    # It's a list of primitives
+                    append result [list_to_json $value [expr {$indent_level + 1}]]
+                }
             }
         } elseif {$value_len == 1} {
-            # Single element - check if it's a dict or simple value
-            set is_dict 0
-            if {[catch {dict size $value} size] == 0 && $size > 0} {
-                set is_dict 1
+            # Single element - could be:
+            # 1. A list containing one dict: [list [dict create ...]]
+            # 2. A dict itself: [dict create ...]
+            # 3. A simple value: "hello" or 42
+
+            # Try to extract first element to check if it's a list of dicts
+            set first_elem [lindex $value 0]
+            set is_list_of_dict 0
+            if {[catch {dict size $first_elem} size] == 0 && $size > 0} {
+                # First element is a dict - this is a list containing one dict
+                set is_list_of_dict 1
             }
 
-            if {$is_dict} {
-                append result [dict_to_json $value [expr {$indent_level + 1}]]
-            } elseif {[string is integer -strict $value] || [string is double -strict $value]} {
-                # Numeric value - no quotes
-                append result $value
+            if {$is_list_of_dict} {
+                # It's a list with one dict - serialize as array
+                append result [list_to_json $value [expr {$indent_level + 1}]]
             } else {
-                # String value
-                append result "\"[escape $value]\""
+                # Check if the value itself is a dict
+                set is_dict 0
+                if {[catch {dict size $value} size] == 0 && $size > 0} {
+                    set is_dict 1
+                }
+
+                if {$is_dict} {
+                    append result [dict_to_json $value [expr {$indent_level + 1}]]
+                } elseif {[string is integer -strict $value] || [string is double -strict $value]} {
+                    # Numeric value - no quotes
+                    append result $value
+                } else {
+                    # String value
+                    append result "\"[escape $value]\""
+                }
             }
         } else {
             # Empty value - empty string
