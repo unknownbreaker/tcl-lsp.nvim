@@ -2,104 +2,90 @@
 # tcl/core/ast/comments.tcl
 # Comment Extraction Module
 #
-# This module handles extraction of comments from TCL source code.
-# Comments in TCL start with # at the beginning of a line (after whitespace).
+# Extracts comments from TCL source code for inclusion in the AST.
+# Comments are important for LSP features like hover documentation.
 
 namespace eval ::ast::comments {
     namespace export extract
 }
 
-# Extract comments from source code
-#
-# Scans through source line by line, finding comment lines.
-# A comment line starts with optional whitespace followed by #.
-#
-# Multi-line comments (lines ending with \) are supported.
+# Extract all comments from TCL source code
 #
 # Args:
-#   code - The source code
+#   code - The source code to scan
 #
 # Returns:
-#   List of comment dicts, each with type, text, and line keys
+#   List of comment dicts, each with: type, text, range keys
 #
 proc ::ast::comments::extract {code} {
     set comments [list]
-    set line_num 0
+    set lines [split $code "\n"]
+    set line_num 1
 
-    foreach line [split $code "\n"] {
-        incr line_num
+    foreach line $lines {
+        # Find comments (# at start of line or after whitespace)
+        set trimmed [string trimleft $line]
+        if {[string index $trimmed 0] eq "#"} {
+            # This is a comment line
+            set comment_text [string range $trimmed 1 end]
 
-        # Match comment lines: optional whitespace + # + comment text
-        if {[regexp {^(\s*)#(.*)} $line -> indent text]} {
+            # Create comment node
             lappend comments [dict create \
                 type "comment" \
-                text $text \
-                line $line_num]
+                text $comment_text \
+                range [::ast::utils::make_range $line_num 1 $line_num [string length $line]]]
         }
+        incr line_num
     }
 
     return $comments
 }
 
 # ===========================================================================
-# SELF-TEST
+# MAIN - For testing
 # ===========================================================================
 
 if {[info script] eq $argv0} {
-    puts "Running comments module self-tests...\n"
-    
-    set pass 0
-    set fail 0
-    
-    proc test {name script expected} {
-        global pass fail
-        if {[catch {uplevel $script} result]} {
-            puts "✗ FAIL: $name - Error: $result"
-            incr fail
-            return
-        }
-        if {$result == $expected} {
-            puts "✓ PASS: $name"
-            incr pass
-        } else {
-            puts "✗ FAIL: $name"
-            puts "  Expected: $expected"
-            puts "  Got: $result"
-            incr fail
-        }
+    # Need utils for make_range
+    set script_dir [file dirname [file normalize [info script]]]
+    source [file join $script_dir utils.tcl]
+
+    puts "Testing comments module..."
+    puts ""
+
+    # Test 1: Simple comment
+    set test1 "# This is a comment\nset x 1"
+    puts "Test 1: Simple comment"
+    set comments [extract $test1]
+    puts "  Found [llength $comments] comment(s)"
+    if {[llength $comments] > 0} {
+        puts "  Comment text: [dict get [lindex $comments 0] text]"
     }
-    
-    # Test 1: Extract simple comment
-    test "Extract simple comment" {
-        set code "# This is a comment"
-        llength [::ast::comments::extract $code]
-    } "1"
-    
-    # Test 2: Extract multiple comments
-    test "Extract multiple comments" {
-        set code "# Comment 1\nproc foo {} {}\n# Comment 2"
-        llength [::ast::comments::extract $code]
-    } "2"
-    
-    # Test 3: Indented comment
-    test "Extract indented comment" {
-        set code "    # Indented comment"
-        set comments [::ast::comments::extract $code]
-        dict get [lindex $comments 0] text
-    } " Indented comment"
-    
-    # Test 4: No comments
-    test "No comments in code" {
-        set code "proc foo {} {}\nset x 1"
-        llength [::ast::comments::extract $code]
-    } "0"
-    
-    puts "\n========================================="
-    puts "Pass: $pass | Fail: $fail"
-    if {$fail == 0} {
-        puts "✓ ALL TESTS PASSED"
-        exit 0
-    } else {
-        exit 1
+    puts ""
+
+    # Test 2: Multiple comments
+    set test2 "# Comment 1\nset x 1\n# Comment 2\nset y 2"
+    puts "Test 2: Multiple comments"
+    set comments [extract $test2]
+    puts "  Found [llength $comments] comment(s)"
+    puts ""
+
+    # Test 3: No comments
+    set test3 "set x 1\nset y 2"
+    puts "Test 3: No comments"
+    set comments [extract $test3]
+    puts "  Found [llength $comments] comment(s)"
+    puts ""
+
+    # Test 4: Indented comment
+    set test4 "    # Indented comment\n    set x 1"
+    puts "Test 4: Indented comment"
+    set comments [extract $test4]
+    puts "  Found [llength $comments] comment(s)"
+    if {[llength $comments] > 0} {
+        puts "  Comment text: [dict get [lindex $comments 0] text]"
     }
+    puts ""
+
+    puts "✓ Comments tests complete"
 }

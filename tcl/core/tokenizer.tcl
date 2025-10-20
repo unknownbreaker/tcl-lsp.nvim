@@ -1,457 +1,247 @@
 #!/usr/bin/env tclsh
 # tcl/core/tokenizer.tcl
-# Literal Token Extractor for TCL Parser
+# Literal Tokenizer - Splits TCL code into tokens without evaluation
 #
-# This tokenizer extracts tokens AS THEY APPEAR in source code without
-# TCL evaluation. This is critical for Language Server Protocol (LSP)
-# implementations where we need to preserve the exact text representation
-# that the user wrote.
-#
-# Example:
-#   Input:  set x "hello"
-#   Output: ["set", "x", "\"hello\""]  <-- Quotes preserved!
-#
-# Why this matters:
-#   - Go-to-definition needs exact text to find symbols
-#   - Refactoring needs exact text to replace
-#   - Hover info needs to show what's actually written
-#   - Code completion needs context as-is, not evaluated
-#
-# Key principle: We NEVER execute or evaluate TCL code during tokenization.
+# This tokenizer provides a way to count and extract tokens from TCL code
+# without actually executing it, which is critical for static analysis.
 
 namespace eval ::tokenizer {
-    variable debug 0
+    namespace export count_tokens get_token
 }
 
-# ===========================================================================
-# PUBLIC API
-# ===========================================================================
-
-# Tokenize a TCL command string into a list of literal tokens
+# Count the number of tokens (words) in a TCL command
+#
+# This is similar to [llength] but doesn't evaluate substitutions.
+# It handles quotes, braces, brackets, and backslashes correctly.
 #
 # Args:
-#   text - The TCL command string to tokenize
+#   text - TCL command text to tokenize
 #
 # Returns:
-#   List of tokens exactly as they appear in source
+#   Number of tokens in the command
 #
-# Example:
-#   tokenize {set x "hello"}  → [set x "hello"]
-#   tokenize {set y [expr 1]} → [set y [expr 1]]
-#
-proc ::tokenizer::tokenize {text} {
-    set tokens [list]
+proc ::tokenizer::count_tokens {text} {
+    set count 0
+    set pos 0
     set len [string length $text]
-    set i 0
 
-    while {$i < $len} {
-        # Skip whitespace between tokens
-        while {$i < $len && [string is space [string index $text $i]]} {
-            incr i
-        }
-
-        if {$i >= $len} {
-            break
-        }
-
-        # Extract one token starting at position i
-        set token_info [extract_token $text $i]
-        set token_text [dict get $token_info text]
-        set token_end [dict get $token_info end_pos]
-
-        if {$token_text ne ""} {
-            lappend tokens $token_text
-        }
-
-        set i $token_end
+    # Skip leading whitespace
+    while {$pos < $len && [string is space [string index $text $pos]]} {
+        incr pos
     }
 
-    return $tokens
+    while {$pos < $len} {
+        set char [string index $text $pos]
+
+        # Skip whitespace between tokens
+        if {[string is space $char]} {
+            incr pos
+            continue
+        }
+
+        # Found start of a token
+        incr count
+
+        # Determine how to parse this token
+        if {$char eq "\{"} {
+            # Braced token - find matching close brace
+            set brace_depth 1
+            incr pos
+            while {$pos < $len && $brace_depth > 0} {
+                set char [string index $text $pos]
+                if {$char eq "\{"} {
+                    incr brace_depth
+                } elseif {$char eq "\}"} {
+                    incr brace_depth -1
+                }
+                incr pos
+            }
+        } elseif {$char eq "\""} {
+            # Quoted token - find matching quote
+            incr pos
+            while {$pos < $len} {
+                set char [string index $text $pos]
+                if {$char eq "\\"} {
+                    # Skip escaped character
+                    incr pos 2
+                } elseif {$char eq "\""} {
+                    incr pos
+                    break
+                } else {
+                    incr pos
+                }
+            }
+        } else {
+            # Bare word - read until whitespace or special char
+            while {$pos < $len} {
+                set char [string index $text $pos]
+                if {[string is space $char]} {
+                    break
+                }
+                if {$char eq "\\"} {
+                    # Skip escaped character
+                    incr pos 2
+                } else {
+                    incr pos
+                }
+            }
+        }
+
+        # Skip any trailing whitespace after this token
+        while {$pos < $len && [string is space [string index $text $pos]]} {
+            incr pos
+        }
+    }
+
+    return $count
 }
 
-# Get a specific token by index from a command string
+# Get the Nth token from a TCL command (0-indexed)
+#
+# Similar to [lindex] but doesn't evaluate substitutions.
 #
 # Args:
-#   text  - The TCL command string
-#   index - Zero-based index of token to retrieve
+#   text  - TCL command text to tokenize
+#   index - Token index to retrieve (0-based)
 #
 # Returns:
-#   The token at the specified index, or empty string if index out of range
-#
-# Example:
-#   get_token {set x "hello"} 0 → "set"
-#   get_token {set x "hello"} 2 → "\"hello\""
+#   The token at the specified index, or empty string if out of range
 #
 proc ::tokenizer::get_token {text index} {
-    set tokens [tokenize $text]
+    set current 0
+    set pos 0
+    set len [string length $text]
 
-    if {$index >= 0 && $index < [llength $tokens]} {
-        return [lindex $tokens $index]
+    # Skip leading whitespace
+    while {$pos < $len && [string is space [string index $text $pos]]} {
+        incr pos
+    }
+
+    while {$pos < $len} {
+        set char [string index $text $pos]
+
+        # Skip whitespace between tokens
+        if {[string is space $char]} {
+            incr pos
+            continue
+        }
+
+        # Mark start of token
+        set token_start $pos
+
+        # Determine how to parse this token
+        if {$char eq "\{"} {
+            # Braced token
+            set brace_depth 1
+            incr pos
+            set content_start $pos
+            while {$pos < $len && $brace_depth > 0} {
+                set char [string index $text $pos]
+                if {$char eq "\{"} {
+                    incr brace_depth
+                } elseif {$char eq "\}"} {
+                    incr brace_depth -1
+                    if {$brace_depth == 0} {
+                        # Found matching brace - extract content
+                        if {$current == $index} {
+                            return [string range $text $content_start [expr {$pos - 1}]]
+                        }
+                    }
+                }
+                incr pos
+            }
+        } elseif {$char eq "\""} {
+            # Quoted token
+            incr pos
+            set content_start $pos
+            while {$pos < $len} {
+                set char [string index $text $pos]
+                if {$char eq "\\"} {
+                    incr pos 2
+                } elseif {$char eq "\""} {
+                    # Found closing quote - extract content
+                    if {$current == $index} {
+                        return [string range $text $content_start [expr {$pos - 1}]]
+                    }
+                    incr pos
+                    break
+                } else {
+                    incr pos
+                }
+            }
+        } else {
+            # Bare word
+            while {$pos < $len} {
+                set char [string index $text $pos]
+                if {[string is space $char]} {
+                    break
+                }
+                if {$char eq "\\"} {
+                    incr pos 2
+                } else {
+                    incr pos
+                }
+            }
+            if {$current == $index} {
+                return [string range $text $token_start [expr {$pos - 1}]]
+            }
+        }
+
+        incr current
+
+        # Skip trailing whitespace
+        while {$pos < $len && [string is space [string index $text $pos]]} {
+            incr pos
+        }
     }
 
     return ""
 }
 
-# Count the number of tokens in a command string
-#
-# Args:
-#   text - The TCL command string
-#
-# Returns:
-#   Number of tokens
-#
-# Example:
-#   count_tokens {set x "hello"} → 3
-#
-proc ::tokenizer::count_tokens {text} {
-    return [llength [tokenize $text]]
-}
-
 # ===========================================================================
-# INTERNAL TOKEN EXTRACTION
+# MAIN - For testing
 # ===========================================================================
 
-# Extract a single token starting at the given position
-#
-# This is the main dispatch function that determines what type of token
-# we're looking at and calls the appropriate extraction function.
-#
-# Args:
-#   text      - The full command string
-#   start_pos - Position to start extraction
-#
-# Returns:
-#   Dict with keys: text (the token), end_pos (position after token)
-#
-proc ::tokenizer::extract_token {text start_pos} {
-    set len [string length $text]
-    set i $start_pos
-    set char [string index $text $i]
+if {[info script] eq $argv0} {
+    puts "Testing tokenizer..."
+    puts ""
 
-    # Determine token type based on first character
+    # Test 1: Simple command
+    set test1 "set x 1"
+    puts "Test 1: \"$test1\""
+    puts "  Token count: [count_tokens $test1]"
+    puts "  Token 0: [get_token $test1 0]"
+    puts "  Token 1: [get_token $test1 1]"
+    puts "  Token 2: [get_token $test1 2]"
+    puts ""
 
-    # Quoted string: "..."
-    if {$char eq "\""} {
-        return [extract_quoted_string $text $i]
-    }
+    # Test 2: Quoted string
+    set test2 {set name "John Doe"}
+    puts "Test 2: $test2"
+    puts "  Token count: [count_tokens $test2]"
+    puts "  Token 0: [get_token $test2 0]"
+    puts "  Token 1: [get_token $test2 1]"
+    puts "  Token 2: [get_token $test2 2]"
+    puts ""
 
-    # Braced string: {...}
-    if {$char eq "\{"} {
-        return [extract_braced_string $text $i]
-    }
+    # Test 3: Braced string
+    set test3 {proc hello {} { puts "Hello!" }}
+    puts "Test 3: $test3"
+    puts "  Token count: [count_tokens $test3]"
+    puts "  Token 0: [get_token $test3 0]"
+    puts "  Token 1: [get_token $test3 1]"
+    puts "  Token 2: [get_token $test3 2]"
+    puts "  Token 3: [get_token $test3 3]"
+    puts ""
 
-    # Command substitution: [...]
-    if {$char eq "\["} {
-        return [extract_command_substitution $text $i]
-    }
+    # Test 4: Command substitution
+    set test4 {set result [expr {1 + 2}]}
+    puts "Test 4: $test4"
+    puts "  Token count: [count_tokens $test4]"
+    puts "  Token 0: [get_token $test4 0]"
+    puts "  Token 1: [get_token $test4 1]"
+    puts "  Token 2: [get_token $test4 2]"
+    puts ""
 
-    # Variable substitution: $var or ${var}
-    if {$char eq "\$"} {
-        return [extract_variable_substitution $text $i]
-    }
-
-    # Bare word (unquoted, non-special text)
-    return [extract_bare_word $text $i]
-}
-
-# ===========================================================================
-# TOKEN TYPE EXTRACTORS
-# ===========================================================================
-
-# Extract a quoted string INCLUDING the surrounding quotes
-#
-# Handles:
-#   - Escaped characters: \"
-#   - Newlines within quotes
-#   - Unclosed quotes (returns what we have)
-#
-# Args:
-#   text      - The full command string
-#   start_pos - Position of opening quote
-#
-# Returns:
-#   Dict with text (including quotes) and end_pos
-#
-# Example:
-#   Input: "hello world" at position 0
-#   Output: {text {"hello world"} end_pos 13}
-#
-proc ::tokenizer::extract_quoted_string {text start_pos} {
-    set len [string length $text]
-    set i [expr {$start_pos + 1}]  ;# Skip opening quote
-    set result "\""
-    set escaped 0
-
-    while {$i < $len} {
-        set char [string index $text $i]
-
-        if {$escaped} {
-            # Previous char was backslash, append this char literally
-            append result $char
-            set escaped 0
-        } elseif {$char eq "\\"} {
-            # This is an escape character
-            append result $char
-            set escaped 1
-        } elseif {$char eq "\""} {
-            # Found closing quote
-            append result $char
-            incr i
-            return [dict create text $result end_pos $i]
-        } else {
-            # Normal character
-            append result $char
-        }
-
-        incr i
-    }
-
-    # Reached end of string without closing quote
-    # Return what we have (unclosed string)
-    return [dict create text $result end_pos $i]
-}
-
-# Extract a braced string INCLUDING the surrounding braces
-#
-# Handles:
-#   - Nested braces: {outer {inner} text}
-#   - Multiple nesting levels
-#   - Unbalanced braces (returns what we have)
-#
-# Args:
-#   text      - The full command string
-#   start_pos - Position of opening brace
-#
-# Returns:
-#   Dict with text (including braces) and end_pos
-#
-# Example:
-#   Input: {hello {nested} world} at position 0
-#   Output: {text {{hello {nested} world}} end_pos 22}
-#
-proc ::tokenizer::extract_braced_string {text start_pos} {
-    set len [string length $text]
-    set i [expr {$start_pos + 1}]  ;# Skip opening brace
-    set result "\{"
-    set depth 1
-
-    while {$i < $len && $depth > 0} {
-        set char [string index $text $i]
-        append result $char
-
-        if {$char eq "\{"} {
-            incr depth
-        } elseif {$char eq "\}"} {
-            incr depth -1
-        }
-
-        incr i
-    }
-
-    return [dict create text $result end_pos $i]
-}
-
-# Extract a command substitution INCLUDING the surrounding brackets
-#
-# This is the most complex extraction because we need to handle:
-#   - Nested command substitutions: [expr [expr 1]]
-#   - Braces inside brackets: [expr {1 + 2}]
-#   - Quotes inside brackets: [puts "hello"]
-#   - Multiple nesting levels
-#
-# The key is tracking whether we're inside quotes or braces, because
-# brackets inside quotes/braces don't count as command substitution.
-#
-# Args:
-#   text      - The full command string
-#   start_pos - Position of opening bracket
-#
-# Returns:
-#   Dict with text (including brackets) and end_pos
-#
-# Example:
-#   Input: [expr {1 + 2}] at position 0
-#   Output: {text {[expr {1 + 2}]} end_pos 14}
-#
-proc ::tokenizer::extract_command_substitution {text start_pos} {
-    set len [string length $text]
-    set i [expr {$start_pos + 1}]  ;# Skip opening bracket
-    set result "\["
-    set bracket_depth 1
-    set brace_depth 0
-    set in_quotes 0
-
-    while {$i < $len && $bracket_depth > 0} {
-        set char [string index $text $i]
-        append result $char
-
-        # Track whether we're inside braces or quotes
-        # because brackets inside these don't count
-
-        if {!$in_quotes} {
-            if {$char eq "\{"} {
-                incr brace_depth
-            } elseif {$char eq "\}"} {
-                incr brace_depth -1
-            }
-        }
-
-        if {$char eq "\""} {
-            set in_quotes [expr {!$in_quotes}]
-        }
-
-        # Only count brackets when we're not inside quotes or braces
-        if {!$in_quotes && $brace_depth == 0} {
-            if {$char eq "\["} {
-                incr bracket_depth
-            } elseif {$char eq "\]"} {
-                incr bracket_depth -1
-            }
-        }
-
-        incr i
-    }
-
-    return [dict create text $result end_pos $i]
-}
-
-# Extract a variable substitution
-#
-# Handles two forms:
-#   - Simple: $varname
-#   - Braced: ${varname}
-#   - Namespace qualified: $::namespace::var
-#
-# Args:
-#   text      - The full command string
-#   start_pos - Position of dollar sign
-#
-# Returns:
-#   Dict with text (including $) and end_pos
-#
-# Example:
-#   Input: $myvar at position 0
-#   Output: {text {$myvar} end_pos 6}
-#
-#   Input: ${my::var} at position 0
-#   Output: {text {${my::var}} end_pos 10}
-#
-proc ::tokenizer::extract_variable_substitution {text start_pos} {
-    set len [string length $text]
-    set i [expr {$start_pos + 1}]  ;# Skip dollar sign
-    set result "\$"
-
-    # Check for braced form: ${...}
-    if {$i < $len && [string index $text $i] eq "\{"} {
-        append result "\{"
-        incr i
-
-        # Extract until closing brace
-        while {$i < $len} {
-            set char [string index $text $i]
-            append result $char
-            incr i
-
-            if {$char eq "\}"} {
-                break
-            }
-        }
-
-        return [dict create text $result end_pos $i]
-    }
-
-    # Simple form: $varname
-    # Variable names can contain: letters, digits, underscores, colons
-    while {$i < $len} {
-        set char [string index $text $i]
-
-        # Check if this character is valid in a variable name
-        if {[string is alnum $char] || $char eq "_" || $char eq ":"} {
-            append result $char
-            incr i
-        } else {
-            break
-        }
-    }
-
-    return [dict create text $result end_pos $i]
-}
-
-# Extract a bare word (unquoted, non-special text)
-#
-# A bare word ends at:
-#   - Whitespace
-#   - Special characters: { } [ ] " $ ;
-#
-# Args:
-#   text      - The full command string
-#   start_pos - Position to start extraction
-#
-# Returns:
-#   Dict with text and end_pos
-#
-# Example:
-#   Input: hello at position 0
-#   Output: {text {hello} end_pos 5}
-#
-proc ::tokenizer::extract_bare_word {text start_pos} {
-    set len [string length $text]
-    set i $start_pos
-    set result ""
-
-    while {$i < $len} {
-        set char [string index $text $i]
-
-        # Stop at whitespace or special characters
-        if {[string is space $char] || \
-            $char eq "\{" || $char eq "\}" || \
-            $char eq "\[" || $char eq "\]" || \
-            $char eq "\"" || $char eq "\$" || \
-            $char eq ";"} {
-            break
-        }
-
-        append result $char
-        incr i
-    }
-
-    return [dict create text $result end_pos $i]
-}
-
-# ===========================================================================
-# UTILITY FUNCTIONS
-# ===========================================================================
-
-# Enable or disable debug output
-#
-# Args:
-#   enabled - 1 to enable, 0 to disable
-#
-proc ::tokenizer::set_debug {enabled} {
-    variable debug
-    set debug $enabled
-}
-
-# Get current debug state
-#
-# Returns:
-#   1 if debug is enabled, 0 otherwise
-#
-proc ::tokenizer::get_debug {} {
-    variable debug
-    return $debug
-}
-
-# Print a token list in a readable format (for debugging)
-#
-# Args:
-#   tokens - List of tokens to print
-#
-proc ::tokenizer::print_tokens {tokens} {
-    puts "Tokens ([llength $tokens] total):"
-    set i 0
-    foreach token $tokens {
-        puts "  \[$i\] '$token'"
-        incr i
-    }
+    puts "✓ Tokenizer tests complete"
 }

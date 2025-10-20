@@ -2,7 +2,8 @@
 # tcl/core/parser.tcl
 # TCL Parser - Main entry point for parsing TCL code
 #
-# This file now uses the modular AST builder structure
+# This file loads the modular AST builder structure and provides
+# a simple command-line interface for parsing TCL files.
 
 # Load the modular AST builder
 set script_dir [file dirname [file normalize [info script]]]

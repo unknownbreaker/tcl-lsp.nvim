@@ -17,7 +17,7 @@ if {[catch {source [file join $parent_dir tokenizer.tcl]} err]} {
     exit 1
 }
 
-# Load all AST modules
+# Load all AST core modules
 foreach module {utils comments commands json} {
     if {[catch {source [file join $script_dir ${module}.tcl]} err]} {
         puts stderr "Error loading ${module}.tcl: $err"
@@ -38,22 +38,13 @@ foreach parser {procedures variables control_flow namespaces packages expression
 namespace eval ::ast {
     variable current_file "<string>"
     variable debug 0
-    
-    # Import all utilities
-    namespace import utils::*
-    namespace import comments::*
-    namespace import commands::*
-    namespace import json::*
-    namespace import parsers::*
 }
 
 # ===========================================================================
 # MAIN PARSING LOGIC
 # ===========================================================================
 
-# Find all AST nodes in a code block recursively
-#
-# This function handles nested structures like procs inside namespaces.
+# Find all AST nodes in a code block
 #
 # Args:
 #   code       - The code block to parse
@@ -110,69 +101,67 @@ proc ::ast::parse_command {cmd_dict depth} {
     # Get command name using tokenizer (not lindex which evaluates!)
     set cmd_name [::tokenizer::get_token $cmd_text 0]
 
-    if {$debug} {
-        puts "  Parsing command: $cmd_name (depth $depth)"
-    }
-
     # Dispatch to appropriate parser based on command name
     switch -exact -- $cmd_name {
         "proc" {
-            return [::ast::parsers::parse_proc $cmd_text $start_line $end_line $depth]
+            return [::ast::parsers::procedures::parse_proc $cmd_text $start_line $end_line $depth]
         }
         "set" {
-            return [::ast::parsers::parse_set $cmd_text $start_line $end_line]
-        }
-        "variable" {
-            return [::ast::parsers::parse_variable $cmd_text $start_line $end_line]
+            return [::ast::parsers::variables::parse_set $cmd_text $start_line $end_line $depth]
         }
         "global" {
-            return [::ast::parsers::parse_global $cmd_text $start_line $end_line]
+            return [::ast::parsers::variables::parse_global $cmd_text $start_line $end_line $depth]
         }
         "upvar" {
-            return [::ast::parsers::parse_upvar $cmd_text $start_line $end_line]
+            return [::ast::parsers::variables::parse_upvar $cmd_text $start_line $end_line $depth]
+        }
+        "variable" {
+            return [::ast::parsers::variables::parse_variable $cmd_text $start_line $end_line $depth]
         }
         "array" {
-            return [::ast::parsers::parse_array $cmd_text $start_line $end_line]
-        }
-        "namespace" {
-            return [::ast::parsers::parse_namespace $cmd_text $start_line $end_line $depth]
-        }
-        "package" {
-            return [::ast::parsers::parse_package $cmd_text $start_line $end_line]
+            return [::ast::parsers::variables::parse_array $cmd_text $start_line $end_line $depth]
         }
         "if" {
-            return [::ast::parsers::parse_if $cmd_text $start_line $end_line $depth]
+            return [::ast::parsers::control_flow::parse_if $cmd_text $start_line $end_line $depth]
         }
         "while" {
-            return [::ast::parsers::parse_while $cmd_text $start_line $end_line $depth]
+            return [::ast::parsers::control_flow::parse_while $cmd_text $start_line $end_line $depth]
         }
         "for" {
-            return [::ast::parsers::parse_for $cmd_text $start_line $end_line $depth]
+            return [::ast::parsers::control_flow::parse_for $cmd_text $start_line $end_line $depth]
         }
         "foreach" {
-            return [::ast::parsers::parse_foreach $cmd_text $start_line $end_line $depth]
+            return [::ast::parsers::control_flow::parse_foreach $cmd_text $start_line $end_line $depth]
         }
         "switch" {
-            return [::ast::parsers::parse_switch $cmd_text $start_line $end_line $depth]
+            return [::ast::parsers::control_flow::parse_switch $cmd_text $start_line $end_line $depth]
+        }
+        "namespace" {
+            return [::ast::parsers::namespaces::parse_namespace $cmd_text $start_line $end_line $depth]
+        }
+        "package" {
+            return [::ast::parsers::packages::parse_package $cmd_text $start_line $end_line $depth]
+        }
+        "source" {
+            return [::ast::parsers::packages::parse_source $cmd_text $start_line $end_line $depth]
         }
         "expr" {
-            return [::ast::parsers::parse_expr $cmd_text $start_line $end_line]
+            return [::ast::parsers::expressions::parse_expr $cmd_text $start_line $end_line $depth]
         }
         "list" {
-            return [::ast::parsers::parse_list $cmd_text $start_line $end_line]
+            return [::ast::parsers::lists::parse_list $cmd_text $start_line $end_line $depth]
         }
         "lappend" {
-            return [::ast::parsers::parse_lappend $cmd_text $start_line $end_line]
-        }
-        "puts" {
-            return [::ast::parsers::parse_puts $cmd_text $start_line $end_line]
+            return [::ast::parsers::lists::parse_lappend $cmd_text $start_line $end_line $depth]
         }
         default {
-            # Unknown command - create a generic node
+            # Unknown command - create generic node
             return [dict create \
                 type "command" \
                 name $cmd_name \
-                range [::ast::utils::make_range $start_line 1 $end_line 50]]
+                text $cmd_text \
+                range [::ast::utils::make_range $start_line 1 $end_line 1] \
+                depth $depth]
         }
     }
 }
@@ -180,7 +169,6 @@ proc ::ast::parse_command {cmd_dict depth} {
 # Build an Abstract Syntax Tree from TCL source code
 #
 # This is the main entry point that coordinates the entire parsing process.
-# PUBLIC API - This is what external code calls.
 #
 # Args:
 #   code     - The TCL source code to parse
@@ -286,19 +274,19 @@ if {[info script] eq $argv0} {
     if {[lindex $argv 0] eq "test"} {
         puts "Running builder integration tests...\n"
         set ::ast::debug 1
-        
+
         # Test 1: Simple proc
         set code1 "proc hello {} \{ puts \"Hello!\" \}"
         set ast1 [::ast::build $code1 "test1.tcl"]
         puts "\nTest 1 Result:"
         puts [::ast::to_json $ast1]
-        
+
         # Test 2: Multiple commands
-        set code2 "set x 1\nset y 2\nproc add \{a b\} \{ return \[expr \{$a + $b\}\] \}"
+        set code2 "set x 1\nset y 2\nproc add \{a b\} \{ return \[expr \{\$a + \$b\}\] \}"
         set ast2 [::ast::build $code2 "test2.tcl"]
         puts "\nTest 2 Result:"
         puts [::ast::to_json $ast2]
-        
+
         puts "\n✓ Builder tests complete"
     } else {
         # Parse file
@@ -307,12 +295,12 @@ if {[info script] eq $argv0} {
             puts stderr "Error: File not found: $filepath"
             exit 1
         }
-        
+
         set fp [open $filepath r]
-        set content [read $fp]
+        set code [read $fp]
         close $fp
-        
-        set ast [::ast::build $content $filepath]
+
+        set ast [::ast::build $code $filepath]
         puts [::ast::to_json $ast]
     }
 }

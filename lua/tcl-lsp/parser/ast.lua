@@ -18,7 +18,8 @@ local function get_parser_script_path()
 end
 
 -- Execute TCL parser and get JSON result
-local function execute_tcl_parser(code, filepath)
+-- Note: _filepath parameter is for future use (error reporting, etc.)
+local function execute_tcl_parser(code, _filepath)
   -- Check if tclsh is available
   if vim.fn.executable "tclsh" == 0 then
     return nil, "tclsh executable not found in PATH"

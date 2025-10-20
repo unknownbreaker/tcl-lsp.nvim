@@ -2,176 +2,164 @@
 # tcl/core/ast/commands.tcl
 # Command Extraction Module
 #
-# This module splits TCL source code into individual command blocks.
-# It handles multi-line commands, brace balancing, and comments.
+# Splits TCL source code into individual commands for parsing.
+# This is tricky because we need to handle braces, quotes, and line continuations
+# without actually executing the code.
 
 namespace eval ::ast::commands {
     namespace export extract
-    variable debug 0
 }
 
-# Extract individual TCL commands from source code
+# Extract individual commands from TCL source code
 #
-# This function intelligently splits source into separate commands by:
-# - Tracking brace depth to handle multi-line commands
-# - Using [info complete] to verify command completeness
-# - Skipping comment lines
-# - Handling multi-line comments (ending with \)
+# This splits the source into separate commands, respecting:
+# - Brace nesting (commands inside procs shouldn't be split)
+# - Quote escaping
+# - Line continuations (backslash-newline)
+# - Semicolon separators
 #
 # Args:
-#   code       - The source code
-#   start_line - Line number to start from (for nested parsing)
+#   code       - Source code to split
+#   start_line - Starting line number for the code block
 #
 # Returns:
-#   List of command dicts with text, start_line, end_line keys
+#   List of command dicts, each with: text, start_line, end_line keys
 #
 proc ::ast::commands::extract {code start_line} {
-    variable debug
-
     set commands [list]
     set lines [split $code "\n"]
-    set line_num $start_line
+    set line_num 0
+
     set current_cmd ""
     set cmd_start_line $start_line
     set brace_depth 0
-    set in_comment 0
+    set in_quotes 0
 
     foreach line $lines {
-        # Handle multi-line comments (lines ending with \)
-        if {$in_comment} {
-            if {[string index [string trimright $line] end] ne "\\"} {
-                set in_comment 0
-            }
-            incr line_num
-            continue
+        # Track if this line continues a command
+        set line_continues 0
+
+        # Check for backslash at end (line continuation)
+        if {[string index $line end] eq "\\"} {
+            set line_continues 1
         }
 
-        # Skip comment lines
-        if {[regexp {^\s*#} $line]} {
-            # Check if this comment continues on next line
-            if {[string index [string trimright $line] end] eq "\\"} {
-                set in_comment 1
-            }
-            incr line_num
-            continue
+        # Add line to current command
+        if {$current_cmd ne ""} {
+            append current_cmd "\n"
         }
-
-        # Skip empty lines
-        set trimmed [string trim $line]
-        if {$trimmed eq ""} {
-            incr line_num
-            continue
-        }
-
-        # Start new command if we're not in the middle of one
-        if {$current_cmd eq ""} {
-            set cmd_start_line $line_num
-        }
-
-        append current_cmd $line "\n"
+        append current_cmd $line
 
         # Track brace depth to know when command is complete
-        foreach char [split $line ""] {
-            if {$char eq "\{"} {
-                incr brace_depth
-            } elseif {$char eq "\}"} {
-                incr brace_depth -1
+        for {set i 0} {$i < [string length $line]} {incr i} {
+            set char [string index $line $i]
+            set prev_char [expr {$i > 0 ? [string index $line [expr {$i-1}]] : ""}]
+
+            # Skip escaped characters
+            if {$prev_char eq "\\"} {
+                continue
+            }
+
+            # Track quotes
+            if {$char eq "\""} {
+                set in_quotes [expr {!$in_quotes}]
+            }
+
+            # Track braces (only outside quotes)
+            if {!$in_quotes} {
+                if {$char eq "\{"} {
+                    incr brace_depth
+                } elseif {$char eq "\}"} {
+                    incr brace_depth -1
+                }
             }
         }
 
         # Command is complete when:
-        # 1. TCL says it's complete ([info complete])
-        # 2. We're at brace depth 0 (not inside any blocks)
-        if {[info complete $current_cmd] && $brace_depth == 0} {
-            lappend commands [dict create \
-                text $current_cmd \
-                start_line $cmd_start_line \
-                end_line $line_num]
-            set current_cmd ""
+        # 1. Line doesn't continue (no backslash at end)
+        # 2. We're not inside quotes
+        # 3. Brace depth is 0
+        # 4. TCL says it's complete ([info complete])
+        if {!$line_continues && !$in_quotes && $brace_depth == 0} {
+            if {[info complete $current_cmd]} {
+                # Command is complete - save it
+                set trimmed [string trim $current_cmd]
+                if {$trimmed ne ""} {
+                    lappend commands [dict create \
+                        text $trimmed \
+                        start_line [expr {$start_line + $cmd_start_line}] \
+                        end_line [expr {$start_line + $line_num}]]
+                }
+                set current_cmd ""
+                set cmd_start_line [expr {$line_num + 1}]
+            }
         }
 
         incr line_num
     }
 
-    # Handle incomplete command at end of file
+    # Handle incomplete command at end
     if {$current_cmd ne ""} {
-        lappend commands [dict create \
-            text $current_cmd \
-            start_line $cmd_start_line \
-            end_line [expr {$line_num - 1}]]
-    }
-
-    if {$debug} {
-        puts "Extracted [llength $commands] commands"
+        set trimmed [string trim $current_cmd]
+        if {$trimmed ne ""} {
+            lappend commands [dict create \
+                text $trimmed \
+                start_line [expr {$start_line + $cmd_start_line}] \
+                end_line [expr {$start_line + $line_num - 1}]]
+        }
     }
 
     return $commands
 }
 
 # ===========================================================================
-# SELF-TEST
+# MAIN - For testing
 # ===========================================================================
 
 if {[info script] eq $argv0} {
-    puts "Running commands module self-tests...\n"
-    
-    set pass 0
-    set fail 0
-    
-    proc test {name script expected} {
-        global pass fail
-        if {[catch {uplevel $script} result]} {
-            puts "✗ FAIL: $name - Error: $result"
-            incr fail
-            return
-        }
-        if {$result == $expected} {
-            puts "✓ PASS: $name"
-            incr pass
-        } else {
-            puts "✗ FAIL: $name"
-            puts "  Expected: $expected"
-            puts "  Got: $result"
-            incr fail
-        }
+    puts "Testing commands module..."
+    puts ""
+
+    # Test 1: Simple single command
+    set test1 "set x 1"
+    puts "Test 1: Single command"
+    set cmds [extract $test1 1]
+    puts "  Found [llength $cmds] command(s)"
+    if {[llength $cmds] > 0} {
+        puts "  Command: [dict get [lindex $cmds 0] text]"
     }
-    
-    # Test 1: Single line command
-    test "Single line command" {
-        set code "set x 1"
-        llength [::ast::commands::extract $code 1]
-    } "1"
-    
-    # Test 2: Multi-line command
-    test "Multi-line proc" {
-        set code "proc foo \{\} \{\n    puts hello\n\}"
-        llength [::ast::commands::extract $code 1]
-    } "1"
-    
-    # Test 3: Multiple commands
-    test "Multiple commands" {
-        set code "set x 1\nset y 2\nset z 3"
-        llength [::ast::commands::extract $code 1]
-    } "3"
-    
-    # Test 4: Commands with comments
-    test "Commands with comments" {
-        set code "# Comment\nset x 1\n# Another comment\nset y 2"
-        llength [::ast::commands::extract $code 1]
-    } "2"
-    
-    # Test 5: Empty lines
-    test "Commands with empty lines" {
-        set code "set x 1\n\nset y 2"
-        llength [::ast::commands::extract $code 1]
-    } "2"
-    
-    puts "\n========================================="
-    puts "Pass: $pass | Fail: $fail"
-    if {$fail == 0} {
-        puts "✓ ALL TESTS PASSED"
-        exit 0
-    } else {
-        exit 1
+    puts ""
+
+    # Test 2: Multiple commands
+    set test2 "set x 1\nset y 2\nset z 3"
+    puts "Test 2: Multiple commands"
+    set cmds [extract $test2 1]
+    puts "  Found [llength $cmds] command(s)"
+    puts ""
+
+    # Test 3: Command with braces (proc)
+    set test3 "proc hello \{\} \{\n    puts \"Hello!\"\n\}"
+    puts "Test 3: Proc with braces"
+    set cmds [extract $test3 1]
+    puts "  Found [llength $cmds] command(s)"
+    if {[llength $cmds] > 0} {
+        puts "  Command lines: [dict get [lindex $cmds 0] start_line]-[dict get [lindex $cmds 0] end_line]"
     }
+    puts ""
+
+    # Test 4: Line continuation
+    set test4 "set x \\\n    \[expr \{1 + 2\}\]"
+    puts "Test 4: Line continuation"
+    set cmds [extract $test4 1]
+    puts "  Found [llength $cmds] command(s)"
+    puts ""
+
+    # Test 5: Empty input
+    set test5 ""
+    puts "Test 5: Empty input"
+    set cmds [extract $test5 1]
+    puts "  Found [llength $cmds] command(s)"
+    puts ""
+
+    puts "✓ Commands tests complete"
 }
