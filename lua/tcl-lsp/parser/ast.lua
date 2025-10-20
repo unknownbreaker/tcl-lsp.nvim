@@ -111,9 +111,24 @@ function M.parse(code, filepath)
     if ast.errors and type(ast.errors) == "table" then
       for _, error_node in ipairs(ast.errors) do
         if type(error_node) == "table" and error_node.message then
-          table.insert(error_messages, error_node.message)
+          -- Ensure message is a string
+          local msg = error_node.message
+          if type(msg) == "string" then
+            table.insert(error_messages, msg)
+          elseif type(msg) == "table" then
+            -- If message is a table, try to stringify it
+            table.insert(error_messages, vim.inspect(msg))
+          else
+            table.insert(error_messages, tostring(msg))
+          end
+        elseif type(error_node) == "string" then
+          -- Handle case where error is just a string
+          table.insert(error_messages, error_node)
         end
       end
+    elseif type(ast.errors) == "string" then
+      -- Handle case where errors is a single string
+      table.insert(error_messages, ast.errors)
     end
 
     local error_msg = "Syntax error"
