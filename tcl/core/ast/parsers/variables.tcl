@@ -33,7 +33,7 @@ namespace eval ::ast::parsers::variables {
 # Returns:
 #   AST node dict for the variable assignment
 #
-proc ::ast::parsers::variables::parse_set {cmd_text start_line end_line} {
+proc ::ast::parsers::variables::parse_set {cmd_text start_line end_line depth} {
     set word_count [::tokenizer::count_tokens $cmd_text]
 
     if {$word_count < 2} {
@@ -63,7 +63,8 @@ proc ::ast::parsers::variables::parse_set {cmd_text start_line end_line} {
         type "set" \
         var_name $var_name \
         value $value \
-        range [::ast::utils::make_range $start_line 1 $end_line 1]]
+        range [::ast::utils::make_range $start_line 1 $end_line 1] \
+        depth $depth]
 }
 
 # Parse a variable declaration
@@ -78,7 +79,7 @@ proc ::ast::parsers::variables::parse_set {cmd_text start_line end_line} {
 # Returns:
 #   AST node dict for the variable declaration
 #
-proc ::ast::parsers::variables::parse_variable {cmd_text start_line end_line} {
+proc ::ast::parsers::variables::parse_variable {cmd_text start_line end_line depth} {
     set word_count [::tokenizer::count_tokens $cmd_text]
 
     if {$word_count < 2} {
@@ -100,7 +101,8 @@ proc ::ast::parsers::variables::parse_variable {cmd_text start_line end_line} {
         type "variable" \
         name $var_name \
         value $value \
-        range [::ast::utils::make_range $start_line 1 $end_line 1]]
+        range [::ast::utils::make_range $start_line 1 $end_line 1] \
+        depth $depth]
 }
 
 # Parse a global variable declaration
@@ -117,7 +119,7 @@ proc ::ast::parsers::variables::parse_variable {cmd_text start_line end_line} {
 # Returns:
 #   AST node dict with vars as array
 #
-proc ::ast::parsers::variables::parse_global {cmd_text start_line end_line} {
+proc ::ast::parsers::variables::parse_global {cmd_text start_line end_line depth} {
     set word_count [::tokenizer::count_tokens $cmd_text]
 
     if {$word_count < 2} {
@@ -143,7 +145,8 @@ proc ::ast::parsers::variables::parse_global {cmd_text start_line end_line} {
     return [dict create \
         type "global" \
         vars $vars_array \
-        range [::ast::utils::make_range $start_line 1 $end_line 1]]
+        range [::ast::utils::make_range $start_line 1 $end_line 1] \
+        depth $depth]
 }
 
 # Parse an upvar declaration
@@ -160,7 +163,7 @@ proc ::ast::parsers::variables::parse_global {cmd_text start_line end_line} {
 # Returns:
 #   AST node dict for the upvar declaration
 #
-proc ::ast::parsers::variables::parse_upvar {cmd_text start_line end_line} {
+proc ::ast::parsers::variables::parse_upvar {cmd_text start_line end_line depth} {
     set word_count [::tokenizer::count_tokens $cmd_text]
 
     if {$word_count < 3} {
@@ -185,7 +188,8 @@ proc ::ast::parsers::variables::parse_upvar {cmd_text start_line end_line} {
         level $level \
         other_var $other_var \
         local_var $local_var \
-        range [::ast::utils::make_range $start_line 1 $end_line 1]]
+        range [::ast::utils::make_range $start_line 1 $end_line 1] \
+        depth $depth]
 }
 
 # Parse an array set command
@@ -200,7 +204,7 @@ proc ::ast::parsers::variables::parse_upvar {cmd_text start_line end_line} {
 # Returns:
 #   AST node dict for the array set
 #
-proc ::ast::parsers::variables::parse_array {cmd_text start_line end_line} {
+proc ::ast::parsers::variables::parse_array {cmd_text start_line end_line depth} {
     set word_count [::tokenizer::count_tokens $cmd_text]
 
     if {$word_count < 3} {
@@ -222,7 +226,8 @@ proc ::ast::parsers::variables::parse_array {cmd_text start_line end_line} {
         type "array_set" \
         name $array_name \
         pairs $pairs \
-        range [::ast::utils::make_range $start_line 1 $end_line 1]]
+        range [::ast::utils::make_range $start_line 1 $end_line 1] \
+        depth $depth]
 }
 
 # ===========================================================================
