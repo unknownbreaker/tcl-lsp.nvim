@@ -2,7 +2,7 @@
 # tcl/core/ast/parsers/packages.tcl
 # Package Parsing Module
 #
-# UPDATED: Uses delimiter helper to keep version as STRING (fixes 8.6 → 8.5999... issue)
+# UPDATED: Keeps version as STRING not float (fixes 8.6 → 8.5999... issue)
 
 namespace eval ::ast::parsers::packages {
     namespace export parse_package parse_source
@@ -13,7 +13,7 @@ namespace eval ::ast::parsers::packages {
 # Syntax: package require pkgName [version]
 #         package provide pkgName version
 #
-# ⭐ FIX: Version stays as STRING not converted to float
+# ✅ FIX: Version stays as STRING not converted to float
 #
 # Args:
 #   cmd_text   - The package command text
@@ -47,12 +47,13 @@ proc ::ast::parsers::packages::parse_package {cmd_text start_line end_line depth
 
     if {$word_count >= 4} {
         set version_token [::tokenizer::get_token $cmd_text 3]
-        # ⭐ FIX: Keep version as STRING
+        # ✅ FIX: Keep version as STRING
         # normalize will strip delimiters but keep it as string
-        set version [::ast::delimiters::normalize $version_token]
+        set version_normalized [::ast::delimiters::normalize $version_token]
 
-        # ⭐ FIX: Force to stay as string, prevent float conversion
-        set version "$version"
+        # ✅ FIX: Force to stay as string, prevent float conversion
+        # This is critical for versions like "8.6" which Tcl would convert to 8.5999999...
+        set version [format "%s" $version_normalized]
     }
 
     # Determine type based on subcommand

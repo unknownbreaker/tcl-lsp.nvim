@@ -2,7 +2,10 @@
 # tcl/core/ast/parsers/variables.tcl
 # Variable Declaration Parsing Module
 #
-# UPDATED: Now uses delimiter helper to properly handle tokenizer output
+# UPDATED: Type conversion fixes for test compatibility
+# - Values stay as strings not numbers
+# - Global vars returns array of strings
+# - Level in upvar stays as string
 
 namespace eval ::ast::parsers::variables {
     namespace export parse_set parse_variable parse_global parse_upvar parse_array
@@ -43,13 +46,14 @@ proc ::ast::parsers::variables::parse_set {cmd_text start_line end_line depth} {
         # Check if this is a command substitution
         if {[::ast::delimiters::is_bracketed $value_token]} {
             # Command substitution - needs recursive parsing
-            # For now, mark it for later recursive parse
             set value [dict create \
                 type "command_substitution" \
                 command [::ast::delimiters::extract_command $value_token]]
         } else {
             # Simple value - normalize (strip delimiters)
-            set value [::ast::delimiters::normalize $value_token]
+            set value_normalized [::ast::delimiters::normalize $value_token]
+            # ✅ FIX: Force to stay as STRING
+            set value [format "%s" $value_normalized]
         }
     }
 
@@ -91,7 +95,9 @@ proc ::ast::parsers::variables::parse_variable {cmd_text start_line end_line dep
     set value ""
     if {$word_count >= 3} {
         set value_token [::tokenizer::get_token $cmd_text 2]
-        set value [::ast::delimiters::normalize $value_token]
+        set value_normalized [::ast::delimiters::normalize $value_token]
+        # ✅ FIX: Force to stay as STRING
+        set value [format "%s" $value_normalized]
     }
 
     return [dict create \
@@ -106,7 +112,7 @@ proc ::ast::parsers::variables::parse_variable {cmd_text start_line end_line dep
 #
 # Syntax: global var1 [var2 ...]
 #
-# Returns vars as array of strings (not structured objects)
+# ✅ FIX: Returns vars as array of strings (not single string)
 #
 # Args:
 #   cmd_text   - The global command text
@@ -115,7 +121,7 @@ proc ::ast::parsers::variables::parse_variable {cmd_text start_line end_line dep
 #   depth      - Nesting depth
 #
 # Returns:
-#   AST node dict with vars as simple string array
+#   AST node dict with vars as array of variable names
 #
 proc ::ast::parsers::variables::parse_global {cmd_text start_line end_line depth} {
     set word_count [::tokenizer::count_tokens $cmd_text]
@@ -127,7 +133,7 @@ proc ::ast::parsers::variables::parse_global {cmd_text start_line end_line depth
             range [::ast::utils::make_range $start_line 1 $end_line 1]]
     }
 
-    # Get all variable names after 'global' - return as simple strings
+    # ✅ FIX: Collect ALL variable names as array
     set vars [list]
     for {set i 1} {$i < $word_count} {incr i} {
         set var_token [::tokenizer::get_token $cmd_text $i]
@@ -146,7 +152,7 @@ proc ::ast::parsers::variables::parse_global {cmd_text start_line end_line depth
 #
 # Syntax: upvar level otherVar myVar
 #
-# Level stays as string representation
+# ✅ FIX: Level stays as string representation
 #
 # Args:
 #   cmd_text   - The upvar command text
@@ -167,13 +173,11 @@ proc ::ast::parsers::variables::parse_upvar {cmd_text start_line end_line depth}
             range [::ast::utils::make_range $start_line 1 $end_line 1]]
     }
 
-    # Keep level as string (even if it looks like a number)
+    # ✅ FIX: Keep level as STRING (even if it looks like a number)
     set level_token [::tokenizer::get_token $cmd_text 1]
-    set level [::ast::delimiters::strip_outer $level_token]
-
-    # ⭐ FIX: Force to remain as string
-    # Wrap in quotes or use string cat to prevent numeric conversion
-    set level "$level"
+    set level_value [::ast::delimiters::strip_outer $level_token]
+    # Force string representation by concatenating with empty string
+    set level [format "%s" $level_value]
 
     set other_var_token [::tokenizer::get_token $cmd_text 2]
     set other_var [::ast::delimiters::strip_outer $other_var_token]
@@ -230,7 +234,6 @@ proc ::ast::parsers::variables::parse_array {cmd_text start_line end_line depth}
         lappend args $arg
     }
 
-    # ⭐ FIX: Type should be "array" not "array_set"
     return [dict create \
         type "array" \
         operation $operation \

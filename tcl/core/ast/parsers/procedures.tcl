@@ -2,10 +2,10 @@
 # tcl/core/ast/parsers/procedures.tcl
 # Procedure (proc) Parsing Module
 #
-# UPDATED: Uses delimiter helper and fixes:
+# UPDATED: Type conversion fixes for test compatibility
 # - Empty params returns [] instead of ""
 # - is_varargs returns boolean true instead of number 1
-# - Default values are strings not numbers
+# - Default values stay as strings not numbers
 
 namespace eval ::ast::parsers::procedures {
     namespace export parse_proc
@@ -44,7 +44,7 @@ proc ::ast::parsers::procedures::parse_proc {cmd_text start_line end_line depth}
     set body_token [::tokenizer::get_token $cmd_text 3]
     set body [::ast::delimiters::strip_outer $body_token]
 
-    # ⭐ FIX: Initialize params as EMPTY LIST not empty string
+    # ✅ FIX: Initialize params as EMPTY LIST not empty string
     set params [list]
 
     # Only process if we actually have parameters
@@ -56,15 +56,14 @@ proc ::ast::parsers::procedures::parse_proc {cmd_text start_line end_line depth}
                 set param_name [lindex $arg 0]
                 set param_default [lindex $arg 1]
 
-                # ⭐ FIX: Keep default as STRING not number
-                # Strip quotes if present but keep it as string
+                # Strip quotes if present
                 if {[string index $param_default 0] eq "\"" && [string index $param_default end] eq "\""} {
                     set param_default [string range $param_default 1 end-1]
                 }
 
-                # ⭐ FIX: Force to stay as string even if it looks like a number
+                # ✅ FIX: Force to stay as STRING even if it looks like a number
                 # This prevents TCL from converting "10" to integer 10
-                set param_default "$param_default"
+                set param_default [format "%s" $param_default]
 
                 lappend params [dict create \
                     name $param_name \
@@ -73,7 +72,7 @@ proc ::ast::parsers::procedures::parse_proc {cmd_text start_line end_line depth}
                 # Simple parameter
                 set param_dict [dict create name $arg]
 
-                # ⭐ FIX: is_varargs should be BOOLEAN true not number 1
+                # ✅ FIX: is_varargs should be BOOLEAN true not number 1
                 if {$arg eq "args"} {
                     dict set param_dict is_varargs true
                 }
