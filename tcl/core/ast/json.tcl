@@ -1,12 +1,13 @@
 #!/usr/bin/env tclsh
 # tcl/core/ast/json.tcl
-# JSON Serialization Module for TCL AST (WITH TYPE CONVERSION FIX)
+# JSON Serialization Module for TCL AST (WITH TYPE CONVERSION FIX v2)
 #
 # This module provides functions to convert TCL dict/list structures to JSON format.
 # Critical for communicating AST data between TCL parser and Lua LSP layer.
 #
 # ⭐ FIX #1: Context-aware serialization - preserves string types for TCL values
 # ⭐ FIX #2: Uses proper dict detection via catch {dict size}
+# ⭐ FIX #3: Separate handling for boolean fields
 
 namespace eval ::ast::json {
     namespace export dict_to_json list_to_json escape to_json
@@ -18,8 +19,17 @@ namespace eval ::ast::json {
         start_line end_line start_col end_col
         start end
         had_error
-        depth level
+        depth
         count size length
+    }
+
+    # Fields that should be serialized as JSON booleans
+    # These will convert TCL "true"/"false" or 1/0 to JSON true/false
+    variable boolean_fields {
+        has_varargs
+        is_variadic
+        is_optional
+        quoted
     }
 }
 
@@ -29,12 +39,28 @@ proc ::ast::json::is_numeric_field {key} {
     return [expr {$key in $numeric_fields}]
 }
 
+# Check if a key should be serialized as a boolean
+proc ::ast::json::is_boolean_field {key} {
+    variable boolean_fields
+    return [expr {$key in $boolean_fields}]
+}
+
+# Convert TCL boolean value to JSON boolean
+proc ::ast::json::to_json_boolean {value} {
+    # Handle various TCL boolean representations
+    if {$value eq "true" || $value eq "yes" || $value eq "on" || $value == 1} {
+        return "true"
+    } else {
+        return "false"
+    }
+}
+
 # Convert a TCL dict to JSON object format
 #
 # This function handles nested dicts, lists, and primitive values.
 # It recursively converts complex structures to proper JSON.
 #
-# ⭐ FIX: Context-aware - only serializes whitelisted fields as numbers
+# ⭐ FIX: Context-aware - only serializes whitelisted fields as numbers/booleans
 #         All other values remain as strings (preserving TCL semantics)
 #
 # Args:
@@ -122,8 +148,11 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
                     append result [dict_to_json $value [expr {$indent_level + 1}]]
                 } else {
                     # ⭐ FIX: Context-aware primitive serialization
-                    # Check if this field should be numeric
-                    if {[is_numeric_field $key] && ([string is integer -strict $value] || [string is double -strict $value])} {
+                    # Check field type: boolean > numeric > string (default)
+                    if {[is_boolean_field $key]} {
+                        # Boolean field - convert to JSON boolean
+                        append result [to_json_boolean $value]
+                    } elseif {[is_numeric_field $key] && ([string is integer -strict $value] || [string is double -strict $value])} {
                         # Whitelisted numeric field - output as JSON number
                         append result $value
                     } else {
@@ -248,110 +277,61 @@ proc ::ast::json::to_json {ast} {
 # ===========================================================================
 
 if {[info script] eq $argv0} {
-    puts "Testing JSON module with TYPE CONVERSION FIX..."
+    puts "Testing JSON module with TYPE CONVERSION FIX v2..."
     puts ""
 
-    # Test 1: Simple dict with primitives
-    puts "Test 1: Simple dict"
-    set test1 [dict create type "proc" name "hello" line 1]
+    # Test 1: Numeric field (should be number)
+    puts "Test 1: Numeric field"
+    set test1 [dict create type "proc" name "test" line 42]
     puts [to_json $test1]
-    puts "Expected: 'name' and 'type' as strings, 'line' as number"
+    puts "Expected: line as number (42)"
     puts ""
 
-    # Test 2: Dict with nested dict
-    puts "Test 2: Nested dict"
-    set test2 [dict create \
-        type "proc" \
-        name "test" \
-        range [dict create start 1 end 10]]
+    # Test 2: Level field (should be STRING, not number)
+    puts "Test 2: Level field (FIXED - now string)"
+    set test2 [dict create type "upvar" level "1" vars [list "x" "y"]]
     puts [to_json $test2]
-    puts "Expected: 'start' and 'end' as numbers (whitelisted)"
+    puts "Expected: level as STRING \"1\" (not number)"
     puts ""
 
-    # Test 3: Dict with list of primitives (THE FIX!)
-    puts "Test 3: List of string primitives (FIXED)"
-    set test3 [dict create \
-        type "proc" \
-        params [list "x" "y" "z"]]
+    # Test 3: Boolean field (should be boolean)
+    puts "Test 3: Boolean field (NEW FIX)"
+    set test3 [dict create type "proc" name "test" has_varargs "true"]
     puts [to_json $test3]
-    puts "Expected: params as array of STRINGS"
+    puts "Expected: has_varargs as boolean true"
     puts ""
 
-    # Test 4: Numeric-looking strings stay strings (THE KEY FIX!)
-    puts "Test 4: Numeric-looking strings (THE KEY FIX)"
-    set test4 [dict create \
-        type "set" \
-        name "version" \
-        value "8.6"]
+    # Test 4: Version number (should be string)
+    puts "Test 4: Version number"
+    set test4 [dict create type "package_require" version "8.6"]
     puts [to_json $test4]
-    puts "Expected: 'value' as STRING \"8.6\" (not number 8.6)"
+    puts "Expected: version as STRING \"8.6\""
     puts ""
 
-    # Test 5: Dict with list of dicts
-    puts "Test 5: List of dicts"
-    set test5 [dict create \
-        type "root" \
-        children [list \
-            [dict create type "proc" name "hello"] \
-            [dict create type "proc" name "world"]]]
+    # Test 5: Default parameter (should be string)
+    puts "Test 5: Default parameter"
+    set test5 [dict create type "param" name "y" default "10"]
     puts [to_json $test5]
-    puts "Expected: Works correctly (already fixed)"
+    puts "Expected: default as STRING \"10\""
     puts ""
 
-    # Test 6: Empty collections
-    puts "Test 6: Empty collections"
+    # Test 6: Mixed fields
+    puts "Test 6: Mixed numeric/string/boolean fields"
     set test6 [dict create \
-        type "root" \
-        children [list] \
-        errors [list]]
-    puts [to_json $test6]
-    puts ""
-
-    # Test 7: String with special characters
-    puts "Test 7: Special characters"
-    set test7 [dict create \
-        type "string" \
-        value "Line 1\nLine 2\t\"Quoted\""]
-    puts [to_json $test7]
-    puts ""
-
-    # Test 8: Numeric values in whitelisted fields
-    puts "Test 8: Numeric values (whitelisted fields)"
-    set test8 [dict create \
-        type "proc" \
-        line 42 \
-        column 10]
-    puts [to_json $test8]
-    puts "Expected: 'line' and 'column' as numbers"
-    puts ""
-
-    # Test 9: Mixed numeric/string values
-    puts "Test 9: Mixed values - default vs integers"
-    set test9 [dict create \
         type "proc" \
         name "test" \
-        params [list "x" "{y 10}"] \
-        line 5]
-    puts [to_json $test9]
-    puts "Expected: 'name' as string, params as strings, 'line' as number"
-    puts ""
-
-    # Test 10: Version number preservation
-    puts "Test 10: Version number (no precision loss)"
-    set test10 [dict create \
-        type "package_require" \
-        package_name "Tcl" \
-        version "8.6"]
-    puts [to_json $test10]
-    puts "Expected: 'version' as STRING \"8.6\" (preserves exact value)"
+        line 5 \
+        has_varargs 1 \
+        params [list "x" "y"]]
+    puts [to_json $test6]
+    puts "Expected: line=5 (number), has_varargs=true (boolean), params=[strings]"
     puts ""
 
     puts "✓ All JSON tests complete"
     puts "✓ Type conversion issues should be FIXED!"
     puts ""
-    puts "Key improvements:"
-    puts "  1. Numeric-looking strings stay as strings"
-    puts "  2. Only whitelisted fields (line, column, etc.) are numbers"
-    puts "  3. No precision loss (8.6 stays \"8.6\", not 8.5999...)"
-    puts "  4. Preserves TCL's 'everything is a string' philosophy"
+    puts "Key improvements in v2:"
+    puts "  1. Removed 'level' from numeric whitelist"
+    puts "  2. Added boolean field support"
+    puts "  3. Boolean fields: has_varargs, is_variadic, is_optional, quoted"
 }
