@@ -62,6 +62,10 @@ proc ::ast::parsers::procedures::parse_proc {cmd_text start_line end_line depth}
                     set param_default [string range $param_default 1 end-1]
                 }
 
+                # ⭐ FIX: Force to stay as string even if it looks like a number
+                # This prevents TCL from converting "10" to integer 10
+                set param_default "$param_default"
+
                 lappend params [dict create \
                     name $param_name \
                     default $param_default]

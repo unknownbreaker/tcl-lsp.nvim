@@ -171,6 +171,10 @@ proc ::ast::parsers::variables::parse_upvar {cmd_text start_line end_line depth}
     set level_token [::tokenizer::get_token $cmd_text 1]
     set level [::ast::delimiters::strip_outer $level_token]
 
+    # ⭐ FIX: Force to remain as string
+    # Wrap in quotes or use string cat to prevent numeric conversion
+    set level "$level"
+
     set other_var_token [::tokenizer::get_token $cmd_text 2]
     set other_var [::ast::delimiters::strip_outer $other_var_token]
 

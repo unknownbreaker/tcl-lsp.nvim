@@ -50,6 +50,9 @@ proc ::ast::parsers::packages::parse_package {cmd_text start_line end_line depth
         # ⭐ FIX: Keep version as STRING
         # normalize will strip delimiters but keep it as string
         set version [::ast::delimiters::normalize $version_token]
+
+        # ⭐ FIX: Force to stay as string, prevent float conversion
+        set version "$version"
     }
 
     # Determine type based on subcommand
