@@ -1,15 +1,32 @@
 #!/usr/bin/env tclsh
 # tcl/core/ast/json.tcl
-# JSON Serialization Module for TCL AST
+# JSON Serialization Module for TCL AST (WITH TYPE CONVERSION FIX)
 #
 # This module provides functions to convert TCL dict/list structures to JSON format.
 # Critical for communicating AST data between TCL parser and Lua LSP layer.
 #
-# ⭐ IMPORTANT: This file contains the FIX for the "bad class 'dict'" error
-# that was blocking 42 test cases.
+# ⭐ FIX #1: Context-aware serialization - preserves string types for TCL values
+# ⭐ FIX #2: Uses proper dict detection via catch {dict size}
 
 namespace eval ::ast::json {
     namespace export dict_to_json list_to_json escape to_json
+
+    # Fields that should be serialized as JSON numbers (not strings)
+    # All other fields default to strings, preserving TCL's string nature
+    variable numeric_fields {
+        line column
+        start_line end_line start_col end_col
+        start end
+        had_error
+        depth level
+        count size length
+    }
+}
+
+# Check if a key should be serialized as a number
+proc ::ast::json::is_numeric_field {key} {
+    variable numeric_fields
+    return [expr {$key in $numeric_fields}]
 }
 
 # Convert a TCL dict to JSON object format
@@ -17,8 +34,8 @@ namespace eval ::ast::json {
 # This function handles nested dicts, lists, and primitive values.
 # It recursively converts complex structures to proper JSON.
 #
-# ⭐ FIXED: Uses proper dict detection via catch {dict size} instead of invalid
-#        [string is dict] which doesn't exist in TCL.
+# ⭐ FIX: Context-aware - only serializes whitelisted fields as numbers
+#         All other values remain as strings (preserving TCL semantics)
 #
 # Args:
 #   dict_data    - Dict to convert
@@ -103,12 +120,16 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
 
                 if {$is_dict} {
                     append result [dict_to_json $value [expr {$indent_level + 1}]]
-                } elseif {[string is integer -strict $value] || [string is double -strict $value]} {
-                    # Numeric value - no quotes
-                    append result $value
                 } else {
-                    # String value
-                    append result "\"[escape $value]\""
+                    # ⭐ FIX: Context-aware primitive serialization
+                    # Check if this field should be numeric
+                    if {[is_numeric_field $key] && ([string is integer -strict $value] || [string is double -strict $value])} {
+                        # Whitelisted numeric field - output as JSON number
+                        append result $value
+                    } else {
+                        # All other values - output as JSON string
+                        append result "\"[escape $value]\""
+                    }
                 }
             }
         } else {
@@ -127,8 +148,8 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
 # 1. List of dicts (each element is a dict) → array of objects
 # 2. List of primitives (strings, numbers) → array of values
 #
-# ⭐ FIXED: Uses proper dict detection via catch {dict size} instead of invalid
-#        [string is dict] which doesn't exist in TCL.
+# ⭐ FIX #1: Uses proper dict detection via catch {dict size}
+# ⭐ FIX #2: Lists of primitives default to strings (no numeric conversion)
 #
 # Args:
 #   value        - List to convert
@@ -147,7 +168,6 @@ proc ::ast::json::list_to_json {value {indent_level 0}} {
     set first_elem [lindex $value 0]
 
     # Check if first element is a dict
-    # ⭐ FIX: Use catch {dict size} instead of [string is dict]
     set is_dict_list 0
     if {[catch {dict size $first_elem} size] == 0 && $size > 0} {
         # First element is a dict - this is likely a list of dicts
@@ -169,7 +189,9 @@ proc ::ast::json::list_to_json {value {indent_level 0}} {
         append result "\n${next_indent}\]"
         return $result
     } else {
-        # List of primitives - format as compact array
+        # ⭐ FIX: List of primitives - ALL VALUES AS STRINGS by default
+        # This preserves TCL's string semantics and prevents type conversion issues
+        # Only the whitelisted fields in dict_to_json will be numeric
         set result "\["
         set first_item 1
         foreach item $value {
@@ -177,11 +199,8 @@ proc ::ast::json::list_to_json {value {indent_level 0}} {
                 append result ", "
             }
             set first_item 0
-            if {[string is integer -strict $item] || [string is double -strict $item]} {
-                append result $item
-            } else {
-                append result "\"[escape $item]\""
-            }
+            # Always quote primitives in arrays (unless it's from a numeric field, handled in dict_to_json)
+            append result "\"[escape $item]\""
         }
         append result "\]"
         return $result
@@ -229,13 +248,14 @@ proc ::ast::json::to_json {ast} {
 # ===========================================================================
 
 if {[info script] eq $argv0} {
-    puts "Testing JSON module..."
+    puts "Testing JSON module with TYPE CONVERSION FIX..."
     puts ""
 
     # Test 1: Simple dict with primitives
     puts "Test 1: Simple dict"
     set test1 [dict create type "proc" name "hello" line 1]
     puts [to_json $test1]
+    puts "Expected: 'name' and 'type' as strings, 'line' as number"
     puts ""
 
     # Test 2: Dict with nested dict
@@ -245,66 +265,93 @@ if {[info script] eq $argv0} {
         name "test" \
         range [dict create start 1 end 10]]
     puts [to_json $test2]
+    puts "Expected: 'start' and 'end' as numbers (whitelisted)"
     puts ""
 
-    # Test 3: Dict with list of primitives
-    puts "Test 3: List of primitives"
+    # Test 3: Dict with list of primitives (THE FIX!)
+    puts "Test 3: List of string primitives (FIXED)"
     set test3 [dict create \
         type "proc" \
         params [list "x" "y" "z"]]
     puts [to_json $test3]
+    puts "Expected: params as array of STRINGS"
     puts ""
 
-    # Test 4: Dict with list of dicts
-    puts "Test 4: List of dicts"
+    # Test 4: Numeric-looking strings stay strings (THE KEY FIX!)
+    puts "Test 4: Numeric-looking strings (THE KEY FIX)"
     set test4 [dict create \
+        type "set" \
+        name "version" \
+        value "8.6"]
+    puts [to_json $test4]
+    puts "Expected: 'value' as STRING \"8.6\" (not number 8.6)"
+    puts ""
+
+    # Test 5: Dict with list of dicts
+    puts "Test 5: List of dicts"
+    set test5 [dict create \
         type "root" \
         children [list \
             [dict create type "proc" name "hello"] \
             [dict create type "proc" name "world"]]]
-    puts [to_json $test4]
+    puts [to_json $test5]
+    puts "Expected: Works correctly (already fixed)"
     puts ""
 
-    # Test 5: Empty collections
-    puts "Test 5: Empty collections"
-    set test5 [dict create \
+    # Test 6: Empty collections
+    puts "Test 6: Empty collections"
+    set test6 [dict create \
         type "root" \
         children [list] \
         errors [list]]
-    puts [to_json $test5]
-    puts ""
-
-    # Test 6: String with special characters
-    puts "Test 6: Special characters"
-    set test6 [dict create \
-        type "string" \
-        value "Line 1\nLine 2\t\"Quoted\""]
     puts [to_json $test6]
     puts ""
 
-    # Test 7: Numeric values
-    puts "Test 7: Numeric values"
+    # Test 7: String with special characters
+    puts "Test 7: Special characters"
     set test7 [dict create \
-        type "number" \
-        int_val 42 \
-        float_val 3.14]
+        type "string" \
+        value "Line 1\nLine 2\t\"Quoted\""]
     puts [to_json $test7]
     puts ""
 
-    # Test 8: Complex nested structure
-    puts "Test 8: Complex structure"
+    # Test 8: Numeric values in whitelisted fields
+    puts "Test 8: Numeric values (whitelisted fields)"
     set test8 [dict create \
-        type "root" \
-        filepath "test.tcl" \
-        children [list \
-            [dict create \
-                type "proc" \
-                name "calculate" \
-                params [list "x" "y"] \
-                range [dict create start 1 end 5]]]]
+        type "proc" \
+        line 42 \
+        column 10]
     puts [to_json $test8]
+    puts "Expected: 'line' and 'column' as numbers"
+    puts ""
+
+    # Test 9: Mixed numeric/string values
+    puts "Test 9: Mixed values - default vs integers"
+    set test9 [dict create \
+        type "proc" \
+        name "test" \
+        params [list "x" "{y 10}"] \
+        line 5]
+    puts [to_json $test9]
+    puts "Expected: 'name' as string, params as strings, 'line' as number"
+    puts ""
+
+    # Test 10: Version number preservation
+    puts "Test 10: Version number (no precision loss)"
+    set test10 [dict create \
+        type "package_require" \
+        package_name "Tcl" \
+        version "8.6"]
+    puts [to_json $test10]
+    puts "Expected: 'version' as STRING \"8.6\" (preserves exact value)"
     puts ""
 
     puts "✓ All JSON tests complete"
-    puts "✓ The 'bad class dict' error should be FIXED!"
+    puts "✓ Type conversion issues should be FIXED!"
+    puts ""
+    puts "Key improvements:"
+    puts "  1. Numeric-looking strings stay as strings"
+    puts "  2. Only whitelisted fields (line, column, etc.) are numbers"
+    puts "  3. No precision loss (8.6 stays \"8.6\", not 8.5999...)"
+    puts "  4. Preserves TCL's 'everything is a string' philosophy"
 }
