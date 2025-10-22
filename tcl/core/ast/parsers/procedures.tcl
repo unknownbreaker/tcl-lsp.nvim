@@ -2,9 +2,9 @@
 # tcl/core/ast/parsers/procedures.tcl
 # Procedure (proc) Parsing Module
 #
-# UPDATED: Type conversion fixes for test compatibility
+# UPDATED: Phase 3 Fix 1 - Boolean Type Conversion
+# - has_varargs now returns numeric 1 which JSON serializes as boolean true
 # - Empty params returns [] instead of ""
-# - is_varargs returns boolean true instead of number 1
 # - Default values stay as strings not numbers
 
 namespace eval ::ast::parsers::procedures {
@@ -72,9 +72,10 @@ proc ::ast::parsers::procedures::parse_proc {cmd_text start_line end_line depth}
                 # Simple parameter
                 set param_dict [dict create name $arg]
 
-                # ✅ FIX: is_varargs should be BOOLEAN true not number 1
+                # ✅ PHASE 3 FIX 1: is_varargs should be NUMERIC 1 not string "true"
+                # Numeric 1 will be serialized as boolean true in JSON
                 if {$arg eq "args"} {
-                    dict set param_dict is_varargs true
+                    dict set param_dict is_varargs 1
                 }
 
                 lappend params $param_dict
