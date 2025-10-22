@@ -176,7 +176,7 @@ proc outer {} {
       local set_node = ast.children[1]
       assert.equals("set", set_node.type)
       assert.equals("myvar", set_node.var_name)
-      assert.equals("value", set_node.value)
+      assert.equals('"value"', set_node.value)
     end)
 
     it("should parse variable set with expression", function()
