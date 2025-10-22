@@ -9,6 +9,7 @@ LUA ?= lua
 TCLSH ?= tclsh
 BUSTED ?= busted
 NAGELFAR ?= nagelfar
+TEST_FORMATTER := ./scripts/format_test_output.py
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -33,13 +34,14 @@ test-e2e:
 	@echo: "Running E2E tests..."
 	npm run test:e2e
 
-test-unit: ## Run unit tests
+test-unit: ## Run unit tests with formatted output
 	@echo "Running Lua unit tests with plenary..."
-	nvim --headless --noplugin -u tests/minimal_init.lua \
+	@$(NVIM) --headless --noplugin -u tests/minimal_init.lua \
 		-c "lua require('plenary.test_harness').test_directory('tests/lua/', {minimal_init = 'tests/minimal_init.lua'})" \
-		-c "qa!"
+		-c "qa!" 2>&1 | $(TEST_FORMATTER)
+	@echo ""
 	@echo "Running Tcl unit tests..."
-	tclsh tests/tcl/run_tests.tcl
+	@$(TCLSH) tests/tcl/run_tests.tcl
 
 test-unit-lsp-server: ## Run LSP server specific tests
 	@echo "Running LSP server unit tests..."
