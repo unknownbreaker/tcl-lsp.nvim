@@ -1,3 +1,4 @@
+# Makefile
 # TCL LSP for Neovim - Build Automation
 .DEFAULT_GOAL := help
 .PHONY: help install test test-unit test-integration test-performance clean lint format check docs release
@@ -41,7 +42,7 @@ test-unit: ## Run unit tests with formatted output
 		-c "qa!" 2>&1 | $(TEST_FORMATTER)
 	@echo ""
 	@echo "Running Tcl unit tests..."
-	@$(TCLSH) tests/tcl/core/ast/run_all_tests.tcl
+	@$(TCLSH) tests/tcl/core/ast/run_all_tests.tcl 2>&1 | $(TEST_FORMATTER)
 
 test-unit-lsp-server: ## Run LSP server specific tests
 	@echo "Running LSP server unit tests..."
@@ -93,7 +94,7 @@ lint-lua: ## Run linting
 	@echo "Linting Lua code..."
 	luacheck lua/ tests/ || [ $$? -eq 1 ]
 
-lint-tcl: ## Run linting
+lint-tcl: ## Lint TCL code with nagelfar
 	@echo "Linting Tcl code with Nagelfar..."
 	@find tcl/ -name "*.tcl" -print0 2>/dev/null | while IFS= read -r -d '' file; do \
 		echo ""; \
@@ -134,19 +135,18 @@ format-js-check: ## Check JavaScript formatting (if any exist)
 		echo "No JavaScript files found, skipping JS format checking..."; \
 	fi
 
-format-lua: ## Format code
+format-lua: ## Format Lua code
 	@echo "Formatting Lua code..."
 	stylua lua/ tests/lua/
 
-format-tcl: ## Format code
+format-tcl: ## Format TCL code
 	@echo "Formatting Tcl code..."
 	find tcl/ -name "*.tcl" -exec tclFormatter {} \;
 
 format: format-lua format-tcl format-js ## Run all formatting
 	@echo "All formatting completed"
 
-check: lint test ## Run checks and tests
-	@echo "All checks passed"
+check: lint test ## Run all checks (lint + test)
 
 clean: ## Clean build artifacts
 	@echo "Cleaning build artifacts..."
