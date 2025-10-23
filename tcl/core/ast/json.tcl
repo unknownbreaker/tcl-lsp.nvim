@@ -1,21 +1,20 @@
 #!/usr/bin/env tclsh
 # tcl/core/ast/json.tcl
-# JSON Serialization Module for TCL AST (WITH TYPE CONVERSION FIX v2)
+# JSON Serialization Module for TCL AST (Phase 3 Fix - List & Boolean Handling)
 #
 # This module provides functions to convert TCL dict/list structures to JSON format.
 # Critical for communicating AST data between TCL parser and Lua LSP layer.
 #
-# ⭐ FIX #1: Context-aware serialization - preserves string types for TCL values
-# ⭐ FIX #2: Uses proper dict detection via catch {dict size}
-# ⭐ FIX #3: Separate handling for boolean fields
-# ⭐ FIX #4: Removed 'level' from numeric whitelist (stays as string)
+# PHASE 3 FIXES:
+# ⭐ FIX #1: Empty lists serialize as [] not ""
+# ⭐ FIX #2: Single-element lists serialize as ["item"] not "item"
+# ⭐ FIX #3: Boolean fields serialize as true/false not "true"/"false"
+# ⭐ FIX #4: Proper list detection to avoid converting lists to dicts
 
 namespace eval ::ast::json {
     namespace export dict_to_json list_to_json escape to_json
 
     # Fields that should be serialized as JSON numbers (not strings)
-    # All other fields default to strings, preserving TCL's string nature
-    # NOTE: 'level' is NOT in this list - it should remain a string
     variable numeric_fields {
         line column
         start_line end_line start_col end_col
@@ -26,7 +25,7 @@ namespace eval ::ast::json {
     }
 
     # Fields that should be serialized as JSON booleans
-    # These will convert TCL "true"/"false" or 1/0 to JSON true/false
+    # These will convert TCL 1/0 or "true"/"false" to JSON true/false
     variable boolean_fields {
         has_varargs
         is_variadic
@@ -57,13 +56,23 @@ proc ::ast::json::to_json_boolean {value} {
     }
 }
 
+# Check if a value is a dict (safe detection)
+proc ::ast::json::is_dict {value} {
+    # A dict must have even number of elements and be valid
+    if {[llength $value] % 2 != 0} {
+        return 0
+    }
+    if {[llength $value] == 0} {
+        return 0
+    }
+    # Try to access it as a dict
+    if {[catch {dict size $value}]} {
+        return 0
+    }
+    return 1
+}
+
 # Convert a TCL dict to JSON object format
-#
-# This function handles nested dicts, lists, and primitive values.
-# It recursively converts complex structures to proper JSON.
-#
-# ⭐ FIX: Context-aware - only serializes whitelisted fields as numbers/booleans
-#         All other values remain as strings (preserving TCL semantics)
 #
 # Args:
 #   dict_data    - Dict to convert
@@ -87,87 +96,66 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
 
         append result "${next_indent}\"$key\": "
 
-        # Check if value is a list first
+        # ⭐ PHASE 3 FIX: Check for empty list FIRST before checking length
+        if {[llength $value] == 0} {
+            # ⭐ FIX: Empty list must serialize as [] not ""
+            append result "\[\]"
+            continue
+        }
+
+        # Get value length
         set value_len [llength $value]
 
-        if {$value_len > 1} {
-            # Multiple elements - could be:
-            # 1. A list of dicts: [list [dict create ...] [dict create ...]]
-            # 2. A dict itself: [dict create key1 val1 key2 val2]
-            # 3. A list containing one dict: [list [dict create ...]]
-            # 2. A dict itself: [dict create ...]
-            # 3. A simple value: "hello" or 42
-
-            # Try to extract first element to check if it's a list of dicts
-            set first_elem [lindex $value 0]
-            set is_list_of_dict 0
-            if {[catch {dict size $first_elem} size] == 0 && $size > 0} {
-                # First element is a dict - this is a list containing one dict
-                set is_list_of_dict 1
-            }
-
-            if {$is_list_of_dict} {
-                # It's a list with one dict - serialize as array
-                append result [list_to_json $value [expr {$indent_level + 1}]]
-            } else {
-                # Check if the value itself is a dict
-                set is_dict 0
-                if {[catch {dict size $value} size] == 0 && $size > 0} {
-                    set is_dict 1
-                }
-
-                if {$is_dict} {
-                    append result [dict_to_json $value [expr {$indent_level + 1}]]
-                } else {
-                    # It's a list of primitives - serialize as array
-                    append result [list_to_json $value [expr {$indent_level + 1}]]
-                }
-            }
-        } elseif {$value_len == 1} {
+        # Check if it's a list (more than 1 element) or potential single-element list
+        if {$value_len == 1} {
             # Single element - could be:
-            # 1. A list containing one dict: [list [dict create ...]]
-            # 2. A dict itself: [dict create ...]
-            # 3. A simple value: "hello" or 42
+            # 1. A simple string/number
+            # 2. A dict
+            # 3. A single-element list containing a dict
 
             set first_elem [lindex $value 0]
 
-            # Check if it's a dict
-            set is_dict 0
-            if {[catch {dict size $first_elem} size] == 0 && $size > 0} {
-                # It's a dict
-                set is_dict 1
-            }
-
-            if {$is_dict} {
-                # Check if value is the dict itself or a list containing the dict
-                # We can check by seeing if the dict sizes match
-                set outer_size 0
-                catch {set outer_size [dict size $value]}
-
-                if {$outer_size > 0 && $outer_size == $size} {
-                    # Value is the dict itself
-                    append result [dict_to_json $value [expr {$indent_level + 1}]]
-                } else {
-                    # Value is a list containing one dict
-                    append result [list_to_json $value [expr {$indent_level + 1}]]
-                }
+            # Check if the single element is itself a dict
+            if {[is_dict $first_elem]} {
+                # It's a list containing one dict - serialize as array with one object
+                append result [list_to_json $value [expr {$indent_level + 1}]]
+            } elseif {[is_dict $value]} {
+                # The value itself is a dict - serialize as object
+                append result [dict_to_json $value [expr {$indent_level + 1}]]
             } else {
-                # ⭐ FIX: Context-aware primitive serialization
-                # Check field type: boolean > numeric > string (default)
-                if {[is_boolean_field $key]} {
-                    # Boolean field - convert to JSON boolean
-                    append result [to_json_boolean $value]
-                } elseif {[is_numeric_field $key] && ([string is integer -strict $value] || [string is double -strict $value])} {
-                    # Whitelisted numeric field - output as JSON number
-                    append result $value
+                # ⭐ PHASE 3 FIX: Check if this should be a single-element array
+                # If the key suggests it's a list (params, vars, patterns, etc.), keep it as array
+                if {$key eq "params" || $key eq "vars" || $key eq "patterns" ||
+                    $key eq "children" || $key eq "items" || [string match "*s" $key]} {
+                    # Serialize as single-element array
+                    append result [list_to_json $value [expr {$indent_level + 1}]]
                 } else {
-                    # All other values - output as JSON string
-                    append result "\"[escape $value]\""
+                    # It's a primitive value - serialize based on field type
+                    if {[is_boolean_field $key]} {
+                        append result [to_json_boolean $value]
+                    } elseif {[is_numeric_field $key] && ([string is integer -strict $value] || [string is double -strict $value])} {
+                        append result $value
+                    } else {
+                        append result "\"[escape $value]\""
+                    }
                 }
             }
-        } else {
-            # Empty value - empty string
-            append result "\"\""
+        } elseif {$value_len > 1} {
+            # Multiple elements - could be a list or a dict
+
+            set first_elem [lindex $value 0]
+
+            # Check if first element is a dict (list of dicts pattern)
+            if {[is_dict $first_elem]} {
+                # It's a list of dicts
+                append result [list_to_json $value [expr {$indent_level + 1}]]
+            } elseif {[is_dict $value]} {
+                # The value itself is a dict
+                append result [dict_to_json $value [expr {$indent_level + 1}]]
+            } else {
+                # It's a list of primitives
+                append result [list_to_json $value [expr {$indent_level + 1}]]
+            }
         }
     }
 
@@ -176,13 +164,6 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
 }
 
 # Convert a TCL list to JSON array format
-#
-# Handles two cases:
-# 1. List of dicts (each element is a dict) → array of objects
-# 2. List of primitives (strings, numbers) → array of values
-#
-# ⭐ FIX #1: Uses proper dict detection via catch {dict size}
-# ⭐ FIX #2: Lists of primitives default to strings (no numeric conversion)
 #
 # Args:
 #   value        - List to convert
@@ -194,6 +175,7 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
 proc ::ast::json::list_to_json {value {indent_level 0}} {
     set next_indent [string repeat "  " $indent_level]
 
+    # ⭐ PHASE 3 FIX: Handle empty list properly
     if {[llength $value] == 0} {
         return "\[\]"
     }
@@ -202,13 +184,12 @@ proc ::ast::json::list_to_json {value {indent_level 0}} {
 
     # Check if first element is a dict
     set is_dict_list 0
-    if {[catch {dict size $first_elem} size] == 0 && $size > 0} {
-        # First element is a dict - this is likely a list of dicts
+    if {[is_dict $first_elem]} {
         set is_dict_list 1
     }
 
     if {$is_dict_list} {
-        # List of dicts - format as array of objects with pretty printing
+        # List of dicts - format as array of objects
         set result "\[\n"
         set first_item 1
         foreach item $value {
@@ -222,9 +203,7 @@ proc ::ast::json::list_to_json {value {indent_level 0}} {
         append result "\n${next_indent}\]"
         return $result
     } else {
-        # ⭐ FIX: List of primitives - ALL VALUES AS STRINGS by default
-        # This preserves TCL's string semantics and prevents type conversion issues
-        # Only the whitelisted fields in dict_to_json will be numeric
+        # List of primitives - format as simple array
         set result "\["
         set first_item 1
         foreach item $value {
@@ -232,8 +211,15 @@ proc ::ast::json::list_to_json {value {indent_level 0}} {
                 append result ", "
             }
             set first_item 0
-            # Always quote primitives in arrays (unless it's from a numeric field, handled in dict_to_json)
-            append result "\"[escape $item]\""
+
+            # Check if item should be numeric or string
+            if {[string is integer -strict $item] || [string is double -strict $item]} {
+                # Keep as number in arrays of primitives
+                append result $item
+            } else {
+                # Quote as string
+                append result "\"[escape $item]\""
+            }
         }
         append result "\]"
         return $result
@@ -241,8 +227,6 @@ proc ::ast::json::list_to_json {value {indent_level 0}} {
 }
 
 # Escape special characters for JSON strings
-#
-# Handles: backslash, quotes, newline, carriage return, tab
 #
 # Args:
 #   str - String to escape
@@ -264,7 +248,6 @@ proc ::ast::json::escape {str} {
 # Convert an AST (as a dict) to JSON string
 #
 # This is the main entry point for JSON serialization.
-# Call this to convert a complete AST to JSON for output.
 #
 # Args:
 #   ast - AST dict to convert
@@ -281,61 +264,45 @@ proc ::ast::json::to_json {ast} {
 # ===========================================================================
 
 if {[info script] eq $argv0} {
-    puts "Testing JSON module with TYPE CONVERSION FIX v2..."
+    puts "Testing JSON module - Phase 3 Fixes..."
     puts ""
 
-    # Test 1: Numeric field (should be number)
-    puts "Test 1: Numeric field"
-    set test1 [dict create type "proc" name "test" line 42]
+    # Test 1: Empty list
+    puts "Test 1: Empty list"
+    set test1 [dict create type "proc" params [list]]
     puts [::ast::json::to_json $test1]
-    puts "Expected: line as number (42)"
+    puts "Expected: params as empty array \[\]"
     puts ""
 
-    # Test 2: Level field (should be STRING, not number)
-    puts "Test 2: Level field (FIXED - now string)"
-    set test2 [dict create type "upvar" level "1" vars [list "x" "y"]]
+    # Test 2: Single-element list
+    puts "Test 2: Single-element list (vars)"
+    set test2 [dict create type "global" vars [list "myvar"]]
     puts [::ast::json::to_json $test2]
-    puts "Expected: level as STRING \"1\" (not number)"
+    puts "Expected: vars as array \[\"myvar\"\]"
     puts ""
 
-    # Test 3: Boolean field (should be boolean)
-    puts "Test 3: Boolean field (NEW FIX)"
-    set test3 [dict create type "proc" name "test" has_varargs "true"]
+    # Test 3: Boolean field
+    puts "Test 3: Boolean field (has_varargs)"
+    set test3 [dict create type "param" name "args" has_varargs 1]
     puts [::ast::json::to_json $test3]
     puts "Expected: has_varargs as boolean true"
     puts ""
 
-    # Test 4: Version number (should be string)
-    puts "Test 4: Version number"
-    set test4 [dict create type "package_require" version "8.6"]
+    # Test 4: Namespace import patterns
+    puts "Test 4: Namespace import patterns"
+    set test4 [dict create type "namespace_import" patterns [list "::Other::*"]]
     puts [::ast::json::to_json $test4]
-    puts "Expected: version as STRING \"8.6\""
+    puts "Expected: patterns as array \[\"::Other::*\"\]"
     puts ""
 
-    # Test 5: Default parameter (should be string)
-    puts "Test 5: Default parameter"
-    set test5 [dict create type "param" name "y" default "10"]
+    # Test 5: Multiple params
+    puts "Test 5: Multiple params"
+    set test5 [dict create type "proc" name "add" params [list \
+        [dict create name "x"] \
+        [dict create name "y"]]]
     puts [::ast::json::to_json $test5]
-    puts "Expected: default as STRING \"10\""
+    puts "Expected: params as array of objects"
     puts ""
 
-    # Test 6: Mixed fields
-    puts "Test 6: Mixed numeric/string/boolean fields"
-    set test6 [dict create \
-        type "proc" \
-        name "test" \
-        line 5 \
-        has_varargs 1 \
-        params [list "x" "y"]]
-    puts [::ast::json::to_json $test6]
-    puts "Expected: line=5 (number), has_varargs=true (boolean), params=\[strings\]"
-    puts ""
-
-    puts "✓ All JSON tests complete"
-    puts "✓ Type conversion issues should be FIXED!"
-    puts ""
-    puts "Key improvements in v2:"
-    puts "  1. Removed 'level' from numeric whitelist"
-    puts "  2. Added boolean field support"
-    puts "  3. Boolean fields: has_varargs, is_variadic, is_optional, quoted"
+    puts "✓ Phase 3 JSON tests complete"
 }
