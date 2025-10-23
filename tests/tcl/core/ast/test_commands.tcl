@@ -12,10 +12,10 @@ set passed 0
 proc test {name code expected_count} {
     global total passed
     incr total
-    
+
     set result [::ast::commands::extract $code 1]
     set count [llength $result]
-    
+
     if {$count == $expected_count} {
         puts "✓ PASS: $name"
         incr passed
@@ -33,8 +33,8 @@ test "Three commands" "set x 1\nset y 2\nset z 3" 3
 test "Multiline proc" "proc test \{\} \{\n    puts hello\n\}" 1
 test "Commands with comments" "# Comment\nset x 1\n# Another\nset y 2" 2
 test "Empty lines" "set x 1\n\nset y 2" 2
-test "Command with nested braces" "if \{$x\} \{\n    puts yes\n\}" 1
-test "For loop" "for \{set i 0\} \{$i < 10\} \{incr i\} \{\n    puts $i\n\}" 1
+test "Command with nested braces" "if \{\$x\} \{\n    puts yes\n\}" 1
+test "For loop" "for \{set i 0\} \{\$i < 10\} \{incr i\} \{\n    puts \$i\n\}" 1
 test "Multiple procs" "proc a \{\} \{\}\nproc b \{\} \{\}" 2
 test "Empty code" "" 0
 

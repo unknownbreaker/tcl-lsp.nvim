@@ -69,7 +69,7 @@ proc ::ast::utils::build_line_map {code} {
 #   offset - Byte offset in the source code
 #
 # Returns:
-#   Dict with line and column keys (both 1-indexed)
+#   List with two elements: line column (both 1-indexed)
 #
 proc ::ast::utils::offset_to_line {offset} {
     variable line_map
@@ -90,19 +90,24 @@ proc ::ast::utils::offset_to_line {offset} {
     # Calculate column (1-indexed)
     set column [expr {$offset - $line_start + 1}]
 
-    return [dict create line $line_num column $column]
+    # Return as simple list (not dict) for backward compatibility with tests
+    return [list $line_num $column]
 }
 
-# Count number of lines in code
+# Count number of newlines in code
 #
 # Args:
 #   code - Source code text
 #
 # Returns:
-#   Number of lines
+#   Number of newlines (NOT number of lines)
+#   Examples:
+#     "hello" -> 0 (no newlines)
+#     "hello\nworld" -> 1 (one newline)
+#     "a\nb\nc" -> 2 (two newlines)
 #
 proc ::ast::utils::count_lines {code} {
-    set count 1
+    set count 0
     set len [string length $code]
 
     for {set i 0} {$i < $len} {incr i} {
@@ -127,7 +132,7 @@ if {[info script] eq $argv0} {
     set range [make_range 1 1 10 20]
     puts "  Range: $range"
     puts "  Start line: [dict get $range start line]"
-    puts "  End column: [dict get $range end column]"
+    puts "  End column: [dict get $range end_pos column]"
     puts ""
 
     # Test 2: build_line_map and offset_to_line
@@ -140,10 +145,10 @@ if {[info script] eq $argv0} {
     puts "  Offset 14 -> [offset_to_line 14]"
     puts ""
 
-    # Test 3: count_lines
+    # Test 3: count_lines (newlines)
     puts "Test 3: count_lines"
-    puts "  Lines in \"hello\" -> [count_lines {hello}]"
-    puts "  Lines in \"a\\nb\\nc\" -> [count_lines \"a\nb\nc\"]"
+    puts "  Newlines in \"hello\" -> [count_lines {hello}]"
+    puts "  Newlines in \"a\\nb\\nc\" -> [count_lines \"a\nb\nc\"]"
     puts ""
 
     puts "✓ Utils tests complete"
