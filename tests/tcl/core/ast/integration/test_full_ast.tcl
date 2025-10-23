@@ -18,7 +18,10 @@ proc test {name code checks} {
 
         set all_passed 1
         foreach {check_name check_script expected} $checks {
-            if {[catch {set result [uplevel 1 $check_script]} err]} {
+            # Use upvar to make $ast available in check_script
+            if {[catch {
+                set result [eval $check_script]
+            } err]} {
                 puts "✗ FAIL: $name - $check_name (Error: $err)"
                 set all_passed 0
                 break
