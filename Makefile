@@ -41,7 +41,7 @@ test-unit: ## Run unit tests with formatted output
 		-c "qa!" 2>&1 | $(TEST_FORMATTER)
 	@echo ""
 	@echo "Running Tcl unit tests..."
-	@$(TCLSH) tests/tcl/core/ast/run_all_tests.tcl
+	@$(TCLSH) tests/tcl/run_tests.tcl
 
 test-unit-lsp-server: ## Run LSP server specific tests
 	@echo "Running LSP server unit tests..."
