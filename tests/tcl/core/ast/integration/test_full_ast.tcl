@@ -18,12 +18,9 @@ proc test {name code checks} {
 
         set all_passed 1
         foreach {check_name check_script expected} $checks {
-            # Substitute $ast in the check_script before evaluation
-            # This makes the ast variable available in the script
-            set expanded_script [subst -nocommands -nobackslashes $check_script]
-
             if {[catch {
-                set result [eval $expanded_script]
+                # Use uplevel 0 to eval in current scope where $ast exists
+                set result [uplevel 0 $check_script]
             } err]} {
                 puts "✗ FAIL: $name - $check_name (Error: $err)"
                 set all_passed 0
