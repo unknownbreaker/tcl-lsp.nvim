@@ -9,6 +9,7 @@
 
 namespace eval ::ast::utils {
     variable line_map
+    variable code_length
     namespace export make_range build_line_map offset_to_line count_lines
 }
 
@@ -43,17 +44,18 @@ proc ::ast::utils::make_range {start_line start_col end_line end_col} {
 #
 proc ::ast::utils::build_line_map {code} {
     variable line_map
+    variable code_length
     set line_map [list]
+    set code_length [string length $code]
 
     set line_num 1
     set offset 0
-    set len [string length $code]
 
     # Record start of first line
     lappend line_map [list $line_num $offset]
 
     # Scan through code finding newlines
-    while {$offset < $len} {
+    while {$offset < $code_length} {
         set char [string index $code $offset]
         if {$char eq "\n"} {
             incr line_num
@@ -73,15 +75,11 @@ proc ::ast::utils::build_line_map {code} {
 #
 proc ::ast::utils::offset_to_line {offset} {
     variable line_map
+    variable code_length
 
     # Handle offset beyond end of file - return default position
-    if {[llength $line_map] > 0} {
-        set last_entry [lindex $line_map end]
-        set last_offset [lindex $last_entry 1]
-        # If offset is beyond the end, return "1 1" as default
-        if {$offset > $last_offset + 100} {
-            return [list 1 1]
-        }
+    if {$offset >= $code_length && $code_length > 0} {
+        return [list 1 1]
     }
 
     # Find the line containing this offset
