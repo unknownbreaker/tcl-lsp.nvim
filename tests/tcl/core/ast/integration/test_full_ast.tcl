@@ -18,9 +18,12 @@ proc test {name code checks} {
 
         set all_passed 1
         foreach {check_name check_script expected} $checks {
-            # Use upvar to make $ast available in check_script
+            # Substitute $ast in the check_script before evaluation
+            # This makes the ast variable available in the script
+            set expanded_script [subst -nocommands -nobackslashes $check_script]
+
             if {[catch {
-                set result [eval $check_script]
+                set result [eval $expanded_script]
             } err]} {
                 puts "✗ FAIL: $name - $check_name (Error: $err)"
                 set all_passed 0
@@ -62,7 +65,7 @@ test "Single set command" "set x 1" {
 }
 
 # Test 3: Simple proc
-test "Simple procedure" "proc hello \{\} \{ puts \"Hi\" \}" {
+test "Simple procedure" "proc hello {} { puts {Hi} }" {
     "has root type" {dict get $ast type} "root"
     "has 1 child" {llength [dict get $ast children]} 1
     "child is proc" {dict get [lindex [dict get $ast children] 0] type} "proc"
@@ -75,14 +78,14 @@ test "Multiple commands" "set x 1\nset y 2\nset z 3" {
     "has 3 children" {llength [dict get $ast children]} 3
 }
 
-# Test 5: Control flow (escaped dollar sign)
-test "If statement" "if \{\$x\} \{ puts yes \}" {
+# Test 5: Control flow
+test "If statement" "if {\$x} { puts yes }" {
     "has root type" {dict get $ast type} "root"
     "has 1 child" {llength [dict get $ast children]} 1
 }
 
 # Test 6: Namespace
-test "Namespace eval" "namespace eval MyNS \{ variable x 10 \}" {
+test "Namespace eval" "namespace eval MyNS { variable x 10 }" {
     "has root type" {dict get $ast type} "root"
     "has 1 child" {llength [dict get $ast children]} 1
 }

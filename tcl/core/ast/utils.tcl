@@ -74,6 +74,16 @@ proc ::ast::utils::build_line_map {code} {
 proc ::ast::utils::offset_to_line {offset} {
     variable line_map
 
+    # Handle offset beyond end of file - return default position
+    if {[llength $line_map] > 0} {
+        set last_entry [lindex $line_map end]
+        set last_offset [lindex $last_entry 1]
+        # If offset is beyond the end, return "1 1" as default
+        if {$offset > $last_offset + 100} {
+            return [list 1 1]
+        }
+    }
+
     # Find the line containing this offset
     set line_num 1
     set line_start 0

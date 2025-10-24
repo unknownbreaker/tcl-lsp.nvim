@@ -17,6 +17,7 @@ namespace eval ::ast::commands {
 # - Quote escaping
 # - Line continuations (backslash-newline)
 # - Semicolon separators
+# - Comment lines (lines starting with #)
 #
 # Args:
 #   code       - Source code to split
@@ -36,6 +37,13 @@ proc ::ast::commands::extract {code start_line} {
     set in_quotes 0
 
     foreach line $lines {
+        # Skip comment-only lines (after trimming whitespace)
+        set trimmed_line [string trim $line]
+        if {[string index $trimmed_line 0] eq "#"} {
+            incr line_num
+            continue
+        }
+
         # Track if this line continues a command
         set line_continues 0
 
@@ -84,7 +92,7 @@ proc ::ast::commands::extract {code start_line} {
             if {[info complete $current_cmd]} {
                 # Command is complete - save it
                 set trimmed [string trim $current_cmd]
-                if {$trimmed ne ""} {
+                if {$trimmed ne "" && [string index $trimmed 0] ne "#"} {
                     lappend commands [dict create \
                         text $trimmed \
                         start_line [expr {$start_line + $cmd_start_line}] \
@@ -101,7 +109,7 @@ proc ::ast::commands::extract {code start_line} {
     # Handle incomplete command at end
     if {$current_cmd ne ""} {
         set trimmed [string trim $current_cmd]
-        if {$trimmed ne ""} {
+        if {$trimmed ne "" && [string index $trimmed 0] ne "#"} {
             lappend commands [dict create \
                 text $trimmed \
                 start_line [expr {$start_line + $cmd_start_line}] \
@@ -159,6 +167,13 @@ if {[info script] eq $argv0} {
     puts "Test 5: Empty input"
     set cmds [extract $test5 1]
     puts "  Found [llength $cmds] command(s)"
+    puts ""
+
+    # Test 6: Commands with comments
+    set test6 "# Comment\nset x 1\n# Another\nset y 2"
+    puts "Test 6: Commands with comments"
+    set cmds [extract $test6 1]
+    puts "  Found [llength $cmds] command(s) (should be 2)"
     puts ""
 
     puts "✓ Commands tests complete"
