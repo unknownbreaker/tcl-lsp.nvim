@@ -5,9 +5,10 @@
 set script_dir [file dirname [file normalize [info script]]]
 set project_root [file dirname [file dirname [file dirname [file dirname [file dirname $script_dir]]]]]
 
-# Load dependencies
+# Load dependencies (FIXED: Added delimiters.tcl)
 source [file join $project_root tcl core tokenizer.tcl]
 source [file join $project_root tcl core ast utils.tcl]
+source [file join $project_root tcl core ast delimiters.tcl]
 source [file join $project_root tcl core ast parsers procedures.tcl]
 
 set total 0
