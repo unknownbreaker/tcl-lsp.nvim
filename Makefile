@@ -96,7 +96,7 @@ lint-lua: ## Run linting
 
 lint-tcl: ## Lint TCL code with nagelfar
 	@echo "Linting Tcl code with Nagelfar..."
-	@find tcl/ -name "*.tcl" -print0 2>/dev/null | while IFS= read -r -d '' file; do \
+	@find tcl/ tests/tcl/ -name "*.tcl" -print0 2>/dev/null | while IFS= read -r -d '' file; do \
 		echo ""; \
 		printf "\033[1;36mChecking: %s\033[0m\n" "$$file"; \
 		$(NAGELFAR) -H "$$file" 2>&1 | awk -v RED='\033[1;31m' -v YELLOW='\033[1;33m' -v CYAN='\033[0;36m' -v NC='\033[0m' '{ \
