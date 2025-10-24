@@ -3,6 +3,7 @@
 # Comprehensive tests for JSON serialization module
 #
 # Tests the fixed JSON serialization that resolves the "bad class 'dict'" bug
+# FIXED: Corrected pattern matching for "Empty children list" test
 
 set script_dir [file dirname [file normalize [info script]]]
 set ast_dir [file join [file dirname [file dirname [file dirname [file dirname $script_dir]]]] tcl core ast]
@@ -17,14 +18,14 @@ set failed_tests 0
 proc test {name script expected} {
     global total_tests passed_tests failed_tests
     incr total_tests
-    
+
     if {[catch {uplevel 1 $script} result]} {
         puts "✗ FAIL: $name"
         puts "  Error: $result"
         incr failed_tests
         return 0
     }
-    
+
     if {$result eq $expected} {
         puts "✓ PASS: $name"
         incr passed_tests
@@ -163,10 +164,11 @@ test "Complex AST-like structure" {
     expr {[string length $result] > 0}
 } "1"
 
+# ✅ FIXED: Changed from string match to regexp for better pattern matching
 test "Empty children list (common AST pattern)" {
     set data [dict create type "root" children [list]]
     set result [::ast::json::to_json $data]
-    string match "*children*:*\[\]*" $result
+    regexp {"children":\s*\[\]} $result
 } "1"
 
 puts ""
