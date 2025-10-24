@@ -15,11 +15,12 @@ set passed 0
 proc test {name code expected_type} {
     global total passed
     incr total
-    
+
     if {[catch {
-        set result [::ast::parsers::parse_namespace $code 1 1 0]
+        # UPDATED: Use modular namespace structure
+        set result [::ast::parsers::namespaces::parse_namespace $code 1 1 0]
         set type [dict get $result type]
-        
+
         if {$type eq $expected_type} {
             puts "✓ PASS: $name"
             incr passed
