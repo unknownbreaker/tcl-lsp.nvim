@@ -5,8 +5,10 @@
 set script_dir [file dirname [file normalize [info script]]]
 set project_root [file dirname [file dirname [file dirname [file dirname [file dirname $script_dir]]]]]
 
+# Load dependencies (added delimiters.tcl)
 source [file join $project_root tcl core tokenizer.tcl]
 source [file join $project_root tcl core ast utils.tcl]
+source [file join $project_root tcl core ast delimiters.tcl]
 source [file join $project_root tcl core ast parsers packages.tcl]
 
 set total 0
@@ -17,7 +19,6 @@ proc test {name code expected_type} {
     incr total
 
     if {[catch {
-        # UPDATED: Use modular namespace structure
         set result [::ast::parsers::packages::parse_package $code 1 1 0]
         set type [dict get $result type]
 
