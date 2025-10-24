@@ -1,12 +1,18 @@
 #!/usr/bin/env tclsh
 # tcl/core/ast/parsers/control_flow.tcl
 # Control Flow Parsing Module (if, while, for, foreach, switch)
+#
+# PHASE 3 FIXES: All parsers now recursively parse body blocks
+# This ensures bodies are AST nodes with children, not raw strings
 
 namespace eval ::ast::parsers::control_flow {
     namespace export parse_if parse_while parse_for parse_foreach parse_switch
 }
 
 # Parse if statement
+#
+# FIXED: Recursively parses then_body, else_body, and elseif branches
+#
 proc ::ast::parsers::control_flow::parse_if {cmd_text start_line end_line depth} {
     set word_count [::tokenizer::count_tokens $cmd_text]
 
@@ -14,28 +20,78 @@ proc ::ast::parsers::control_flow::parse_if {cmd_text start_line end_line depth}
         return [dict create type "error" message "Invalid if"]
     }
 
+    # Get condition (keep as string for now)
     set condition [::tokenizer::get_token $cmd_text 1]
-    set then_body [::tokenizer::get_token $cmd_text 2]
 
-    # Check for else/elseif
-    set else_body ""
-    if {$word_count >= 5} {
-        set keyword [::tokenizer::get_token $cmd_text 3]
-        if {$keyword eq "else"} {
-            set else_body [::tokenizer::get_token $cmd_text 4]
-        }
-    }
+    # Get then body and recursively parse it
+    set then_body_token [::tokenizer::get_token $cmd_text 2]
+    set then_body_text [::ast::delimiters::strip_outer $then_body_token]
+    set then_children [::ast::find_all_nodes $then_body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+    set then_body [dict create children $then_children]
 
-    return [dict create \
+    # Initialize result
+    set result [dict create \
         type "if" \
         condition $condition \
         then_body $then_body \
-        else_body $else_body \
         range [::ast::utils::make_range $start_line 1 $end_line 1] \
         depth $depth]
+
+    # Check for elseif/else branches
+    set elseif_branches [list]
+    set else_body [dict create children [list]]
+
+    set i 3
+    while {$i < $word_count} {
+        set keyword [::tokenizer::get_token $cmd_text $i]
+
+        if {$keyword eq "elseif"} {
+            # Get elseif condition and body
+            if {$i + 2 < $word_count} {
+                set elseif_condition [::tokenizer::get_token $cmd_text [expr {$i + 1}]]
+                set elseif_body_token [::tokenizer::get_token $cmd_text [expr {$i + 2}]]
+                set elseif_body_text [::ast::delimiters::strip_outer $elseif_body_token]
+                set elseif_children [::ast::find_all_nodes $elseif_body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+
+                lappend elseif_branches [dict create \
+                    condition $elseif_condition \
+                    body [dict create children $elseif_children]]
+
+                incr i 3
+            } else {
+                incr i
+            }
+        } elseif {$keyword eq "else"} {
+            # Get else body
+            if {$i + 1 < $word_count} {
+                set else_body_token [::tokenizer::get_token $cmd_text [expr {$i + 1}]]
+                set else_body_text [::ast::delimiters::strip_outer $else_body_token]
+                set else_children [::ast::find_all_nodes $else_body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+                set else_body [dict create children $else_children]
+                incr i 2
+            } else {
+                incr i
+            }
+        } else {
+            incr i
+        }
+    }
+
+    # Add elseif branches if any
+    if {[llength $elseif_branches] > 0} {
+        dict set result elseif_branches $elseif_branches
+    }
+
+    # Add else body
+    dict set result else_body $else_body
+
+    return $result
 }
 
 # Parse while loop
+#
+# FIXED: Recursively parses body
+#
 proc ::ast::parsers::control_flow::parse_while {cmd_text start_line end_line depth} {
     set word_count [::tokenizer::count_tokens $cmd_text]
 
@@ -43,8 +99,14 @@ proc ::ast::parsers::control_flow::parse_while {cmd_text start_line end_line dep
         return [dict create type "error" message "Invalid while"]
     }
 
+    # Get condition (keep as string)
     set condition [::tokenizer::get_token $cmd_text 1]
-    set body [::tokenizer::get_token $cmd_text 2]
+
+    # Get body and recursively parse it
+    set body_token [::tokenizer::get_token $cmd_text 2]
+    set body_text [::ast::delimiters::strip_outer $body_token]
+    set body_children [::ast::find_all_nodes $body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+    set body [dict create children $body_children]
 
     return [dict create \
         type "while" \
@@ -55,6 +117,9 @@ proc ::ast::parsers::control_flow::parse_while {cmd_text start_line end_line dep
 }
 
 # Parse for loop
+#
+# FIXED: Recursively parses body
+#
 proc ::ast::parsers::control_flow::parse_for {cmd_text start_line end_line depth} {
     set word_count [::tokenizer::count_tokens $cmd_text]
 
@@ -62,10 +127,16 @@ proc ::ast::parsers::control_flow::parse_for {cmd_text start_line end_line depth
         return [dict create type "error" message "Invalid for"]
     }
 
+    # Get init, condition, increment (keep as strings)
     set init [::tokenizer::get_token $cmd_text 1]
     set condition [::tokenizer::get_token $cmd_text 2]
     set increment [::tokenizer::get_token $cmd_text 3]
-    set body [::tokenizer::get_token $cmd_text 4]
+
+    # Get body and recursively parse it
+    set body_token [::tokenizer::get_token $cmd_text 4]
+    set body_text [::ast::delimiters::strip_outer $body_token]
+    set body_children [::ast::find_all_nodes $body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+    set body [dict create children $body_children]
 
     return [dict create \
         type "for" \
@@ -78,6 +149,9 @@ proc ::ast::parsers::control_flow::parse_for {cmd_text start_line end_line depth
 }
 
 # Parse foreach loop
+#
+# FIXED: Recursively parses body
+#
 proc ::ast::parsers::control_flow::parse_foreach {cmd_text start_line end_line depth} {
     set word_count [::tokenizer::count_tokens $cmd_text]
 
@@ -85,9 +159,15 @@ proc ::ast::parsers::control_flow::parse_foreach {cmd_text start_line end_line d
         return [dict create type "error" message "Invalid foreach"]
     }
 
+    # Get var_name and list (keep as strings)
     set var_name [::tokenizer::get_token $cmd_text 1]
     set list_expr [::tokenizer::get_token $cmd_text 2]
-    set body [::tokenizer::get_token $cmd_text 3]
+
+    # Get body and recursively parse it
+    set body_token [::tokenizer::get_token $cmd_text 3]
+    set body_text [::ast::delimiters::strip_outer $body_token]
+    set body_children [::ast::find_all_nodes $body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+    set body [dict create children $body_children]
 
     return [dict create \
         type "foreach" \
@@ -99,6 +179,9 @@ proc ::ast::parsers::control_flow::parse_foreach {cmd_text start_line end_line d
 }
 
 # Parse switch statement
+#
+# FIXED: Recursively parses case bodies
+#
 proc ::ast::parsers::control_flow::parse_switch {cmd_text start_line end_line depth} {
     set word_count [::tokenizer::count_tokens $cmd_text]
 
@@ -106,13 +189,41 @@ proc ::ast::parsers::control_flow::parse_switch {cmd_text start_line end_line de
         return [dict create type "error" message "Invalid switch"]
     }
 
+    # Get expression (keep as string)
     set expression [::tokenizer::get_token $cmd_text 1]
-    set patterns [::tokenizer::get_token $cmd_text 2]
+
+    # Get patterns/cases block
+    set patterns_token [::tokenizer::get_token $cmd_text 2]
+    set patterns_text [::ast::delimiters::strip_outer $patterns_token]
+
+    # Parse switch cases (pattern-body pairs)
+    set cases [list]
+
+    # Tokenize the patterns block to get pattern-body pairs
+    set case_tokens [::tokenizer::tokenize $patterns_text]
+    set case_count [llength $case_tokens]
+
+    # Process pattern-body pairs
+    set i 0
+    while {$i < [expr {$case_count - 1}]} {
+        set pattern [lindex $case_tokens $i]
+        set body_token [lindex $case_tokens [expr {$i + 1}]]
+
+        # Recursively parse the case body
+        set body_text [::ast::delimiters::strip_outer $body_token]
+        set body_children [::ast::find_all_nodes $body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+
+        lappend cases [dict create \
+            pattern $pattern \
+            body [dict create children $body_children]]
+
+        incr i 2
+    }
 
     return [dict create \
         type "switch" \
         expression $expression \
-        patterns $patterns \
+        cases $cases \
         range [::ast::utils::make_range $start_line 1 $end_line 1] \
         depth $depth]
 }
