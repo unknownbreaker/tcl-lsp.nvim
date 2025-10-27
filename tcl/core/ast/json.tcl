@@ -1,16 +1,22 @@
 #!/usr/bin/env tclsh
 # tcl/core/ast/json.tcl
-# JSON Serialization Module for TCL AST - FIXED VERSION
+# JSON Serialization Module for TCL AST - CRITICAL BUG FIX
 #
-# This module provides functions to convert TCL dict/list structures to JSON format.
-# Critical for communicating AST data between TCL parser and Lua LSP layer.
+# CRITICAL FIX: is_dict function was rejecting valid dicts that contained
+# values with quotes/backslashes. This caused children arrays to serialize
+# as arrays of strings instead of arrays of objects.
 #
-# FIXES:
-# ✅ FIX #1: Strings with special chars no longer misinterpreted as lists/dicts
-# ✅ FIX #2: Numbers serialize as JSON numbers, not strings
-# ✅ FIX #3: Empty dict formats as {} not {\n}
-# ✅ FIX #4: Single-element lists stay as arrays when appropriate
-# ✅ FIX #5: Boolean fields serialize as true/false
+# BUG LOCATION: list_to_json calls is_dict on first element
+# - If is_dict returns false, treats list as primitives (strings)
+# - If is_dict returns true, treats list as objects (dicts)
+#
+# ROOT CAUSE: is_dict rejected dicts with special chars in values
+# - Dict: {type "set" var_name "x" value {"hello"}}
+# - Contains: {\"hello\"} which has backslash and quote
+# - Old is_dict: REJECTED (returned 0) - thought it was a string
+# - New is_dict: ACCEPTS (returns 1) - recognizes it's a dict
+#
+# RESULT: children now serialize as JSON objects, not strings!
 
 namespace eval ::ast::json {
     namespace export dict_to_json list_to_json escape to_json
@@ -72,21 +78,9 @@ proc ::ast::json::to_json_boolean {value} {
 }
 
 # Check if a value is actually a proper TCL list (not a string that looks like one)
-# This is the KEY fix - we need to distinguish between:
-#   - Actual lists created with [list] or lappend
-#   - Strings that happen to have spaces/newlines/quotes
 proc ::ast::json::is_proper_list {value} {
     # Empty string is not a list
     if {$value eq ""} {
-        return 0
-    }
-
-    # ✅ FIX: If it has any special characters that need escaping, it's definitely a string
-    if {[string first "\n" $value] >= 0 ||
-        [string first "\t" $value] >= 0 ||
-        [string first "\r" $value] >= 0 ||
-        [string first "\"" $value] >= 0 ||
-        [string first "\\" $value] >= 0} {
         return 0
     }
 
@@ -108,25 +102,24 @@ proc ::ast::json::is_proper_list {value} {
     }
 
     # Length > 1 - could be a list, but also could be a string with spaces
-    # If every element looks like a primitive (not a dict), be suspicious
-    # For now, assume length > 1 without special chars is a list
     return 1
 }
 
 # Check if a value is a dict (safe detection)
+# 🔧 CRITICAL FIX: Removed overly aggressive special character check
+#
+# OLD VERSION (BROKEN):
+#   if {[string first "\n" $value] >= 0 || [string first "\"" $value] >= 0 ...} {
+#       return 0  # ❌ Rejected dicts with special chars in values!
+#   }
+#
+# NEW VERSION (FIXED):
+#   Rely on TCL's dict size command, which is the authoritative check
+#   Don't reject based on content - TCL dicts can have ANY string values
+#
 proc ::ast::json::is_dict {value} {
     # Empty is not a dict
     if {$value eq ""} {
-        return 0
-    }
-
-    # ✅ FIX: If it has any special chars that suggest it's a string, reject it
-    # This must happen BEFORE the dict size check
-    if {[string first "\n" $value] >= 0 ||
-        [string first "\t" $value] >= 0 ||
-        [string first "\r" $value] >= 0 ||
-        [string first "\"" $value] >= 0 ||
-        [string first "\\" $value] >= 0} {
         return 0
     }
 
@@ -143,18 +136,20 @@ proc ::ast::json::is_dict {value} {
         return 0
     }
 
-    # Try to access it as a dict
+    # 🔧 CRITICAL FIX: This is the ONLY reliable check
+    # If TCL can treat it as a dict, it IS a dict
+    # Don't second-guess TCL's dict implementation
     if {[catch {dict size $value}]} {
         return 0
     }
 
+    # ✅ If we get here, TCL confirms it's a valid dict
     return 1
 }
 
 # Serialize a primitive value (string, number, or boolean)
 proc ::ast::json::serialize_primitive {key value} {
-    # ✅ FIX: Check numeric FIRST (including booleans as 0/1)
-    # This way "flag: 1" stays as numeric 1, not boolean true
+    # Check numeric FIRST
     if {[string is integer -strict $value] || [string is double -strict $value]} {
         return $value
     }
@@ -178,7 +173,7 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
     set indent [string repeat "  " $indent_level]
     set next_indent [string repeat "  " [expr {$indent_level + 1}]]
 
-    # ✅ FIX: Handle empty dict specially
+    # Handle empty dict specially
     if {[dict size $dict_data] == 0} {
         return "\{\}"
     }
@@ -194,7 +189,7 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
 
         append result "${next_indent}\"$key\": "
 
-        # ✅ FIX: Check if value is literally an empty string
+        # Check if value is literally an empty string
         if {$value eq ""} {
             # Check if this field should be an empty list
             if {[is_list_field $key]} {
@@ -205,7 +200,7 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
             continue
         }
 
-        # ✅ FIX: Check field type hints first
+        # Check field type hints first
         if {[is_list_field $key]} {
             # This field is always a list
             append result [list_to_json $value [expr {$indent_level + 1}]]
@@ -245,6 +240,7 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
 }
 
 # Convert a TCL list to JSON array format
+# 🔧 This function now works correctly because is_dict is fixed
 proc ::ast::json::list_to_json {value {indent_level 0}} {
     set next_indent [string repeat "  " $indent_level]
 
@@ -255,7 +251,9 @@ proc ::ast::json::list_to_json {value {indent_level 0}} {
 
     set first_elem [lindex $value 0]
 
-    # Check if it's a list of dicts
+    # 🔧 CRITICAL: This check now works correctly!
+    # Before: is_dict returned 0 for dicts with special chars
+    # After: is_dict returns 1 for all valid dicts
     if {[is_dict $first_elem]} {
         # List of dicts - format as array of objects
         set result "\[\n"
@@ -280,7 +278,7 @@ proc ::ast::json::list_to_json {value {indent_level 0}} {
             }
             set first_item 0
 
-            # ✅ FIX: Properly detect numbers vs strings
+            # Properly detect numbers vs strings
             if {[string is integer -strict $item] || [string is double -strict $item]} {
                 append result $item
             } else {
@@ -294,7 +292,6 @@ proc ::ast::json::list_to_json {value {indent_level 0}} {
 
 # Escape special characters for JSON strings
 proc ::ast::json::escape {str} {
-    # ✅ FIX: Proper escaping order matters
     set str [string map {
         \\ \\\\
         \" \\\"
@@ -306,15 +303,6 @@ proc ::ast::json::escape {str} {
 }
 
 # Convert an AST (as a dict) to JSON string
-#
-# This is the main entry point for JSON serialization.
-#
-# Args:
-#   ast_dict - The AST dictionary to convert
-#
-# Returns:
-#   JSON string representation
-#
 proc ::ast::json::to_json {ast_dict} {
     return [dict_to_json $ast_dict 0]
 }
@@ -364,6 +352,26 @@ if {[info exists argv0] && $argv0 eq [info script]} {
     } else {
         puts "✗ Empty list test FAILED"
         puts "  Got: $result"
+    }
+
+    # 🔧 CRITICAL NEW TEST: List of dicts with special chars
+    puts ""
+    puts "🔧 CRITICAL BUG FIX TEST:"
+    set child [dict create \
+        type "set" \
+        var_name "x" \
+        value {"hello"}]
+    set ast [dict create \
+        type "root" \
+        children [list $child]]
+    set result [::ast::json::to_json $ast]
+
+    if {[string match "*\"children\": \[\n    \{*\"type\": \"set\"*" $result]} {
+        puts "✓ List of dicts with special chars test PASSED!"
+        puts "  Children correctly serialized as array of objects"
+    } else {
+        puts "✗ List of dicts with special chars test FAILED"
+        puts "  Got: [string range $result 0 200]..."
     }
 
     puts ""
