@@ -4,6 +4,8 @@
 #
 # PHASE 3 FIXES: All parsers now recursively parse body blocks
 # This ensures bodies are AST nodes with children, not raw strings
+#
+# SWITCH FIX: Removed dependency on non-existent ::tokenizer::tokenize
 
 namespace eval ::ast::parsers::control_flow {
     namespace export parse_if parse_while parse_for parse_foreach parse_switch
@@ -59,7 +61,7 @@ proc ::ast::parsers::control_flow::parse_if {cmd_text start_line end_line depth}
 
                 incr i 3
             } else {
-                incr i
+                break
             }
         } elseif {$keyword eq "else"} {
             # Get else body
@@ -68,22 +70,23 @@ proc ::ast::parsers::control_flow::parse_if {cmd_text start_line end_line depth}
                 set else_body_text [::ast::delimiters::strip_outer $else_body_token]
                 set else_children [::ast::find_all_nodes $else_body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
                 set else_body [dict create children $else_children]
-                incr i 2
-            } else {
-                incr i
             }
+            break
         } else {
-            incr i
+            # Unknown keyword, stop parsing
+            break
         }
     }
 
-    # Add elseif branches if any
+    # Add elseif branches if any exist
     if {[llength $elseif_branches] > 0} {
-        dict set result elseif_branches $elseif_branches
+        dict set result elseif $elseif_branches
     }
 
-    # Add else body
-    dict set result else_body $else_body
+    # Add else body if it has children
+    if {[dict exists $else_body children] && [llength [dict get $else_body children]] > 0} {
+        dict set result else_body $else_body
+    }
 
     return $result
 }
@@ -180,6 +183,7 @@ proc ::ast::parsers::control_flow::parse_foreach {cmd_text start_line end_line d
 
 # Parse switch statement
 #
+# FIXED: Now uses count_tokens/get_token instead of non-existent tokenize
 # FIXED: Recursively parses case bodies
 #
 proc ::ast::parsers::control_flow::parse_switch {cmd_text start_line end_line depth} {
@@ -189,25 +193,40 @@ proc ::ast::parsers::control_flow::parse_switch {cmd_text start_line end_line de
         return [dict create type "error" message "Invalid switch"]
     }
 
+    # Check for options (-exact, -glob, -regexp, etc.)
+    set option ""
+    set expr_index 1
+    set patterns_index 2
+
+    set first_token [::tokenizer::get_token $cmd_text 1]
+    if {[string match "-*" $first_token]} {
+        set option $first_token
+        set expr_index 2
+        set patterns_index 3
+
+        if {$word_count < 4} {
+            return [dict create type "error" message "Invalid switch with option"]
+        }
+    }
+
     # Get expression (keep as string)
-    set expression [::tokenizer::get_token $cmd_text 1]
+    set expression [::tokenizer::get_token $cmd_text $expr_index]
 
     # Get patterns/cases block
-    set patterns_token [::tokenizer::get_token $cmd_text 2]
+    set patterns_token [::tokenizer::get_token $cmd_text $patterns_index]
     set patterns_text [::ast::delimiters::strip_outer $patterns_token]
 
     # Parse switch cases (pattern-body pairs)
     set cases [list]
 
-    # Tokenize the patterns block to get pattern-body pairs
-    set case_tokens [::tokenizer::tokenize $patterns_text]
-    set case_count [llength $case_tokens]
+    # Count tokens in the patterns block
+    set case_token_count [::tokenizer::count_tokens $patterns_text]
 
     # Process pattern-body pairs
     set i 0
-    while {$i < [expr {$case_count - 1}]} {
-        set pattern [lindex $case_tokens $i]
-        set body_token [lindex $case_tokens [expr {$i + 1}]]
+    while {$i < [expr {$case_token_count - 1}]} {
+        set pattern [::tokenizer::get_token $patterns_text $i]
+        set body_token [::tokenizer::get_token $patterns_text [expr {$i + 1}]]
 
         # Recursively parse the case body
         set body_text [::ast::delimiters::strip_outer $body_token]
@@ -220,10 +239,18 @@ proc ::ast::parsers::control_flow::parse_switch {cmd_text start_line end_line de
         incr i 2
     }
 
-    return [dict create \
+    # Build result dict
+    set result [dict create \
         type "switch" \
         expression $expression \
         cases $cases \
         range [::ast::utils::make_range $start_line 1 $end_line 1] \
         depth $depth]
+
+    # Add option if present
+    if {$option ne ""} {
+        dict set result option $option
+    }
+
+    return $result
 }
