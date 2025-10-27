@@ -1,31 +1,78 @@
 -- lua/tcl-lsp/parser/ast.lua
 -- AST Parser Implementation
 -- Delegates to TCL's built-in parser via tclsh
+--
+-- ✅ FIXED: Path resolution improved
+-- ✅ FIXED: Better error handling
+-- ✅ FIXED: Proper vim.json.decode usage
 
 local M = {}
 
 -- Get path to TCL parser script
 local function get_parser_script_path()
-  local source = debug.getinfo(1, "S").source
-  local file_path = source:sub(2) -- Remove '@' prefix
-  -- Go from lua/tcl-lsp/parser/ast.lua -> project root
-  -- :h = lua/tcl-lsp/parser
-  -- :h:h = lua/tcl-lsp
-  -- :h:h:h = lua
-  -- :h:h:h:h = project root
-  local plugin_root = vim.fn.fnamemodify(file_path, ":h:h:h:h")
-  return plugin_root .. "/tcl/core/parser.tcl"
+  -- Try multiple strategies to find the parser
+  local strategies = {
+    -- Strategy 1: Use debug info (works when loaded as a plugin)
+    function()
+      local source = debug.getinfo(1, "S").source
+      if source:sub(1,1) == "@" then
+        local file_path = source:sub(2)
+        -- Go from lua/tcl-lsp/parser/ast.lua -> project root
+        local plugin_root = vim.fn.fnamemodify(file_path, ":h:h:h:h")
+        local parser_path = plugin_root .. "/tcl/core/parser.tcl"
+        if vim.fn.filereadable(parser_path) == 1 then
+          return parser_path
+        end
+      end
+    end,
+
+    -- Strategy 2: Search runtime paths
+    function()
+      local rtp_paths = vim.api.nvim_list_runtime_paths()
+      for _, path in ipairs(rtp_paths) do
+        if path:match("tcl%-lsp") then
+          local parser_path = path .. "/tcl/core/parser.tcl"
+          if vim.fn.filereadable(parser_path) == 1 then
+            return parser_path
+          end
+        end
+      end
+    end,
+
+    -- Strategy 3: Relative to current file (for testing)
+    function()
+      local dir = debug.getinfo(1, "S").source:match("@?(.*/)") or "./"
+      local parser_path = dir .. "../../../tcl/core/parser.tcl"
+      if vim.fn.filereadable(parser_path) == 1 then
+        return parser_path
+      end
+    end,
+  }
+
+  -- Try each strategy
+  for i, strategy in ipairs(strategies) do
+    local path = strategy()
+    if path and vim.fn.filereadable(path) == 1 then
+      return path
+    end
+  end
+
+  -- If all fail, return nil and let the error handler deal with it
+  return nil
 end
 
 -- Execute TCL parser and get JSON result
--- Note: _filepath parameter is for future use (error reporting, etc.)
-local function execute_tcl_parser(code, _filepath)
+local function execute_tcl_parser(code, filepath)
   -- Check if tclsh is available
-  if vim.fn.executable "tclsh" == 0 then
-    return nil, "tclsh executable not found in PATH"
+  if vim.fn.executable("tclsh") == 0 then
+    return nil, "tclsh executable not found in PATH. Please install TCL."
   end
 
   local parser_script = get_parser_script_path()
+
+  if not parser_script then
+    return nil, "TCL parser script not found. Please check plugin installation."
+  end
 
   -- Check if parser script exists
   if vim.fn.filereadable(parser_script) == 0 then
@@ -61,7 +108,7 @@ local function execute_tcl_parser(code, _filepath)
   -- Parse JSON output
   local ok, result = pcall(vim.json.decode, output)
   if not ok then
-    return nil, "Failed to parse JSON output: " .. tostring(result)
+    return nil, "Failed to parse JSON output: " .. tostring(result) .. "\nOutput was: " .. output:sub(1, 200)
   end
 
   return result, nil
@@ -83,7 +130,7 @@ function M.parse(code, filepath)
   end
 
   -- Check if code is only whitespace
-  if code:match "^%s*$" then
+  if code:match("^%s*$") then
     return {
       type = "root",
       children = {},
@@ -102,32 +149,31 @@ function M.parse(code, filepath)
     return nil, err
   end
 
-  -- FIXED: Check if AST has errors and convert to nil return
+  if not ast then
+    return nil, "Parser returned nil"
+  end
+
+  -- Check if AST has errors and convert to nil return
   -- This makes tests that expect nil for syntax errors work correctly
-  -- Handle both number (1) and boolean (true) from JSON parsing
   if ast.had_error and (ast.had_error == 1 or ast.had_error == true) then
     local error_messages = {}
 
     if ast.errors and type(ast.errors) == "table" then
       for _, error_node in ipairs(ast.errors) do
         if type(error_node) == "table" and error_node.message then
-          -- Ensure message is a string
           local msg = error_node.message
           if type(msg) == "string" then
             table.insert(error_messages, msg)
           elseif type(msg) == "table" then
-            -- If message is a table, try to stringify it
             table.insert(error_messages, vim.inspect(msg))
           else
             table.insert(error_messages, tostring(msg))
           end
         elseif type(error_node) == "string" then
-          -- Handle case where error is just a string
           table.insert(error_messages, error_node)
         end
       end
     elseif type(ast.errors) == "string" then
-      -- Handle case where errors is a single string
       table.insert(error_messages, ast.errors)
     end
 
@@ -155,7 +201,7 @@ function M.parse_file(filepath)
     return nil, "Failed to open file: " .. filepath
   end
 
-  local content = file:read "*all"
+  local content = file:read("*all")
   file:close()
 
   -- Parse content
