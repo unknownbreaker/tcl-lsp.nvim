@@ -35,15 +35,7 @@ Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/signature_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/folding_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/rename_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/formatting_spec.lua
 Real Neovim test environment initialized
 
 ========================================
@@ -51,19 +43,19 @@ Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/formatting_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/highlights_spec.lua
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/diagnostics_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/folding_spec.lua
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/utils/helpers_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/utils/logger_spec.lua
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/references_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/hover_spec.lua
 Real Neovim test environment initialized
 
 ========================================
@@ -71,15 +63,11 @@ Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/parser/sc
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/definitions_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/utils/helpers_spec.lua
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/workspace_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/highlights_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/signature_spec.lua
 Real Neovim test environment initialized
 
 ========================================
@@ -122,31 +110,11 @@ Errors :        0
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/hover_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/cleanup_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/symbols_spec.lua
-Real Neovim test environment initialized
-
-========================================
 Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/parser/symbols_spec.lua
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/utils/logger_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/refactor_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/parser/init_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/diagnostics_spec.lua
 Real Neovim test environment initialized
 
 ========================================
@@ -158,7 +126,39 @@ Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/
 Real Neovim test environment initialized
 
 ========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/rename_spec.lua
+Real Neovim test environment initialized
+
+========================================
 Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/init_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/symbols_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/references_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/definitions_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/refactor_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/parser/init_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/cleanup_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/workspace_spec.lua
 Real Neovim test environment initialized
 
 ========================================
@@ -711,21 +711,21 @@ Running: Control Flow Parser
 Control Flow Parser Tests
 =========================
 
-✗ FAIL: Simple if - Error: invalid command name "::ast::find_all_nodes"
-✗ FAIL: If-else - Error: invalid command name "::ast::find_all_nodes"
-✗ FAIL: If-elseif-else - Error: invalid command name "::ast::find_all_nodes"
-✗ FAIL: Simple while - Error: invalid command name "::ast::find_all_nodes"
-✗ FAIL: While with complex condition - Error: invalid command name "::ast::find_all_nodes"
-✗ FAIL: Simple for - Error: invalid command name "::ast::find_all_nodes"
-✗ FAIL: For with step - Error: invalid command name "::ast::find_all_nodes"
-✗ FAIL: Simple foreach - Error: invalid command name "::ast::find_all_nodes"
-✗ FAIL: Foreach with multiple vars - Error: invalid command name "::ast::find_all_nodes"
-✗ FAIL: Foreach multiple lists - Error: invalid command name "::ast::find_all_nodes"
+✓ PASS: Simple if
+✓ PASS: If-else
+✓ PASS: If-elseif-else
+✓ PASS: Simple while
+✓ PASS: While with complex condition
+✓ PASS: Simple for
+✓ PASS: For with step
+✓ PASS: Simple foreach
+✓ PASS: Foreach with multiple vars
+✓ PASS: Foreach multiple lists
 ✗ FAIL: Simple switch - Error: invalid command name "::tokenizer::tokenize"
 ✗ FAIL: Switch with default - Error: invalid command name "::tokenizer::tokenize"
 ✗ FAIL: Switch with -exact - Error: invalid command name "::tokenizer::tokenize"
 
-Results: 0/13 passed
+Results: 10/13 passed
 child process exited abnormally
 
 Running: Namespace Parser
@@ -841,4 +841,3 @@ Failed:        1
 ✗ SOME TEST SUITES FAILED
 
 Please review failures above.
-
