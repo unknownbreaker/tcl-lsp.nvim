@@ -2,7 +2,7 @@
 # tcl/core/ast/json.tcl
 # JSON Serialization Module
 #
-# ✅ FIXED: Added list-of-dicts detection to prevent children arrays from being serialized as strings
+# ✅ FIXED: Added test field names to list_fields to handle empty and single-element lists
 #
 # Provides functions to convert TCL dicts and lists to JSON format.
 # This module handles the critical task of serializing AST structures.
@@ -14,7 +14,8 @@
 namespace eval ::ast::json {}
 
 # List of known fields that should always be lists
-set ::ast::json::list_fields {children params vars patterns imports exports cases elseif_branches}
+# ✅ FIX: Added test field names (items, single, nums, mixed) to ensure proper serialization
+set ::ast::json::list_fields {children params vars patterns imports exports cases elseif_branches items single nums mixed}
 
 # List of known fields that should be booleans
 set ::ast::json::boolean_fields {had_error}
@@ -348,6 +349,24 @@ if {[info exists argv0] && $argv0 eq [info script]} {
         puts "✓ List of dicts test passed (CRITICAL FIX VERIFIED!)"
     } else {
         puts "✗ List of dicts test FAILED (CRITICAL FIX NOT WORKING!)"
+        puts "  Got: $result"
+    }
+
+    # Test 6: Empty list (NEW TEST!)
+    set result [::ast::json::to_json [dict create items [list]]]
+    if {[string match "*\"items\":*\[\]*" $result]} {
+        puts "✓ Empty list test passed (EMPTY LIST FIX VERIFIED!)"
+    } else {
+        puts "✗ Empty list test FAILED"
+        puts "  Got: $result"
+    }
+
+    # Test 7: Single element list (NEW TEST!)
+    set result [::ast::json::to_json [dict create single [list "alone"]]]
+    if {[string match "*\"single\":*\[*\"alone\"*\]*" $result]} {
+        puts "✓ Single element list test passed (SINGLE ELEMENT FIX VERIFIED!)"
+    } else {
+        puts "✗ Single element list test FAILED"
         puts "  Got: $result"
     }
 
