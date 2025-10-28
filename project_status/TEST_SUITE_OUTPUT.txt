@@ -35,7 +35,47 @@ Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/init_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/folding_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/symbols_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/completion_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/highlights_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/hover_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/utils/cache_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/cleanup_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/parser/scope_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/rename_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/refactor_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/signature_spec.lua
 Real Neovim test environment initialized
 
 ========================================
@@ -78,31 +118,7 @@ Errors :        0
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/folding_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/completion_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/utils/cache_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/hover_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/init_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/signature_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/codelens_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/utils/logger_spec.lua
 Real Neovim test environment initialized
 
 ========================================
@@ -110,23 +126,11 @@ Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/symbols_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/init_spec.lua
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/refactor_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/parser/init_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/utils/helpers_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/workspace_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/init_spec.lua
 Real Neovim test environment initialized
 
 ========================================
@@ -134,23 +138,7 @@ Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/parser/scope_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/rename_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/parser/symbols_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/actions/cleanup_spec.lua
-Real Neovim test environment initialized
-
-========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/utils/logger_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/utils/helpers_spec.lua
 Real Neovim test environment initialized
 
 ========================================
@@ -158,7 +146,19 @@ Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/
 Real Neovim test environment initialized
 
 ========================================
-Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/highlights_spec.lua
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/parser/init_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/features/codelens_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/parser/symbols_spec.lua
+Real Neovim test environment initialized
+
+========================================
+Testing:        /Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tests/lua/analyzer/workspace_spec.lua
 Real Neovim test environment initialized
 
 ========================================
@@ -188,18 +188,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/0.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/0.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/0.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/0.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        461
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/0.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/0.tcl",
   "comments": "",
   "children": [
     {
@@ -212,7 +212,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  type, had_error, filepath, children, comments, errors
+  Result keys:  errors, filepath, had_error, children, type, comments
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -243,18 +243,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/1.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/1.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/1.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/1.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        452
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/1.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/1.tcl",
   "comments": "",
   "children": [
     {
@@ -267,7 +267,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  type, had_error, filepath, children, comments, errors
+  Result keys:  errors, filepath, had_error, children, type, comments
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -307,18 +307,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/2.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/2.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/2.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/2.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        454
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/2.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/2.tcl",
   "comments": "",
   "children": [
     {
@@ -331,7 +331,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  type, had_error, filepath, children, comments, errors
+  Result keys:  errors, filepath, had_error, children, type, comments
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -362,18 +362,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/3.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/3.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/3.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/3.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        462
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/3.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/3.tcl",
   "comments": "",
   "children": [
     {
@@ -386,7 +386,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  type, had_error, filepath, children, comments, errors
+  Result keys:  errors, filepath, had_error, children, type, comments
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -417,18 +417,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/4.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/4.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/4.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/4.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        462
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/4.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/4.tcl",
   "comments": "",
   "children": [
     {
@@ -441,7 +441,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  type, had_error, filepath, children, comments, errors
+  Result keys:  errors, filepath, had_error, children, type, comments
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -472,18 +472,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/5.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/5.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/5.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/5.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        572
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/5.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/5.tcl",
   "comments": "",
   "children": [
     {
@@ -496,7 +496,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  type, had_error, filepath, children, comments, errors
+  Result keys:  errors, filepath, had_error, children, type, comments
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -527,18 +527,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/6.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/6.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/6.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/6.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        560
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/6.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/6.tcl",
   "comments": "",
   "children": [
     {
@@ -551,7 +551,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  type, had_error, filepath, children, comments, errors
+  Result keys:  errors, filepath, had_error, children, type, comments
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -582,18 +582,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/7.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/7.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/7.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/7.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        565
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/7.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/7.tcl",
   "comments": "",
   "children": [
     {
@@ -605,7 +605,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  type, had_error, filepath, children, comments, errors
+  Result keys:  errors, filepath, had_error, children, type, comments
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -636,18 +636,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/8.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/8.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/8.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/8.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        542
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/8.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/8.tcl",
   "comments": "",
   "children": [
     {
@@ -660,7 +660,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  type, had_error, filepath, children, comments, errors
+  Result keys:  errors, filepath, had_error, children, type, comments
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -694,18 +694,18 @@ set z 20
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/9.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/9.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/9.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/9.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        1103
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/ZnT9VB/9.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/y65XK5/9.tcl",
   "comments": "",
   "children": [
     {
@@ -718,7 +718,7 @@ set z 20
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  type, had_error, filepath, children, comments, errors
+  Result keys:  errors, filepath, had_error, children, type, comments
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -761,18 +761,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/3.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/3.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/3.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/3.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        283
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/3.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/3.tcl",
   "comments": "{type comment text { This is a comment} range {start {line 1 column 1} e...
   ✓ Temp file cleaned up
   ✓ Parser executed successfully
@@ -780,7 +780,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -814,18 +814,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/5.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/5.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/5.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/5.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        962
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/5.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/5.tcl",
   "comments": "",
   "children": [
     {
@@ -838,7 +838,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -870,18 +870,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/7.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/7.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/7.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/7.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        1066
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/7.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/7.tcl",
   "comments": "",
   "children": [
     {
@@ -894,7 +894,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -926,18 +926,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/9.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/9.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/9.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/9.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        798
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/9.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/9.tcl",
   "comments": "{type comment text { procedure body} range {start {line 2 column 1} end_...
   ✓ Temp file cleaned up
   ✓ Parser executed successfully
@@ -945,7 +945,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -986,18 +986,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/11.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/11.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/11.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/11.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        1126
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/11.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/11.tcl",
   "comments": "",
   "children": [
     {
@@ -1009,7 +1009,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1051,18 +1051,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/13.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/13.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/13.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/13.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        1894
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/13.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/13.tcl",
   "comments": "",
   "children": [
     {
@@ -1075,7 +1075,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1106,18 +1106,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/15.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/15.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/15.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/15.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        466
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/15.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/15.tcl",
   "comments": "",
   "children": [
     {
@@ -1129,7 +1129,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1160,18 +1160,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/17.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/17.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/17.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/17.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        561
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/17.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/17.tcl",
   "comments": "",
   "children": [
     {
@@ -1184,7 +1184,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1215,18 +1215,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/19.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/19.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/19.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/19.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        439
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/19.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/19.tcl",
   "comments": "",
   "children": [
     {
@@ -1238,7 +1238,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1269,18 +1269,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/21.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/21.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/21.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/21.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        493
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/21.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/21.tcl",
   "comments": "",
   "children": [
     {
@@ -1293,7 +1293,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1333,18 +1333,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/23.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/23.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/23.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/23.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        566
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/23.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/23.tcl",
   "comments": "",
   "children": [
     {
@@ -1356,7 +1356,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1390,18 +1390,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/25.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/25.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/25.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/25.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        912
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/25.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/25.tcl",
   "comments": "",
   "children": [
     {
@@ -1413,7 +1413,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1447,18 +1447,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/27.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/27.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/27.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/27.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        1424
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/27.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/27.tcl",
   "comments": "",
   "children": [
     {
@@ -1470,7 +1470,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1503,18 +1503,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/29.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/29.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/29.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/29.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        1555
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/29.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/29.tcl",
   "comments": "",
   "children": [
     {
@@ -1526,7 +1526,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1569,18 +1569,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/31.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/31.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/31.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/31.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        904
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/31.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/31.tcl",
   "comments": "",
   "children": [
     {
@@ -1592,7 +1592,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1626,18 +1626,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/33.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/33.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/33.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/33.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        961
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/33.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/33.tcl",
   "comments": "",
   "children": [
     {
@@ -1649,7 +1649,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1683,18 +1683,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/35.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/35.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/35.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/35.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        927
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/35.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/35.tcl",
   "comments": "",
   "children": [
     {
@@ -1706,7 +1706,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1739,18 +1739,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/37.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/37.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/37.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/37.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        2266
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/37.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/37.tcl",
   "comments": "",
   "children": [
     {
@@ -1762,7 +1762,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1795,46 +1795,40 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/39.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/39.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/39.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/39.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
-  Output length:        510
+  Output length:        338
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/39.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/39.tcl",
   "comments": "",
-  "children": [
-    {
-      "type": "namespace",
-      "name": "MyNa...
+  "children": ["type namespace name MyNamespace body {{\n    variabl...
   ✓ Temp file cleaned up
   ✓ Parser executed successfully
 
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
 
 Fail    ||      TCL AST Parser Namespace Handling should parse namespace declaration
-            ...cuments/Repos/tcl-lsp.nvim/tests/lua/parser/ast_spec.lua:355: Expected objects to be the same.
+            ...cuments/Repos/tcl-lsp.nvim/tests/lua/parser/ast_spec.lua:353: Expected objects to be equal.
             Passed in:
-            (string) '{
-                variable x 10
-                proc myproc {} {}
-            }'
+            (nil)
             Expected:
-            type table
+            (string) 'namespace'
 
             stack traceback:
-                ...cuments/Repos/tcl-lsp.nvim/tests/lua/parser/ast_spec.lua:355: in function <...cuments/Repos/tcl-lsp.nvim/tests/lua/parser/ast_spec.lua:342>
+                ...cuments/Repos/tcl-lsp.nvim/tests/lua/parser/ast_spec.lua:353: in function <...cuments/Repos/tcl-lsp.nvim/tests/lua/parser/ast_spec.lua:342>
 
 
 ========================================
@@ -1861,18 +1855,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/41.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/41.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/41.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/41.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        458
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/41.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/41.tcl",
   "comments": "",
   "children": [
     {
@@ -1884,7 +1878,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1915,18 +1909,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/43.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/43.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/43.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/43.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        493
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/43.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/43.tcl",
   "comments": "",
   "children": [
     {
@@ -1938,7 +1932,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -1972,18 +1966,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/45.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/45.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/45.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/45.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        917
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/45.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/45.tcl",
   "comments": "",
   "children": [
     {
@@ -1996,7 +1990,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2030,18 +2024,18 @@ proc add {} { expr {$x + $y} }
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/47.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/47.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/47.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/47.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        1389
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/47.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/47.tcl",
   "comments": "",
   "children": [
     {
@@ -2054,7 +2048,7 @@ proc add {} { expr {$x + $y} }
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2085,18 +2079,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/49.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/49.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/49.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/49.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        378
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/49.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/49.tcl",
   "errors": "{type error message {Syntax error: missing close-brace} range {start {lin...
   ✓ Temp file cleaned up
   ✓ Parser executed successfully
@@ -2104,7 +2098,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  children, errors, comments, filepath, had_error, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2135,18 +2129,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/51.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/51.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/51.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/51.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        605
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/51.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/51.tcl",
   "comments": "",
   "children": [
     {
@@ -2158,7 +2152,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2191,18 +2185,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/53.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/53.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/53.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/53.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        378
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/53.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/53.tcl",
   "errors": "{type error message {Syntax error: missing close-brace} range {start {lin...
   ✓ Temp file cleaned up
   ✓ Parser executed successfully
@@ -2210,7 +2204,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  children, errors, comments, filepath, had_error, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2241,18 +2235,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/55.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/55.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/55.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/55.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        447
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/55.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/55.tcl",
   "comments": "",
   "children": [
     {
@@ -2264,7 +2258,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2295,18 +2289,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/57.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/57.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/57.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/57.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        487
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/57.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/57.tcl",
   "comments": "",
   "children": [
     {
@@ -2318,7 +2312,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2358,18 +2352,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/59.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/59.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/59.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/59.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        566
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/59.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/59.tcl",
   "comments": "",
   "children": [
     {
@@ -2381,7 +2375,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2412,18 +2406,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/61.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/61.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/61.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/61.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        447
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/61.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/61.tcl",
   "comments": "",
   "children": [
     {
@@ -2435,7 +2429,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2466,18 +2460,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/63.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/63.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/63.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/63.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        469
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/63.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/63.tcl",
   "comments": "",
   "children": [
     {
@@ -2489,7 +2483,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2520,18 +2514,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/65.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/65.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/65.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/65.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        474
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/65.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/65.tcl",
   "comments": "",
   "children": [
     {
@@ -2543,7 +2537,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2583,18 +2577,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/67.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/67.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/67.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/67.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        480
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/67.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/67.tcl",
   "comments": "",
   "children": [
     {
@@ -2606,7 +2600,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2622,7 +2616,7 @@ TCL PARSER EXECUTION DEBUG
     puts "From file"
 }
 
-  Filepath:     /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/68/test.tcl
+  Filepath:     /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/68/test.tcl
 
 [Step 2] Checking tclsh availability
   ✓ tclsh found
@@ -2640,18 +2634,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/69.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/69.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/69.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/69.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        962
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/69.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/69.tcl",
   "comments": "",
   "children": [
     {
@@ -2663,7 +2657,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2696,18 +2690,18 @@ TCL PARSER EXECUTION DEBUG
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/72.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/72.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/72.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/72.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        5949
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/72.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/72.tcl",
   "comments": "",
   "children": [
     {
@@ -2719,7 +2713,7 @@ TCL PARSER EXECUTION DEBUG
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2753,18 +2747,18 @@ proc init {} {
   ✓ Parser file readable
 
 [Step 5] Creating temporary file
-  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/74.tcl
+  Temp file:    /var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/74.tcl
   ✓ Temp file created and written
 
 [Step 6] Executing TCL parser
-  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/74.tcl' 2>&1
+  Command:      tclsh '/Users/rob.yang/Documents/Repos/tcl-lsp.nvim/tcl/core/parser.tcl' '/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/74.tcl' 2>&1
 
 [Step 7] Parser execution results
   Exit code:    0
   Output length:        2625
   Output sample:        {
   "type": "root",
-  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/cBpX00/74.tcl",
+  "filepath": "/var/folders/vm/46_hv41s423b4wp_7tk7slk40000gn/T/nvim.rob.yang/B0mBKT/74.tcl",
   "comments": "",
   "children": [
     {
@@ -2776,7 +2770,7 @@ proc init {} {
 [Step 8] Parsing JSON output
   ✓ JSON parsed successfully
   Result type:  table
-  Result keys:  comments, had_error, errors, type, children, filepath
+  Result keys:  had_error, errors, comments, filepath, children, type
 ========================================
 DEBUG COMPLETE - Parser Success!
 ========================================
@@ -2897,15 +2891,7 @@ Group 1: Basic Type Serialization
 
 Group 2: Special Character Escaping
 -----------------------------------------
-✗ FAIL: Newline escape
-  Expected: {
-  "text": "line1\nline2"
-}
-  Got: {
-  "text": {
-    "line1": "line2"
-  }
-}
+✓ PASS: Newline escape
 ✗ FAIL: Quote escape
   Expected: {
   "text": "say \"hello\""
@@ -2916,24 +2902,8 @@ Group 2: Special Character Escaping
   }
 }
 ✓ PASS: Backslash escape
-✗ FAIL: Tab escape
-  Expected: {
-  "text": "col1\tcol2"
-}
-  Got: {
-  "text": {
-    "col1": "col2"
-  }
-}
-✗ FAIL: Carriage return escape
-  Expected: {
-  "text": "line1\rline2"
-}
-  Got: {
-  "text": {
-    "line1": "line2"
-  }
-}
+✓ PASS: Tab escape
+✓ PASS: Carriage return escape
 
 Group 3: List Serialization
 -----------------------------------------
@@ -2972,8 +2942,8 @@ Group 7: Edge Cases
 Test Results
 =========================================
 Total:  28
-Passed: 24
-Failed: 4
+Passed: 27
+Failed: 1
 
 ✗ SOME TESTS FAILED
 child process exited abnormally
