@@ -1,17 +1,18 @@
 #!/usr/bin/env tclsh
 # tcl/core/ast/json.tcl
-# JSON Serialization Module for TCL AST - WITH SPECIAL CHARACTER FIX
+# JSON Serialization Module for TCL AST - COMPLETE FIX
 #
 # FIXES APPLIED:
-# 1. Previous fix: Removed quote/backslash checks that prevented dict detection
-# 2. New fix: Added newline/tab/carriage return checks to prevent string misidentification
+# 1. Previous fix: Removed overly aggressive quote/backslash checks that prevented real dicts
+# 2. Control character fix: Added newline/tab/carriage return checks
+# 3. NEW: Added quote character check to prevent string misidentification
 #
-# ISSUE: Strings with escape sequences were being treated as dicts
-# - String like "line1\nline2" becomes {line1<newline>line2} after processing
+# ISSUE: Strings with embedded quotes were being treated as dicts
+# - String like 'say "hello"' has 2 words
 # - TCL's dict size sees this as 2 words and returns 1 (one key-value pair)
 # - Result: String gets serialized as JSON object instead of JSON string
 #
-# SOLUTION: Check for control characters that indicate a string, not a dict
+# SOLUTION: Check for both control characters AND quote characters
 
 namespace eval ::ast::json {
     namespace export dict_to_json list_to_json escape to_json
@@ -96,8 +97,7 @@ proc ::ast::json::is_proper_list {value} {
         return 0
     }
 
-    # 🔧 NEW FIX: Check for control characters that suggest it's a string
-    # Similar to is_dict(), strings with these characters are not proper lists
+    # 🔧 FIX: Check for characters that suggest it's a string, not a list
 
     # Check for literal newline
     if {[string first "\n" $value] >= 0} {
@@ -114,6 +114,12 @@ proc ::ast::json::is_proper_list {value} {
         return 0
     }
 
+    # 🔧 NEW FIX: Check for embedded quote characters
+    # Strings like 'say "hello"' have quotes and are not lists
+    if {[string first "\"" $value] >= 0} {
+        return 0
+    }
+
     # Length > 1 - could be a list, but also could be a string with spaces
     return 1
 }
@@ -124,9 +130,13 @@ proc ::ast::json::is_proper_list {value} {
 # Removed overly aggressive quote/backslash checks that prevented real dicts
 # from being recognized when they had quoted values like {"hello"}
 #
-# CRITICAL FIX #2 (Current session):
+# CRITICAL FIX #2 (Previous session):
 # Added checks for control characters (newline, tab, CR) that indicate
 # the value is a string, not a dict. Real AST dicts don't contain these.
+#
+# CRITICAL FIX #3 (Current):
+# Added check for embedded quote characters. Strings like 'say "hello"' contain
+# quotes and should not be treated as dicts, even though they have even word count.
 #
 proc ::ast::json::is_dict {value} {
     # Empty is not a dict
@@ -152,8 +162,8 @@ proc ::ast::json::is_dict {value} {
         return 0
     }
 
-    # 🔧 NEW FIX: Check for control characters that suggest it's a string
-    # If the value contains literal newlines, tabs, or carriage returns,
+    # 🔧 FIX: Check for characters that suggest it's a string, not a dict
+    # If the value contains literal control chars or quotes,
     # it's almost certainly a string value, not a structured dict.
     # Real dict keys and values in AST nodes don't contain these characters.
 
@@ -172,8 +182,15 @@ proc ::ast::json::is_dict {value} {
         return 0
     }
 
+    # 🔧 NEW FIX: Check for embedded quote characters (ASCII 34)
+    # Strings like 'say "hello"' contain quotes and are not dicts
+    # Real AST dict keys/values don't have embedded quotes
+    if {[string first "\"" $value] >= 0} {
+        return 0
+    }
+
     # ✅ If we get here, TCL confirms it's a valid dict
-    # AND it doesn't contain string-like control characters
+    # AND it doesn't contain string-like characters
     return 1
 }
 
@@ -232,35 +249,16 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
 
         # Check field type hints first
         if {[is_list_field $key]} {
-            # This field is always a list
+            # Always serialize as list
             append result [list_to_json $value [expr {$indent_level + 1}]]
-            continue
-        }
-
-        # Check what type of value this is
-        # Priority: dict > list > primitive
-
-        if {[is_dict $value]} {
-            # It's a dict
+        } elseif {[is_dict $value]} {
+            # It's a nested dict
             append result [dict_to_json $value [expr {$indent_level + 1}]]
         } elseif {[is_proper_list $value]} {
-            # It's a proper list
-            set len [llength $value]
-
-            if {$len == 0} {
-                append result "\[\]"
-            } else {
-                # Check if first element is a dict (list of dicts)
-                set first_elem [lindex $value 0]
-                if {[is_dict $first_elem]} {
-                    append result [list_to_json $value [expr {$indent_level + 1}]]
-                } else {
-                    # List of primitives
-                    append result [list_to_json $value [expr {$indent_level + 1}]]
-                }
-            }
+            # It's a list
+            append result [list_to_json $value [expr {$indent_level + 1}]]
         } else {
-            # It's a primitive value (string, number, or boolean)
+            # It's a primitive (string, number, or boolean)
             append result [serialize_primitive $key $value]
         }
     }
@@ -270,28 +268,26 @@ proc ::ast::json::dict_to_json {dict_data {indent_level 0}} {
 }
 
 # Convert a TCL list to JSON array format
-proc ::ast::json::list_to_json {value {indent_level 0}} {
-    set next_indent [string repeat "  " $indent_level]
+proc ::ast::json::list_to_json {list_data {indent_level 0}} {
+    set indent [string repeat "  " $indent_level]
+    set next_indent [string repeat "  " [expr {$indent_level + 1}]]
 
-    # Handle empty list
-    if {[llength $value] == 0} {
+    if {[llength $list_data] == 0} {
         return "\[\]"
     }
 
-    set first_elem [lindex $value 0]
-
-    # Check if this is a list of dicts or list of primitives
+    # Check if first element is a dict - if so, assume list of dicts
+    set first_elem [lindex $list_data 0]
     if {[is_dict $first_elem]} {
-        # List of dicts - format as array of objects
+        # List of dicts - format nicely
         set result "\[\n"
         set first_item 1
-        foreach item $value {
+        foreach item $list_data {
             if {!$first_item} {
                 append result ",\n"
             }
             set first_item 0
-            append result "${next_indent}  "
-            append result [dict_to_json $item [expr {$indent_level + 1}]]
+            append result "${next_indent}[dict_to_json $item [expr {$indent_level + 1}]]"
         }
         append result "\n${next_indent}\]"
         return $result
@@ -299,7 +295,7 @@ proc ::ast::json::list_to_json {value {indent_level 0}} {
         # List of primitives - format as simple array
         set result "\["
         set first_item 1
-        foreach item $value {
+        foreach item $list_data {
             if {!$first_item} {
                 append result ", "
             }
@@ -372,7 +368,16 @@ if {[info exists argv0] && $argv0 eq [info script]} {
         puts "  Got: $result"
     }
 
-    # Test 4: List of dicts
+    # Test 4: String with quotes (NEW TEST)
+    set result [::ast::json::to_json [dict create text "say \"hello\""]]
+    if {[string match "*say \\\\\"hello\\\\\"*" $result] && ![string match "*\"say\":*" $result]} {
+        puts "✓ Quote escape test passed"
+    } else {
+        puts "✗ Quote escape test FAILED"
+        puts "  Got: $result"
+    }
+
+    # Test 5: List of dicts
     set result [::ast::json::to_json [dict create children [list \
         [dict create type "proc" name "test1"] \
         [dict create type "proc" name "test2"]]]]
