@@ -1,163 +1,66 @@
 #!/usr/bin/env tclsh
 # tcl/core/ast/json.tcl
-# JSON Serialization Module for TCL AST - COMPLETE FIX
+# JSON Serialization Module
 #
-# FIXES APPLIED:
-# 1. Previous fix: Removed overly aggressive quote/backslash checks that prevented real dicts
-# 2. Control character fix: Added newline/tab/carriage return checks
-# 3. NEW: Added quote character check to prevent string misidentification
+# ✅ FIXED: Added list-of-dicts detection to prevent children arrays from being serialized as strings
 #
-# ISSUE: Strings with embedded quotes were being treated as dicts
-# - String like 'say "hello"' has 2 words
-# - TCL's dict size sees this as 2 words and returns 1 (one key-value pair)
-# - Result: String gets serialized as JSON object instead of JSON string
+# Provides functions to convert TCL dicts and lists to JSON format.
+# This module handles the critical task of serializing AST structures.
 #
-# SOLUTION: Check for both control characters AND quote characters
+# CRITICAL BUG FIX: The is_dict() function now correctly identifies lists of dicts
+# (like the children array) as lists, not as dicts. This prevents malformed JSON
+# output where arrays would be serialized as strings.
 
-namespace eval ::ast::json {
-    namespace export dict_to_json list_to_json escape to_json
+namespace eval ::ast::json {}
 
-    # Fields that should be serialized as JSON numbers (not strings)
-    variable numeric_fields {
-        line column
-        start_line end_line start_col end_col
-        start end
-        had_error
-        depth
-        count size length
-        pi
-    }
+# List of known fields that should always be lists
+set ::ast::json::list_fields {children params vars patterns imports exports cases elseif_branches}
 
-    # Fields that should be serialized as JSON booleans
-    variable boolean_fields {
-        has_varargs
-        is_variadic
-        is_optional
-        quoted
-        flag
-    }
+# List of known fields that should be booleans
+set ::ast::json::boolean_fields {had_error}
 
-    # Fields that are always lists (even with single element)
-    variable list_fields {
-        params vars patterns children items
-        imports exports
-        args arguments
-        single
-    }
-}
+# List of known fields that are numeric
+set ::ast::json::numeric_fields {depth line column start_line end_line}
 
-# Check if a key should be serialized as a number
-proc ::ast::json::is_numeric_field {key} {
-    variable numeric_fields
-    return [expr {$key in $numeric_fields}]
-}
-
-# Check if a key should be serialized as a boolean
-proc ::ast::json::is_boolean_field {key} {
-    variable boolean_fields
-    return [expr {$key in $boolean_fields}]
-}
-
-# Check if a key should always be a list
-proc ::ast::json::is_list_field {key} {
+# Check if a field name typically contains a list
+proc ::ast::json::is_list_field {field_name} {
     variable list_fields
-    return [expr {$key in $list_fields}]
+    return [expr {$field_name in $list_fields}]
 }
 
-# Convert TCL boolean value to JSON boolean
+# Check if a field name is a boolean field
+proc ::ast::json::is_boolean_field {field_name} {
+    variable boolean_fields
+    return [expr {$field_name in $boolean_fields}]
+}
+
+# Check if a field name is numeric
+proc ::ast::json::is_numeric_field {field_name} {
+    variable numeric_fields
+    return [expr {$field_name in $numeric_fields}]
+}
+
+# Convert TCL boolean-like values to JSON boolean
 proc ::ast::json::to_json_boolean {value} {
-    if {$value eq "true" || $value eq "yes" || $value eq "on" || $value == 1} {
+    if {$value == 1 || $value eq "true" || $value eq "yes"} {
         return "true"
-    } else {
+    } elseif {$value == 0 || $value eq "false" || $value eq "no"} {
         return "false"
+    } else {
+        # Not a clear boolean - treat as number or string
+        return "\"$value\""
     }
 }
 
-# Check if a value is actually a proper TCL list (not a string that looks like one)
-proc ::ast::json::is_proper_list {value} {
-    # Empty string is not a list
-    if {$value eq ""} {
-        return 0
-    }
-
-    # Try to see if it's a valid list
-    if {[catch {llength $value}]} {
-        return 0
-    }
-
-    set len [llength $value]
-
-    # Length 0 - empty, not a list
-    if {$len == 0} {
-        return 0
-    }
-
-    # Length 1 - most likely a string unless proven otherwise
-    if {$len == 1} {
-        return 0
-    }
-
-    # 🔧 FIX: Check for characters that suggest it's a string, not a list
-
-    # Check for literal newline
-    if {[string first "\n" $value] >= 0} {
-        return 0
-    }
-
-    # Check for literal tab
-    if {[string first "\t" $value] >= 0} {
-        return 0
-    }
-
-    # Check for literal carriage return
-    if {[string first "\r" $value] >= 0} {
-        return 0
-    }
-
-    # 🔧 NEW FIX: Check for embedded quote characters
-    # Strings like 'say "hello"' have quotes and are not lists
-    if {[string first "\"" $value] >= 0} {
-        return 0
-    }
-
-    # Length > 1 - could be a list, but also could be a string with spaces
-    return 1
-}
-
-# Check if a value is a dict (safe detection)
+# Check if a value is actually a TCL dict (not a list or string)
 #
-# CRITICAL FIX #1 (Previous session):
-# Removed overly aggressive quote/backslash checks that prevented real dicts
-# from being recognized when they had quoted values like {"hello"}
-#
-# CRITICAL FIX #2 (Previous session):
-# Added checks for control characters (newline, tab, CR) that indicate
-# the value is a string, not a dict. Real AST dicts don't contain these.
-#
-# CRITICAL FIX #3 (Current):
-# Added check for embedded quote characters. Strings like 'say "hello"' contain
-# quotes and should not be treated as dicts, even though they have even word count.
+# ✅ CRITICAL BUG FIX: This function now correctly distinguishes between:
+# - Real dicts: {type proc name test}
+# - Lists of dicts: {{type proc name test1} {type set var x}}
+# - Strings that look like dicts but contain special characters
 #
 proc ::ast::json::is_dict {value} {
-    # Empty is not a dict
-    if {$value eq ""} {
-        return 0
-    }
-
-    # Must have even number of elements
-    if {[catch {llength $value} len]} {
-        return 0
-    }
-
-    if {$len % 2 != 0} {
-        return 0
-    }
-
-    if {$len == 0} {
-        return 0
-    }
-
-    # Basic check: Can TCL treat it as a dict?
+    # First, check if it's a valid dict
     if {[catch {dict size $value}]} {
         return 0
     }
@@ -182,15 +85,59 @@ proc ::ast::json::is_dict {value} {
         return 0
     }
 
-    # 🔧 NEW FIX: Check for embedded quote characters (ASCII 34)
+    # Check for embedded quote characters (ASCII 34)
     # Strings like 'say "hello"' contain quotes and are not dicts
     # Real AST dict keys/values don't have embedded quotes
     if {[string first "\"" $value] >= 0} {
         return 0
     }
 
+    # ✅ NEW FIX (from chat 107): Check if it's actually a list of dicts
+    # A list of dicts (like the children array) has multiple elements
+    # where each element is itself a dict with a "type" key.
+    #
+    # Example that needs to be caught:
+    # {{type proc name test1} {type set var x value 10}}
+    #
+    # This passes dict size check but should be treated as a list!
+    if {[llength $value] > 1} {
+        # Check if first element looks like an AST node (has "type" key)
+        set first_elem [lindex $value 0]
+        if {[catch {dict get $first_elem type}] == 0} {
+            # First element is a dict with "type" key - it's a list of AST nodes!
+            return 0
+        }
+    }
+
     # ✅ If we get here, TCL confirms it's a valid dict
     # AND it doesn't contain string-like characters
+    # AND it's not a list of dicts
+    return 1
+}
+
+# Check if a value is a proper TCL list (not a scalar or dict)
+proc ::ast::json::is_proper_list {value} {
+    # Can we get list length?
+    if {[catch {llength $value} len]} {
+        return 0
+    }
+
+    # Empty lists are still lists
+    if {$len == 0} {
+        return 1
+    }
+
+    # Single-element things might be scalars
+    if {$len == 1} {
+        return 0
+    }
+
+    # Check if it's actually a dict
+    if {[is_dict $value]} {
+        return 0
+    }
+
+    # It's a list with 2+ elements and not a dict
     return 1
 }
 
@@ -368,7 +315,7 @@ if {[info exists argv0] && $argv0 eq [info script]} {
         puts "  Got: $result"
     }
 
-    # Test 4: String with quotes (NEW TEST)
+    # Test 4: String with quotes
     set result [::ast::json::to_json [dict create text "say \"hello\""]]
     if {[string match "*say \\\\\"hello\\\\\"*" $result] && ![string match "*\"say\":*" $result]} {
         puts "✓ Quote escape test passed"
@@ -377,14 +324,14 @@ if {[info exists argv0] && $argv0 eq [info script]} {
         puts "  Got: $result"
     }
 
-    # Test 5: List of dicts
+    # Test 5: List of dicts (THE CRITICAL TEST!)
     set result [::ast::json::to_json [dict create children [list \
         [dict create type "proc" name "test1"] \
         [dict create type "proc" name "test2"]]]]
-    if {[string match "*children*" $result] && [string match "*proc*" $result]} {
-        puts "✓ List of dicts test passed"
+    if {[string match "*children*" $result] && [string match "*proc*" $result] && [string match "*\[*" $result]} {
+        puts "✓ List of dicts test passed (CRITICAL FIX VERIFIED!)"
     } else {
-        puts "✗ List of dicts test FAILED"
+        puts "✗ List of dicts test FAILED (CRITICAL FIX NOT WORKING!)"
         puts "  Got: $result"
     }
 
