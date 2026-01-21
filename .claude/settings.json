@@ -5,6 +5,7 @@
       "Bash(tclsh *)",
       "Bash(nvim --headless *)",
       "Bash(git *)",
+      "Bash(bd *)",
       "Bash(luacheck *)",
       "Bash(stylua *)",
       "Bash(nagelfar *)",
