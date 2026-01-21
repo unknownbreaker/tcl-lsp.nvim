@@ -42,6 +42,8 @@ node_modules/
 .env
 .env.local
 config.local.*
+.claude/settings.local.json
+.claude/plans/
 
 # Temporary files
 tmp/

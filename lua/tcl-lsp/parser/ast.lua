@@ -3,8 +3,77 @@
 -- Delegates to TCL's built-in parser via tclsh
 --
 -- ✅ FIXED: Added comprehensive debug logging to identify bridge issues
+-- ✅ Added optional schema validation hook
 
 local M = {}
+
+-- Lazy-load validator to avoid circular dependency
+local validator_loaded = false
+local validator = nil
+
+local function get_validator()
+  if not validator_loaded then
+    validator_loaded = true
+    local ok, v = pcall(require, "tcl-lsp.parser.validator")
+    if ok then
+      validator = v
+    end
+  end
+  return validator
+end
+
+-- Check if schema validation is enabled
+local function should_validate()
+  local ok, config = pcall(require, "tcl-lsp.config")
+  if not ok then
+    return false
+  end
+
+  local cfg = config.get()
+  if not cfg.schema_validation then
+    return false
+  end
+
+  if not cfg.schema_validation.enabled then
+    return false
+  end
+
+  local mode = cfg.schema_validation.mode or "dev"
+  if mode == "off" then
+    return false
+  end
+
+  return true
+end
+
+-- Run schema validation on AST if enabled
+local function validate_if_enabled(ast)
+  if not should_validate() then
+    return
+  end
+
+  local v = get_validator()
+  if not v then
+    return
+  end
+
+  local ok, config = pcall(require, "tcl-lsp.config")
+  if not ok then
+    return
+  end
+
+  local cfg = config.get()
+  local strict = cfg.schema_validation.strict or false
+  local log_violations = cfg.schema_validation.log_violations
+
+  local result = v.validate_ast(ast, { strict = strict })
+
+  if not result.valid and log_violations then
+    for _, err in ipairs(result.errors) do
+      print(string.format("[Schema] %s at %s", err.message, err.path))
+    end
+  end
+end
 
 -- Get path to TCL parser script
 local function get_parser_script_path()
@@ -255,6 +324,9 @@ function M.parse(code, filepath)
 
     return nil, error_msg
   end
+
+  -- Run schema validation if enabled
+  validate_if_enabled(ast)
 
   return ast, nil
 end

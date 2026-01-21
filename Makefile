@@ -1,7 +1,7 @@
 # Makefile
 # TCL LSP for Neovim - Build Automation
 .DEFAULT_GOAL := help
-.PHONY: help install test test-unit test-integration test-performance clean lint format check docs release
+.PHONY: help install test test-unit test-integration test-performance clean lint format check docs release validate-schema pre-commit
 
 # Configuration
 SHELL := /bin/bash
@@ -164,3 +164,10 @@ docs: ## Generate documentation
 release: check docs ## Prepare release
 	@echo "Preparing release..."
 	@scripts/prepare_release.sh
+
+validate-schema: ## Validate AST schema against TCL parser output
+	@echo "Validating AST schema..."
+	@./scripts/validate-schema.sh
+
+pre-commit: lint validate-schema test-unit ## Run pre-commit checks
+	@echo "Pre-commit checks completed"

@@ -29,6 +29,14 @@ local defaults = {
 
   -- Supported file types
   filetypes = { "tcl", "rvt" },
+
+  -- Schema validation configuration
+  schema_validation = {
+    enabled = false, -- Off by default for performance
+    mode = "dev", -- "off", "dev", "always"
+    strict = false, -- Collect all errors vs fail fast
+    log_violations = true, -- Log validation errors
+  },
 }
 
 -- Internal state management

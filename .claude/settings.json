@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make *)",
+      "Bash(tclsh *)",
+      "Bash(nvim --headless *)",
+      "Bash(git *)",
+      "Bash(luacheck *)",
+      "Bash(stylua *)",
+      "Bash(nagelfar *)",
+      "Bash(chmod +x *)",
+      "Bash(./scripts/*)"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/*secret*)",
+      "Read(**/*credential*)"
+    ]
+  },
+  "env": {
+    "BASH_DEFAULT_TIMEOUT_MS": "120000"
+  }
+}
