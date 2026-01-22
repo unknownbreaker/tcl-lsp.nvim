@@ -11,6 +11,9 @@ local definitions = require("tcl-lsp.analyzer.definitions")
 ---@param col number Column number (0-indexed)
 ---@return table|nil LSP location format: { uri, range }, or nil if not found
 function M.handle_definition(bufnr, line, col)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
   return definitions.find_definition(bufnr, line + 1, col + 1)
 end
 

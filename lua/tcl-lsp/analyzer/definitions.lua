@@ -5,6 +5,37 @@ local M = {}
 
 local index = require("tcl-lsp.analyzer.index")
 
+--- Extract variable name from TCL variable syntax
+--- Handles: $var, ${var}, $arr(key), $::ns::var, ${ns::var}
+---@param word string Raw word that may contain variable syntax
+---@return string Extracted variable name
+local function extract_variable_name(word)
+  if word:sub(1, 1) ~= "$" then
+    return word
+  end
+
+  -- Remove leading $
+  word = word:sub(2)
+
+  -- Handle braced: ${varname} or ${ns::var}
+  if word:sub(1, 1) == "{" then
+    local closing = word:find("}")
+    if closing then
+      return word:sub(2, closing - 1)
+    end
+    return word:sub(2) -- Unclosed brace, best effort
+  end
+
+  -- Handle array: $arr(key) - extract just the array name
+  local paren = word:find("%(")
+  if paren then
+    return word:sub(1, paren - 1)
+  end
+
+  -- Simple or qualified: $var or $::ns::var
+  return word
+end
+
 --- Helper to convert symbol range to LSP range format
 --- Handles both 'col' and 'column' field names from parser
 ---@param symbol_range table Range from symbol with start/end_pos
@@ -30,7 +61,8 @@ function M.build_candidates(word, context)
   table.insert(candidates, word)
 
   -- Qualified with current namespace (if not global)
-  if context.namespace ~= "::" then
+  -- Guard against nil context or nil namespace
+  if context and context.namespace and context.namespace ~= "::" then
     table.insert(candidates, context.namespace .. "::" .. word)
   end
 
@@ -45,6 +77,16 @@ end
 ---@param context table Scope context with namespace, proc, locals, globals, upvars
 ---@return table|nil Symbol entry from index, or nil if not found
 function M.find_in_index(word, context)
+  -- Early return if no context
+  if not context then
+    return nil
+  end
+
+  -- Ensure required fields exist
+  context.locals = context.locals or {}
+  context.globals = context.globals or {}
+  context.namespace = context.namespace or "::"
+
   -- Skip if it's a local variable (locals don't have index entries)
   if vim.tbl_contains(context.locals, word) then
     return nil
@@ -114,10 +156,8 @@ function M.find_definition(bufnr, line, col)
     return nil
   end
 
-  -- Strip $ prefix from variables
-  if word:sub(1, 1) == "$" then
-    word = word:sub(2)
-  end
+  -- Extract variable name from TCL syntax ($var, ${var}, $arr(key), etc.)
+  word = extract_variable_name(word)
 
   -- Get buffer content and parse
   local content = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
