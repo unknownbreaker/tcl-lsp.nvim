@@ -9,6 +9,7 @@
       "Bash(luacheck *)",
       "Bash(stylua *)",
       "Bash(nagelfar *)",
+      "Bash(luajit *)",
       "Bash(chmod +x *)",
       "Bash(./scripts/*)",
       "Bash(mkdir -p *)",
