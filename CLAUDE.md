@@ -6,7 +6,37 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 tcl-lsp.nvim is a Language Server Protocol (LSP) implementation for TCL that integrates with Neovim. It provides intelligent code editing features for TCL/RVT files.
 
-**Current Status:** Phase 2 complete (TCL parser), Phase 3 (Lua integration) ready to start.
+**Current Status:** Phase 3 in progress - go-to-definition complete, other LSP features pending.
+
+## Progress Tracking (REQUIRED)
+
+**You MUST use beads to track all significant work.** This is not optional.
+
+```bash
+# Before starting work
+bd create --title="Feature/task name" --type=feature|task|bug --priority=2 \
+  --description="What needs to be done and why"
+
+# While working
+bd update <id> --status=in_progress
+
+# When done
+bd close <id> --reason="Completed description"
+
+# Check what's ready to work on
+bd ready
+
+# Sync at session end
+bd sync
+```
+
+**Why this matters:**
+- Work persists across sessions and context compaction
+- Handoffs to other sessions have full context
+- Dependencies between tasks are tracked
+- Progress is visible via `bd stats`
+
+Use TodoWrite only for simple single-step tasks within a session. For anything multi-step, multi-session, or strategic: use beads.
 
 ## Commands
 
