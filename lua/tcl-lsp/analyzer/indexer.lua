@@ -4,6 +4,7 @@
 local parser = require("tcl-lsp.parser")
 local index = require("tcl-lsp.analyzer.index")
 local extractor = require("tcl-lsp.analyzer.extractor")
+local ref_extractor = require("tcl-lsp.analyzer.ref_extractor")
 
 local M = {}
 
@@ -15,6 +16,7 @@ M.state = {
   total_files = 0,
   indexed_count = 0,
   root_dir = nil,
+  pending_refs = {}, -- ASTs stored for second pass reference extraction
 }
 
 function M.reset()
@@ -24,6 +26,7 @@ function M.reset()
     total_files = 0,
     indexed_count = 0,
     root_dir = nil,
+    pending_refs = {},
   }
 end
 
@@ -71,7 +74,60 @@ function M.index_file(filepath)
     index.add_symbol(symbol)
   end
 
+  -- Store AST for reference extraction in second pass
+  table.insert(M.state.pending_refs, { ast = ast, filepath = filepath })
+
   return true
+end
+
+-- Resolve a reference to its qualified name in the index
+-- For calls: tries qualified name, then namespace::name, then ::name
+-- For exports: returns the qualified name directly
+function M.resolve_ref_target(ref)
+  local name = ref.name
+  local namespace = ref.namespace or "::"
+
+  -- If already fully qualified (starts with ::), try as-is
+  if name:sub(1, 2) == "::" then
+    if index.find(name) then
+      return name
+    end
+    return nil
+  end
+
+  -- Try namespace::name
+  local qualified
+  if namespace == "::" then
+    qualified = "::" .. name
+  else
+    qualified = namespace .. "::" .. name
+  end
+  if index.find(qualified) then
+    return qualified
+  end
+
+  -- Try global ::name
+  qualified = "::" .. name
+  if index.find(qualified) then
+    return qualified
+  end
+
+  return nil
+end
+
+-- Second pass: extract references from stored ASTs and resolve to symbols
+function M.resolve_references()
+  for _, entry in ipairs(M.state.pending_refs) do
+    local refs = ref_extractor.extract_references(entry.ast, entry.filepath)
+    for _, ref in ipairs(refs) do
+      local target = M.resolve_ref_target(ref)
+      if target then
+        index.add_reference(target, ref)
+      end
+    end
+  end
+  -- Clear pending refs after processing
+  M.state.pending_refs = {}
 end
 
 function M.start(root_dir)
@@ -92,6 +148,8 @@ function M.process_batch()
   for _ = 1, BATCH_SIZE do
     local file = table.remove(M.state.queued, 1)
     if not file then
+      -- All files indexed, now resolve references
+      M.resolve_references()
       M.state.status = "ready"
       return
     end

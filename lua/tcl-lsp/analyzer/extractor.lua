@@ -33,14 +33,20 @@ local function visit_node(node, symbols, filepath, current_namespace)
   end
 
   if node.type == "proc" then
-    local qualified = current_namespace .. "::" .. node.name
-    if current_namespace == "::" then
-      qualified = "::" .. node.name
+    local proc_name = node.name
+    local qualified
+    -- If proc name is already fully qualified (starts with ::), use as-is
+    if proc_name:sub(1, 2) == "::" then
+      qualified = proc_name
+    elseif current_namespace == "::" then
+      qualified = "::" .. proc_name
+    else
+      qualified = current_namespace .. "::" .. proc_name
     end
 
     table.insert(symbols, {
       type = "proc",
-      name = node.name,
+      name = proc_name,
       qualified_name = qualified,
       file = filepath,
       range = node.range,

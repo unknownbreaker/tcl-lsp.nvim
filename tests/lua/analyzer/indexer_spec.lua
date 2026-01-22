@@ -1,14 +1,19 @@
 -- tests/lua/analyzer/indexer_spec.lua
 -- Tests for Background Indexer - scans workspace files without blocking the editor
 
+local helpers = require("tests.spec.test_helpers")
+
 describe("Background Indexer", function()
   local indexer
+  local index
 
   before_each(function()
     package.loaded["tcl-lsp.analyzer.indexer"] = nil
     package.loaded["tcl-lsp.analyzer.index"] = nil
     indexer = require("tcl-lsp.analyzer.indexer")
+    index = require("tcl-lsp.analyzer.index")
     indexer.reset()
+    index.clear()
   end)
 
   describe("find_tcl_files", function()
@@ -67,6 +72,48 @@ describe("Background Indexer", function()
       local status = indexer.get_status()
       assert.is_true(status.status == "scanning" or status.status == "ready")
       assert.is_true(status.total > 0)
+    end)
+  end)
+
+  describe("reference indexing", function()
+    it("should index references when indexing a file", function()
+      local temp_dir = helpers.create_temp_dir("indexer_refs")
+      local utils_file = temp_dir .. "/utils.tcl"
+      local main_file = temp_dir .. "/main.tcl"
+
+      -- Note: avoid quoted strings in proc body due to parser JSON serialization issue
+      helpers.write_file(utils_file, [[
+proc ::utils::helper {} {
+    set x 1
+}
+]])
+
+      helpers.write_file(main_file, [[
+proc main {} {
+    ::utils::helper
+}
+]])
+
+      indexer.start(temp_dir)
+
+      -- Wait for indexing to complete
+      helpers.wait_for(function()
+        return indexer.get_status().status == "ready"
+      end, 5000, "Indexer did not complete")
+
+      local refs = index.get_references("::utils::helper")
+      assert.is_true(#refs >= 1, "Should have at least one reference")
+
+      local found_call = false
+      for _, ref in ipairs(refs) do
+        if ref.type == "call" and ref.file == main_file then
+          found_call = true
+          break
+        end
+      end
+      assert.is_true(found_call, "Should find call reference from main.tcl")
+
+      helpers.cleanup_temp_dir(temp_dir)
     end)
   end)
 end)
