@@ -3,6 +3,7 @@
 
 local config = require "tcl-lsp.config"
 local server = require "tcl-lsp.server"
+local definition = require "tcl-lsp.features.definition"
 
 local M = {}
 
@@ -60,6 +61,9 @@ function M.setup(user_config)
     local status = server.get_status()
     vim.notify("TCL LSP Status: " .. vim.inspect(status), vim.log.levels.INFO)
   end, { desc = "Show TCL LSP server status" })
+
+  -- Set up go-to-definition feature
+  definition.setup()
 end
 
 -- Manual server start (for testing and API)
