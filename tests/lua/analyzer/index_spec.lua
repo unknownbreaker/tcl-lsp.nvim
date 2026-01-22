@@ -66,4 +66,67 @@ describe("Symbol Index", function()
       assert.is_not_nil(index.find("::utils::helper"))
     end)
   end)
+
+  describe("reference tracking", function()
+    it("should add references to a symbol", function()
+      index.add_symbol({
+        type = "proc",
+        name = "helper",
+        qualified_name = "::utils::helper",
+        file = "/project/utils.tcl",
+        range = { start = { line = 5, col = 1 }, end_pos = { line = 10, col = 1 } },
+        scope = "::utils",
+      })
+
+      index.add_reference("::utils::helper", {
+        type = "call",
+        file = "/project/main.tcl",
+        range = { start = { line = 20, col = 5 }, end_pos = { line = 20, col = 11 } },
+        text = "helper $arg",
+      })
+
+      local refs = index.get_references("::utils::helper")
+      assert.equals(1, #refs)
+      assert.equals("call", refs[1].type)
+      assert.equals("/project/main.tcl", refs[1].file)
+    end)
+
+    it("should return empty list for symbol with no references", function()
+      index.add_symbol({
+        type = "proc",
+        name = "unused",
+        qualified_name = "::unused",
+        file = "/project/lib.tcl",
+        range = { start = { line = 1, col = 1 }, end_pos = { line = 5, col = 1 } },
+        scope = "::",
+      })
+
+      local refs = index.get_references("::unused")
+      assert.is_table(refs)
+      assert.equals(0, #refs)
+    end)
+
+    it("should remove references when file is removed", function()
+      index.add_symbol({
+        type = "proc",
+        name = "target",
+        qualified_name = "::target",
+        file = "/project/target.tcl",
+        range = { start = { line = 1, col = 1 }, end_pos = { line = 5, col = 1 } },
+        scope = "::",
+      })
+
+      index.add_reference("::target", {
+        type = "call",
+        file = "/project/caller.tcl",
+        range = { start = { line = 10, col = 1 }, end_pos = { line = 10, col = 7 } },
+        text = "target",
+      })
+
+      index.remove_file("/project/caller.tcl")
+
+      local refs = index.get_references("::target")
+      assert.equals(0, #refs)
+    end)
+  end)
 end)
