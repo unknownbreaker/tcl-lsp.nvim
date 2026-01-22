@@ -14,7 +14,10 @@
       "Bash(mkdir -p *)",
       "Read(./**)",
       "Edit(./**)",
-      "Write(./**)"
+      "Write(./**)",
+      "Read(/tmp/**)",
+      "Write(/tmp/**)",
+      "Read(/var/folders/**)"
     ],
     "deny": [
       "Read(**/.env)",

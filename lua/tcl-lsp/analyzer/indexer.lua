@@ -136,6 +136,7 @@ function M.start(root_dir)
   M.state.total_files = #M.state.queued
   M.state.indexed_count = 0
   M.state.status = "scanning"
+  M.state.pending_refs = {} -- Reset for new indexing run
 
   M.process_batch()
 end
