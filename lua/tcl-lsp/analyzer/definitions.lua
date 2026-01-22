@@ -5,6 +5,19 @@ local M = {}
 
 local index = require("tcl-lsp.analyzer.index")
 
+--- Helper to convert symbol range to LSP range format
+--- Handles both 'col' and 'column' field names from parser
+---@param symbol_range table Range from symbol with start/end_pos
+---@return table LSP range format with 0-indexed line/character
+local function to_lsp_range(symbol_range)
+  local start_col = symbol_range.start.col or symbol_range.start.column or 1
+  local end_col = symbol_range.end_pos.col or symbol_range.end_pos.column or 1
+  return {
+    start = { line = symbol_range.start.line - 1, character = start_col - 1 },
+    ["end"] = { line = symbol_range.end_pos.line - 1, character = end_col - 1 },
+  }
+end
+
 --- Build qualified name candidates for a word given context
 --- Tries current namespace first, then global namespace
 ---@param word string The unqualified symbol name
@@ -80,10 +93,7 @@ function M.find_in_ast(ast, word, context, filepath)
       if symbol.qualified_name == candidate or symbol.name == word then
         return {
           uri = "file://" .. filepath,
-          range = {
-            start = { line = symbol.range.start.line - 1, character = symbol.range.start.col - 1 },
-            ["end"] = { line = symbol.range.end_pos.line - 1, character = symbol.range.end_pos.col - 1 },
-          },
+          range = to_lsp_range(symbol.range),
         }
       end
     end
@@ -126,10 +136,7 @@ function M.find_definition(bufnr, line, col)
   if symbol then
     return {
       uri = "file://" .. symbol.file,
-      range = {
-        start = { line = symbol.range.start.line - 1, character = symbol.range.start.col - 1 },
-        ["end"] = { line = symbol.range.end_pos.line - 1, character = symbol.range.end_pos.col - 1 },
-      },
+      range = to_lsp_range(symbol.range),
     }
   end
 

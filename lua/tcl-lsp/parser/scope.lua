@@ -20,16 +20,24 @@ local function position_in_range(line, col, range)
     return false
   end
 
+  -- Get column values (parser uses 'column', some code uses 'col')
+  local start_col = start.col or start.column
+  local end_col = end_pos.col or end_pos.column
+
+  if not start.line or not end_pos.line or not start_col or not end_col then
+    return false
+  end
+
   -- Check line bounds
   if line < start.line or line > end_pos.line then
     return false
   end
 
   -- Check column bounds on boundary lines
-  if line == start.line and col < start.col then
+  if line == start.line and col < start_col then
     return false
   end
-  if line == end_pos.line and col > end_pos.col then
+  if line == end_pos.line and col > end_col then
     return false
   end
 
