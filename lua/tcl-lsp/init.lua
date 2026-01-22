@@ -40,6 +40,18 @@ function M.setup(user_config)
       end,
     })
 
+    -- Re-index file on save
+    vim.api.nvim_create_autocmd("BufWritePost", {
+      group = tcl_group,
+      pattern = { "*.tcl", "*.rvt" },
+      callback = function(args)
+        local indexer = require("tcl-lsp.analyzer.indexer")
+        if indexer.get_status().status == "ready" then
+          indexer.index_file(args.file)
+        end
+      end,
+    })
+
     plugin_state.autocommands_created = true
   end
 
@@ -61,6 +73,17 @@ function M.setup(user_config)
     local status = server.get_status()
     vim.notify("TCL LSP Status: " .. vim.inspect(status), vim.log.levels.INFO)
   end, { desc = "Show TCL LSP server status" })
+
+  vim.api.nvim_create_user_command("TclIndexStatus", function()
+    local indexer = require("tcl-lsp.analyzer.indexer")
+    local status = indexer.get_status()
+    vim.notify(string.format(
+      "Index status: %s (%d/%d files)",
+      status.status,
+      status.indexed,
+      status.total
+    ), vim.log.levels.INFO)
+  end, { desc = "Show TCL index status" })
 
   -- Set up go-to-definition feature
   definition.setup()

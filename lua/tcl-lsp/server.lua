@@ -101,6 +101,13 @@ function M.start(filepath)
   if client_id then
     M.state.client_id = client_id
     M.state.status = "running"
+
+    -- Start background indexer
+    local indexer = require("tcl-lsp.analyzer.indexer")
+    if indexer.get_status().status == "idle" then
+      indexer.start(root_dir)
+    end
+
     return client_id
   else
     M.state.status = "stopped"
