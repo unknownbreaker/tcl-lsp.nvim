@@ -10,7 +10,11 @@
       "Bash(stylua *)",
       "Bash(nagelfar *)",
       "Bash(chmod +x *)",
-      "Bash(./scripts/*)"
+      "Bash(./scripts/*)",
+      "Bash(mkdir -p *)",
+      "Read(./**)",
+      "Edit(./**)",
+      "Write(./**)"
     ],
     "deny": [
       "Read(**/.env)",
