@@ -4,6 +4,7 @@
       "Bash(make *)",
       "Bash(tclsh *)",
       "Bash(nvim *)",
+      "Bash(git add * && git commit *)",
       "Bash(git *)",
       "Bash(bd *)",
       "Bash(luacheck *)",

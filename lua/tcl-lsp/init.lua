@@ -6,6 +6,7 @@ local server = require "tcl-lsp.server"
 local definition = require "tcl-lsp.features.definition"
 local references = require "tcl-lsp.features.references"
 local hover = require "tcl-lsp.features.hover"
+local diagnostics = require "tcl-lsp.features.diagnostics"
 
 local M = {}
 
@@ -95,6 +96,9 @@ function M.setup(user_config)
 
   -- Set up hover feature
   hover.setup()
+
+  -- Set up diagnostics feature
+  diagnostics.setup()
 end
 
 -- Manual server start (for testing and API)
