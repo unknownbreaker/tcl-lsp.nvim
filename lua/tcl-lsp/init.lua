@@ -7,6 +7,7 @@ local definition = require "tcl-lsp.features.definition"
 local references = require "tcl-lsp.features.references"
 local hover = require "tcl-lsp.features.hover"
 local diagnostics = require "tcl-lsp.features.diagnostics"
+local rename = require "tcl-lsp.features.rename"
 
 local M = {}
 
@@ -99,6 +100,9 @@ function M.setup(user_config)
 
   -- Set up diagnostics feature
   diagnostics.setup()
+
+  -- Set up rename feature
+  rename.setup()
 end
 
 -- Manual server start (for testing and API)
