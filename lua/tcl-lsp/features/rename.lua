@@ -3,6 +3,8 @@
 
 local M = {}
 
+local index = require("tcl-lsp.analyzer.index")
+
 --- Validate a new symbol name
 ---@param name string The proposed new name
 ---@return boolean ok True if valid
@@ -30,6 +32,35 @@ function M.validate_name(name)
   end
 
   return true, nil
+end
+
+--- Check if new name conflicts with existing symbols in scope
+---@param new_name string The proposed new name
+---@param scope string The scope to check (e.g., "::" or "::namespace")
+---@param current_name string The current symbol name (to exclude from conflict check)
+---@return boolean has_conflict True if conflict exists
+---@return string|nil message Conflict description
+function M.check_conflicts(new_name, scope, current_name)
+  -- If renaming to same name, no conflict
+  if new_name == current_name then
+    return false, nil
+  end
+
+  -- Build qualified name to check
+  local qualified_to_check
+  if scope == "::" then
+    qualified_to_check = "::" .. new_name
+  else
+    qualified_to_check = scope .. "::" .. new_name
+  end
+
+  -- Check if symbol exists
+  local existing = index.find(qualified_to_check)
+  if existing then
+    return true, string.format("Symbol '%s' already exists in scope %s", new_name, scope)
+  end
+
+  return false, nil
 end
 
 return M

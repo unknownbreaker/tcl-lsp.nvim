@@ -79,4 +79,62 @@ describe("Rename Feature", function()
       assert.matches("namespace", err:lower())
     end)
   end)
+
+  describe("check_conflicts", function()
+    local index
+
+    before_each(function()
+      -- Clear index first, then reload rename so it gets fresh index reference
+      package.loaded["tcl-lsp.analyzer.index"] = nil
+      package.loaded["tcl-lsp.features.rename"] = nil
+      index = require("tcl-lsp.analyzer.index")
+      index.clear()
+      rename = require("tcl-lsp.features.rename")
+    end)
+
+    it("should detect conflict when name exists in same scope", function()
+      -- Add existing symbol
+      index.add_symbol({
+        qualified_name = "::existingProc",
+        name = "existingProc",
+        type = "proc",
+        file = "/test.tcl",
+        scope = "::",
+      })
+
+      local has_conflict, msg = rename.check_conflicts("newName", "::", "existingProc")
+      assert.is_false(has_conflict) -- No conflict with different name
+
+      has_conflict, msg = rename.check_conflicts("existingProc", "::", "oldName")
+      assert.is_true(has_conflict)
+      assert.matches("existingProc", msg)
+    end)
+
+    it("should not conflict with same name in different scope", function()
+      index.add_symbol({
+        qualified_name = "::other::existingProc",
+        name = "existingProc",
+        type = "proc",
+        file = "/test.tcl",
+        scope = "::other",
+      })
+
+      local has_conflict = rename.check_conflicts("existingProc", "::", "oldName")
+      assert.is_false(has_conflict)
+    end)
+
+    it("should not conflict when renaming to same name", function()
+      index.add_symbol({
+        qualified_name = "::myProc",
+        name = "myProc",
+        type = "proc",
+        file = "/test.tcl",
+        scope = "::",
+      })
+
+      -- Renaming myProc to myProc (same name) - current symbol itself
+      local has_conflict = rename.check_conflicts("myProc", "::", "myProc")
+      assert.is_false(has_conflict)
+    end)
+  end)
 end)
