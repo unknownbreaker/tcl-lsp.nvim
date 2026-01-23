@@ -56,6 +56,11 @@ function M.check_buffer(bufnr)
   local diagnostics = {}
 
   for _, err in ipairs(result.errors or {}) do
+    -- Skip non-table entries (malformed errors)
+    if type(err) ~= "table" then
+      goto continue
+    end
+
     -- Convert 1-indexed parser lines to 0-indexed diagnostic lines
     local start_line = (err.range and err.range.start_line or 1) - 1
     local start_col = (err.range and err.range.start_col or 1) - 1
@@ -77,6 +82,7 @@ function M.check_buffer(bufnr)
       severity = vim.diagnostic.severity.ERROR,
       source = "tcl-lsp",
     })
+    ::continue::
   end
 
   vim.diagnostic.set(ns, bufnr, diagnostics)
@@ -85,7 +91,8 @@ end
 -- Clear diagnostics for a buffer
 function M.clear(bufnr)
   if ns then
-    vim.diagnostic.reset(ns, bufnr)
+    -- Wrap in pcall to handle invalid buffers gracefully
+    pcall(vim.diagnostic.reset, ns, bufnr)
   end
 end
 

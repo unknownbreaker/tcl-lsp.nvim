@@ -136,7 +136,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
       diagnostics.setup()
 
       local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "   ", "\t\t", "  \n  ", "" })
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "   ", "\t\t", "    ", "" })
       vim.api.nvim_buf_set_name(bufnr, "whitespace.tcl")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
