@@ -63,4 +63,45 @@ function M.check_conflicts(new_name, scope, current_name)
   return false, nil
 end
 
+--- Prepare workspace edit from references
+---@param refs table List of references from find-references
+---@param old_name string The current symbol name
+---@param new_name string The new symbol name
+---@return table workspace_edit LSP WorkspaceEdit structure
+function M.prepare_workspace_edit(refs, old_name, new_name)
+  local changes = {}
+
+  for _, ref in ipairs(refs) do
+    local uri = vim.uri_from_fname(ref.file)
+
+    if not changes[uri] then
+      changes[uri] = {}
+    end
+
+    -- Calculate the edit range
+    -- Range is 0-indexed for LSP, but our refs use 1-indexed lines
+    local start_line = (ref.range and ref.range.start and ref.range.start.line or 1) - 1
+    local start_col = ref.range and ref.range.start and (ref.range.start.col or ref.range.start.column or 1) or 1
+
+    -- Find where the symbol name starts in the text
+    local text = ref.text or ""
+    local name_start = text:find(old_name, 1, true)
+    if name_start then
+      start_col = start_col + name_start - 1
+    end
+
+    local end_col = start_col + #old_name
+
+    table.insert(changes[uri], {
+      range = {
+        start = { line = start_line, character = start_col - 1 },
+        ["end"] = { line = start_line, character = end_col - 1 },
+      },
+      newText = new_name,
+    })
+  end
+
+  return { changes = changes }
+end
+
 return M

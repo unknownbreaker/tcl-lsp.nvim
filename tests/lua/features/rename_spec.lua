@@ -137,4 +137,53 @@ describe("Rename Feature", function()
       assert.is_false(has_conflict)
     end)
   end)
+
+  describe("prepare_workspace_edit", function()
+    it("should generate workspace edit from references", function()
+      local refs = {
+        {
+          type = "definition",
+          file = "/project/utils.tcl",
+          range = { start = { line = 5, col = 6 }, end_pos = { line = 5, col = 11 } },
+          text = "proc hello",
+        },
+        {
+          type = "call",
+          file = "/project/main.tcl",
+          range = { start = { line = 10, col = 4 }, end_pos = { line = 10, col = 9 } },
+          text = "hello",
+        },
+      }
+
+      local edit = rename.prepare_workspace_edit(refs, "hello", "greet")
+
+      assert.is_not_nil(edit)
+      assert.is_not_nil(edit.changes)
+      assert.equals(2, vim.tbl_count(edit.changes)) -- 2 files
+    end)
+
+    it("should handle empty references", function()
+      local edit = rename.prepare_workspace_edit({}, "old", "new")
+      assert.is_not_nil(edit)
+      assert.equals(0, vim.tbl_count(edit.changes or {}))
+    end)
+
+    it("should calculate correct text edit ranges", function()
+      local refs = {
+        {
+          type = "definition",
+          file = "/test.tcl",
+          range = { start = { line = 1, col = 6 }, end_pos = { line = 1, col = 11 } },
+          text = "proc hello",
+        },
+      }
+
+      local edit = rename.prepare_workspace_edit(refs, "hello", "world")
+      local file_edits = edit.changes[vim.uri_from_fname("/test.tcl")]
+
+      assert.is_not_nil(file_edits)
+      assert.equals(1, #file_edits)
+      assert.equals("world", file_edits[1].newText)
+    end)
+  end)
 end)
