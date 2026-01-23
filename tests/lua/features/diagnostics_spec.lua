@@ -8,6 +8,20 @@
 -- 3. State/lifecycle issues (calling before setup, deleted buffers)
 -- 4. Integration failures (parser returns weird data, vim.diagnostic.set fails)
 
+-- Helper to create uniquely-named test buffers and avoid E95 errors
+local test_counter = 0
+local function make_test_buffer(content)
+  test_counter = test_counter + 1
+  local name = string.format("/tmp/test_diag_%d_%d.tcl", vim.loop.now(), test_counter)
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(bufnr, name)
+  if content then
+    local lines = vim.split(content, "\n")
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  end
+  return bufnr
+end
+
 describe("Diagnostics Feature - Adversarial Tests", function()
   local diagnostics
   local parser
@@ -23,9 +37,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
   describe("ATTACK 1: Lifecycle and State Edge Cases", function()
     it("should handle check_buffer before setup()", function()
       -- BUG HUNT: Does it crash if namespace is nil?
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       -- Don't call setup(), just call check_buffer directly
       local success, err = pcall(diagnostics.check_buffer, bufnr)
@@ -351,9 +363,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         return { ast = { type = "root" }, errors = nil }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle nil errors array")
@@ -375,9 +385,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle nil message")
@@ -399,9 +407,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle empty message")
@@ -424,9 +430,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle nil range")
@@ -448,9 +452,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle partial range")
@@ -473,9 +475,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle line 0 (convert to line 1)")
@@ -500,9 +500,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle negative line number")
@@ -525,9 +523,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle line beyond buffer")
@@ -551,9 +547,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1 set y 2" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1 set y 2")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle multiple errors on same line")
@@ -581,9 +575,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle very long error message")
@@ -608,9 +600,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "1", "2", "3", "4", "proc test {} {" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("1\n2\n3\n4\nproc test {} {")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle special chars in message")
@@ -630,9 +620,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         error("Parser crashed!")
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       -- Should catch the error gracefully
@@ -650,9 +638,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         return nil
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle parser returning nil")
@@ -669,9 +655,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         return "unexpected string"
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle parser returning wrong type")
@@ -691,9 +675,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle malformed errors array")
@@ -709,9 +691,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
       diagnostics.setup()
 
       -- This is hard to test without mocking, but we can check it doesn't crash
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "proc test {} {" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("proc test {} {")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle vim.diagnostic.set gracefully")
@@ -734,9 +714,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "1", "2", "3", "4", "error here", "6" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("1\n2\n3\n4\nerror here\n6")
 
       diagnostics.check_buffer(bufnr)
 
@@ -763,9 +741,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       diagnostics.check_buffer(bufnr)
 
@@ -790,9 +766,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       diagnostics.check_buffer(bufnr)
 
@@ -826,9 +800,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
     it("should clear diagnostics when syntax is fixed", function()
       diagnostics.setup()
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "proc test {} {" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("proc test {} {")
 
       -- First check: should have errors
       diagnostics.check_buffer(bufnr)
@@ -872,9 +844,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
       -- BUG HUNT: Race conditions with multiple saves
       diagnostics.setup()
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "set x 1" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("set x 1")
 
       -- Spam check_buffer
       for i = 1, 10 do
@@ -923,9 +893,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "error here" })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("error here")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle column 0")
@@ -947,13 +915,7 @@ describe("Diagnostics Feature - Adversarial Tests", function()
         }
       end
 
-      local bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
-        "line 1",
-        "line 2",
-        "line 3",
-      })
-      vim.api.nvim_buf_set_name(bufnr, "test.tcl")
+      local bufnr = make_test_buffer("line 1\nline 2\nline 3")
 
       local success = pcall(diagnostics.check_buffer, bufnr)
       assert.is_true(success, "Should handle multi-line diagnostic")
