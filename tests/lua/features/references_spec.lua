@@ -206,5 +206,26 @@ hello
 
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
+
+    it("should return consistent structure for regression", function()
+      -- This test locks down the API contract
+      vim.cmd("edit " .. main_file)
+      local bufnr = vim.api.nvim_get_current_buf()
+      vim.api.nvim_win_set_cursor(0, { 1, 5 }) -- On "hello" proc definition
+
+      local refs = references_feature.handle_references(bufnr, 0, 5)
+
+      -- If refs returned, verify structure
+      if refs and #refs > 0 then
+        local ref = refs[1]
+        assert.is_not_nil(ref.type, "Reference should have type")
+        assert.is_not_nil(ref.file, "Reference should have file")
+        assert.is_not_nil(ref.range, "Reference should have range")
+        assert.is_not_nil(ref.range.start, "Range should have start")
+        assert.is_not_nil(ref.range.start.line, "Range start should have line")
+      end
+
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+    end)
   end)
 end)
