@@ -8,9 +8,13 @@ local M = {}
 -- Diagnostic namespace (created in setup)
 local ns = nil
 
+-- Track if setup was called (to warn on fallback)
+local setup_called = false
+
 -- Setup diagnostics feature
 function M.setup()
   ns = vim.api.nvim_create_namespace("tcl-lsp")
+  setup_called = true
 
   -- Configure diagnostic display
   vim.diagnostic.config({
@@ -33,23 +37,61 @@ end
 function M.check_buffer(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-  -- Ensure namespace exists
+  -- Ensure namespace exists (with warning if setup wasn't called)
   if not ns then
     ns = vim.api.nvim_create_namespace("tcl-lsp")
+    if not setup_called then
+      vim.schedule(function()
+        vim.notify(
+          "tcl-lsp: diagnostics.setup() was not called. Some features may not work correctly.",
+          vim.log.levels.WARN
+        )
+      end)
+    end
   end
 
   -- Get buffer content
-  local ok, lines = pcall(vim.api.nvim_buf_get_lines, bufnr, 0, -1, false)
-  if not ok then
+  local lines_ok, lines = pcall(vim.api.nvim_buf_get_lines, bufnr, 0, -1, false)
+  if not lines_ok then
     return
   end
 
   local content = table.concat(lines, "\n")
-  local filepath = vim.api.nvim_buf_get_name(bufnr)
+
+  -- Get filepath (also protected)
+  local filepath_ok, filepath = pcall(vim.api.nvim_buf_get_name, bufnr)
+  if not filepath_ok then
+    filepath = ""
+  end
 
   -- Parse and get errors (wrapped in pcall for safety)
-  local ok, result = pcall(parser.parse_with_errors, content, filepath)
-  if not ok or not result or type(result) ~= "table" then
+  local parse_ok, result = pcall(parser.parse_with_errors, content, filepath)
+  if not parse_ok then
+    -- Notify user about parser failure
+    local err_msg = tostring(result)
+    vim.schedule(function()
+      if err_msg:match("timeout") then
+        vim.notify(
+          string.format("tcl-lsp: Parser timed out for %s. File may be too large or complex.", filepath),
+          vim.log.levels.WARN
+        )
+      else
+        vim.notify(
+          string.format("tcl-lsp: Parser failed for %s: %s", filepath, err_msg),
+          vim.log.levels.WARN
+        )
+      end
+    end)
+    return
+  end
+
+  if not result or type(result) ~= "table" then
+    vim.schedule(function()
+      vim.notify(
+        string.format("tcl-lsp: Parser returned invalid result for %s", filepath),
+        vim.log.levels.WARN
+      )
+    end)
     return
   end
 
@@ -73,19 +115,34 @@ function M.check_buffer(bufnr)
     end_line = math.max(0, end_line)
     end_col = math.max(0, end_col)
 
+    -- Handle nil or empty message
+    local message = err.message
+    if not message or message == "" then
+      message = "Syntax error"
+    end
+
     table.insert(diagnostics, {
       lnum = start_line,
       col = start_col,
       end_lnum = end_line,
       end_col = end_col,
-      message = err.message or "Syntax error",
+      message = message,
       severity = vim.diagnostic.severity.ERROR,
       source = "tcl-lsp",
     })
     ::continue::
   end
 
-  vim.diagnostic.set(ns, bufnr, diagnostics)
+  -- Set diagnostics (wrapped in pcall for safety)
+  local set_ok, set_err = pcall(vim.diagnostic.set, ns, bufnr, diagnostics)
+  if not set_ok then
+    vim.schedule(function()
+      vim.notify(
+        string.format("tcl-lsp: Failed to set diagnostics: %s", tostring(set_err)),
+        vim.log.levels.ERROR
+      )
+    end)
+  end
 end
 
 -- Clear diagnostics for a buffer
