@@ -152,7 +152,10 @@ local function get_parser_script_path()
   return nil
 end
 
--- Execute TCL parser and get JSON result
+-- Default parser timeout in milliseconds (10 seconds)
+local PARSER_TIMEOUT_MS = 10000
+
+-- Execute TCL parser with timeout and get JSON result
 local function execute_tcl_parser(code, filepath)
   debug_print("\n========================================")
   debug_print("TCL PARSER EXECUTION DEBUG")
@@ -203,17 +206,68 @@ local function execute_tcl_parser(code, filepath)
   file:close()
   debug_print("✓ Temp file created and written")
 
-  -- Execute parser
-  debug_print("\n[Step 6] Executing TCL parser")
-  local cmd = string.format(
-    "tclsh %s %s 2>&1",
-    vim.fn.shellescape(parser_script),
-    vim.fn.shellescape(temp_file)
-  )
-  debug_print("Command:", cmd)
+  -- Execute parser with timeout using jobstart
+  debug_print("\n[Step 6] Executing TCL parser with timeout")
+  local cmd = { "tclsh", parser_script, temp_file }
+  debug_print("Command:", table.concat(cmd, " "))
 
-  local output = vim.fn.system(cmd)
-  local exit_code = vim.v.shell_error
+  local output_chunks = {}
+  local stderr_chunks = {}
+  local job_done = false
+  local exit_code = nil
+
+  local job_id = vim.fn.jobstart(cmd, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      if data then
+        for _, line in ipairs(data) do
+          if line ~= "" then
+            table.insert(output_chunks, line)
+          end
+        end
+      end
+    end,
+    on_stderr = function(_, data)
+      if data then
+        for _, line in ipairs(data) do
+          if line ~= "" then
+            table.insert(stderr_chunks, line)
+          end
+        end
+      end
+    end,
+    on_exit = function(_, code)
+      exit_code = code
+      job_done = true
+    end,
+  })
+
+  if job_id <= 0 then
+    vim.fn.delete(temp_file)
+    debug_print("✗ ERROR: Failed to start job!")
+    return nil, "Failed to start parser process"
+  end
+
+  -- Wait for job with timeout
+  local start_time = vim.loop.hrtime()
+  local timeout_ns = PARSER_TIMEOUT_MS * 1000000
+
+  while not job_done do
+    vim.wait(50, function() return job_done end)
+
+    local elapsed = vim.loop.hrtime() - start_time
+    if elapsed > timeout_ns then
+      -- Timeout - kill the job
+      vim.fn.jobstop(job_id)
+      vim.fn.delete(temp_file)
+      debug_print("✗ ERROR: Parser timeout!")
+      return nil, "Parser timeout: execution exceeded " .. (PARSER_TIMEOUT_MS / 1000) .. " seconds"
+    end
+  end
+
+  local output = table.concat(output_chunks, "\n")
+  local stderr_output = table.concat(stderr_chunks, "\n")
 
   debug_print("\n[Step 7] Parser execution results")
   debug_print("Exit code:", exit_code)
@@ -227,7 +281,9 @@ local function execute_tcl_parser(code, filepath)
   if exit_code ~= 0 then
     debug_print("\n  ✗ ERROR: Parser exited with non-zero code!")
     debug_print("Full output:", output)
-    return nil, "Parser error: " .. output
+    debug_print("Stderr:", stderr_output)
+    local err_msg = stderr_output ~= "" and stderr_output or output
+    return nil, "Parser error: " .. err_msg
   end
   debug_print("✓ Parser executed successfully")
 

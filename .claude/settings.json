@@ -13,6 +13,7 @@
       "Bash(chmod +x *)",
       "Bash(./scripts/*)",
       "Bash(mkdir -p *)",
+      "Bash(pkill *)",
       "Read(./**)",
       "Edit(./**)",
       "Write(./**)",

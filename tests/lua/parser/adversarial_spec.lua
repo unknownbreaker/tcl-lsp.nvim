@@ -1,8 +1,15 @@
 -- tests/lua/parser/adversarial_spec.lua
 -- ADVERSARIAL TESTS - Breaking the Lua-TCL parser bridge
+-- Note: Parser has a 10-second timeout to prevent hangs on malicious input
 
 describe("Parser Adversarial Tests", function()
   local parser = require("tcl-lsp.parser")
+
+  -- Helper to check result is valid (either AST or error, not hang)
+  local function assert_completes(ast, err)
+    -- Test passes if we got any result (AST or error) without hanging
+    assert.is_true(ast ~= nil or err ~= nil, "Parser should return AST or error, not hang")
+  end
 
   describe("ATTACK 1: Empty and nil inputs", function()
     it("should handle nil code", function()
@@ -93,34 +100,36 @@ describe("Parser Adversarial Tests", function()
   end)
 
   describe("ATTACK 4: Large inputs (resource exhaustion)", function()
-    it("should handle 100KB of code", function()
+    -- Note: Parser has 10-second timeout to prevent hangs
+
+    it("should handle 100KB of code or timeout gracefully", function()
       local code = string.rep("set x 1\n", 10000) -- ~100KB
       local ast, err = parser.parse(code)
-      -- Should complete, even if slow
-      assert.is_true(ast ~= nil or err ~= nil)
+      -- Should complete or timeout, never hang
+      assert_completes(ast, err)
     end)
 
-    it("should handle deeply nested structures", function()
-      -- 100 levels of braces
+    it("should handle deeply nested structures or timeout", function()
+      -- 100 levels of braces - may cause parser issues
       local code = "set x " .. string.rep("{", 100) .. "deep" .. string.rep("}", 100)
       local ast, err = parser.parse(code)
-      assert.is_true(ast ~= nil or err ~= nil)
+      assert_completes(ast, err)
     end)
 
-    it("should handle very long single line", function()
+    it("should handle very long single line or timeout", function()
       local code = "set x " .. string.rep("a", 100000)
       local ast, err = parser.parse(code)
-      assert.is_true(ast ~= nil or err ~= nil)
+      assert_completes(ast, err)
     end)
 
-    it("should handle many procs", function()
+    it("should handle many procs or timeout", function()
       local procs = {}
       for i = 1, 1000 do
         table.insert(procs, string.format("proc test%d {} { puts %d }", i, i))
       end
       local code = table.concat(procs, "\n")
       local ast, err = parser.parse(code)
-      assert.is_true(ast ~= nil or err ~= nil)
+      assert_completes(ast, err)
     end)
   end)
 
