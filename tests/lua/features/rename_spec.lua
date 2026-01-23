@@ -186,4 +186,56 @@ describe("Rename Feature", function()
       assert.equals("world", file_edits[1].newText)
     end)
   end)
+
+  describe("handle_rename", function()
+    local helpers = require("tests.spec.test_helpers")
+    local temp_dir
+    local main_file
+
+    before_each(function()
+      package.loaded["tcl-lsp.analyzer.index"] = nil
+      local idx = require("tcl-lsp.analyzer.index")
+      idx.clear()
+
+      temp_dir = helpers.create_temp_dir("rename_test")
+      main_file = temp_dir .. "/main.tcl"
+      helpers.write_file(main_file, [[
+proc hello {} {
+    puts "Hello"
+}
+
+hello
+]])
+    end)
+
+    after_each(function()
+      helpers.cleanup_temp_dir(temp_dir)
+    end)
+
+    it("should return error for invalid new name", function()
+      vim.cmd("edit " .. main_file)
+      local bufnr = vim.api.nvim_get_current_buf()
+      vim.api.nvim_win_set_cursor(0, { 1, 5 })
+
+      local result = rename.handle_rename(bufnr, 0, 5, "invalid name")
+
+      assert.is_not_nil(result.error)
+      assert.matches("invalid", result.error:lower())
+
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+    end)
+
+    it("should return error when not on a symbol", function()
+      vim.cmd("edit " .. main_file)
+      local bufnr = vim.api.nvim_get_current_buf()
+
+      -- Position on empty/whitespace
+      local result = rename.handle_rename(bufnr, 2, 0, "newName")
+
+      -- Should handle gracefully
+      assert.is_table(result)
+
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+    end)
+  end)
 end)

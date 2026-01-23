@@ -104,4 +104,61 @@ function M.prepare_workspace_edit(refs, old_name, new_name)
   return { changes = changes }
 end
 
+local references_feature = require("tcl-lsp.features.references")
+
+--- Handle rename request
+---@param bufnr number Buffer number
+---@param line number Line number (0-indexed)
+---@param col number Column number (0-indexed)
+---@param new_name string The new name for the symbol
+---@return table result Contains either workspace_edit or error
+function M.handle_rename(bufnr, line, col, new_name)
+  -- Validate new name
+  local valid, err = M.validate_name(new_name)
+  if not valid then
+    return { error = err }
+  end
+
+  -- Get current word
+  local word = vim.fn.expand("<cword>")
+  if not word or word == "" then
+    return { error = "No symbol under cursor" }
+  end
+
+  -- Strip $ prefix from variables
+  if word:sub(1, 1) == "$" then
+    word = word:sub(2)
+  end
+
+  -- Check if new name is same as old
+  if word == new_name then
+    return { error = "New name is the same as current name" }
+  end
+
+  -- Get all references using existing infrastructure
+  local refs = references_feature.handle_references(bufnr, line, col)
+  if not refs or #refs == 0 then
+    return { error = "Cannot rename: no references found for symbol '" .. word .. "'" }
+  end
+
+  -- Check for conflicts (get scope from first reference which is the definition)
+  local scope = "::" -- Default to global scope
+  -- TODO: Extract actual scope from symbol context
+
+  local has_conflict, conflict_msg = M.check_conflicts(new_name, scope, word)
+  if has_conflict then
+    return { error = conflict_msg, conflict = true }
+  end
+
+  -- Generate workspace edit
+  local workspace_edit = M.prepare_workspace_edit(refs, word, new_name)
+
+  return {
+    workspace_edit = workspace_edit,
+    old_name = word,
+    new_name = new_name,
+    count = #refs,
+  }
+end
+
 return M
