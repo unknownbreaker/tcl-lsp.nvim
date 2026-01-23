@@ -161,4 +161,89 @@ function M.handle_rename(bufnr, line, col, new_name)
   }
 end
 
+--- Execute rename with UI
+---@param new_name string|nil Optional new name (prompts if nil)
+local function execute_rename(new_name)
+  local bufnr = vim.api.nvim_get_current_buf()
+  local pos = vim.api.nvim_win_get_cursor(0)
+  local line = pos[1] - 1 -- Convert to 0-indexed
+  local col = pos[2]
+  local old_word = vim.fn.expand("<cword>")
+
+  local function do_rename(name)
+    if not name or name == "" then
+      return
+    end
+
+    local result = M.handle_rename(bufnr, line, col, name)
+
+    if result.error then
+      if result.conflict then
+        -- Ask user to confirm despite conflict
+        vim.ui.select({ "Yes", "No" }, {
+          prompt = result.error .. ". Rename anyway?",
+        }, function(choice)
+          if choice == "Yes" then
+            -- Force rename by bypassing conflict check
+            local refs = require("tcl-lsp.features.references").handle_references(bufnr, line, col)
+            if refs then
+              local edit = M.prepare_workspace_edit(refs, old_word, name)
+              vim.lsp.util.apply_workspace_edit(edit, "utf-8")
+              vim.notify(string.format("Renamed '%s' to '%s'", old_word, name), vim.log.levels.INFO)
+            end
+          end
+        end)
+      else
+        vim.notify("Rename failed: " .. result.error, vim.log.levels.ERROR)
+      end
+      return
+    end
+
+    -- Apply the workspace edit
+    vim.lsp.util.apply_workspace_edit(result.workspace_edit, "utf-8")
+
+    -- Count affected files
+    local file_count = vim.tbl_count(result.workspace_edit.changes or {})
+    vim.notify(
+      string.format("Renamed '%s' to '%s' in %d files (%d occurrences)",
+        result.old_name, result.new_name, file_count, result.count),
+      vim.log.levels.INFO
+    )
+  end
+
+  if new_name then
+    do_rename(new_name)
+  else
+    vim.ui.input({
+      prompt = "New name: ",
+      default = old_word,
+    }, do_rename)
+  end
+end
+
+--- Set up rename feature
+function M.setup()
+  -- Create user command
+  vim.api.nvim_create_user_command("TclLspRename", function(opts)
+    local new_name = opts.args ~= "" and opts.args or nil
+    execute_rename(new_name)
+  end, {
+    nargs = "?",
+    desc = "Rename TCL symbol",
+  })
+
+  -- Set up keymap for TCL files
+  vim.api.nvim_create_autocmd("FileType", {
+    pattern = { "tcl", "rvt" },
+    callback = function(args)
+      vim.keymap.set("n", "<leader>rn", function()
+        execute_rename()
+      end, {
+        buffer = args.buf,
+        desc = "Rename symbol",
+      })
+    end,
+  })
+end
+
 return M

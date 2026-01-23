@@ -9,6 +9,20 @@ describe("Rename Feature", function()
     rename = require("tcl-lsp.features.rename")
   end)
 
+  describe("setup", function()
+    it("should register without error", function()
+      local success = pcall(rename.setup)
+      assert.is_true(success)
+    end)
+
+    it("should create TclLspRename user command", function()
+      rename.setup()
+
+      local commands = vim.api.nvim_get_commands({})
+      assert.is_not_nil(commands.TclLspRename, "TclLspRename command should be registered")
+    end)
+  end)
+
   describe("validate_name", function()
     it("should reject empty names", function()
       local ok, err = rename.validate_name("")
