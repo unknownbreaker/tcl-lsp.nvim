@@ -412,4 +412,53 @@ function M.parse_file(filepath)
   return M.parse(content, filepath)
 end
 
+-- Parse TCL code and return AST with error details preserved
+-- Unlike parse(), this always returns a result table, never nil
+function M.parse_with_errors(code, filepath)
+  -- Handle empty/whitespace input
+  if not code or code == "" or code:match("^%s*$") then
+    return {
+      ast = {
+        type = "root",
+        children = {},
+        range = { start = { line = 1, column = 1 }, end_pos = { line = 1, column = 1 } },
+      },
+      errors = {},
+    }
+  end
+
+  -- Execute TCL parser
+  local ast, err = execute_tcl_parser(code, filepath or "<string>")
+
+  -- Parser execution failed (e.g., tclsh not found, timeout)
+  if err then
+    return { ast = nil, errors = { { message = err } } }
+  end
+
+  if not ast then
+    return { ast = nil, errors = { { message = "Parser returned nil" } } }
+  end
+
+  -- Extract errors from AST if present
+  local errors = {}
+  if ast.had_error and (ast.had_error == 1 or ast.had_error == true) then
+    if ast.errors and type(ast.errors) == "table" then
+      for _, error_node in ipairs(ast.errors) do
+        if type(error_node) == "table" then
+          table.insert(errors, {
+            message = error_node.message or "Unknown error",
+            range = error_node.range,
+          })
+        elseif type(error_node) == "string" then
+          table.insert(errors, { message = error_node })
+        end
+      end
+    elseif type(ast.errors) == "string" then
+      table.insert(errors, { message = ast.errors })
+    end
+  end
+
+  return { ast = ast, errors = errors }
+end
+
 return M
