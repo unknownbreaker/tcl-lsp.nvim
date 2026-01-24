@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 tcl-lsp.nvim is a Language Server Protocol (LSP) implementation for TCL that integrates with Neovim. It provides intelligent code editing features for TCL/RVT files.
 
-**Current Status:** Phase 3 in progress - go-to-definition complete, other LSP features pending.
+**Current Status:** Phase 3 in progress - go-to-definition, find-references, hover, diagnostics, and rename complete.
 
 ## Progress Tracking (REQUIRED)
 
@@ -109,6 +109,13 @@ require("tcl-lsp").setup({})  -- Initialize plugin
 -- User commands: :TclLspStart, :TclLspStop, :TclLspRestart, :TclLspStatus
 ```
 
+### Adding New Features
+
+Each feature module in `lua/tcl-lsp/features/` follows this pattern:
+1. Create `features/<name>.lua` with `M.setup()` function
+2. Create `tests/lua/features/<name>_spec.lua` with plenary tests
+3. Register in `init.lua`: add require and call `<name>.setup()` in `M.setup()`
+
 ### Test Structure
 
 - `tests/lua/` - Lua unit tests using plenary.nvim (spec files)
@@ -123,3 +130,4 @@ Each TCL module has built-in self-tests runnable directly: `tclsh tcl/core/ast/j
 - Requires: Neovim 0.11.3+, TCL 8.6+
 - Test framework: plenary.nvim (Lua), native self-tests (TCL)
 - Keep files under 700 lines; parser modules average 107 lines
+- Worktrees: Use `.worktrees/` directory (gitignored) for feature branches
