@@ -59,6 +59,71 @@ local PROC_KEYWORD_LENGTH = 5
 -- Length of "set " keyword including trailing space
 local SET_KEYWORD_LENGTH = 4
 
+-- TCL built-in commands (keywords with defaultLibrary modifier)
+-- Commands that get their own node type
+local BUILTIN_NODE_TYPES = {
+  ["if"] = true,
+  ["while"] = true,
+  ["for"] = true,
+  foreach = true,
+  switch = true,
+  proc = true,
+  set = true,
+  global = true,
+  upvar = true,
+  variable = true,
+  array = true,
+  namespace_eval = true,
+  namespace_export = true,
+  package_require = true,
+  package_provide = true,
+  source = true,
+  expr = true,
+  list = true,
+  lappend = true,
+  puts = true,
+}
+
+-- Commands that become generic "command" nodes
+local BUILTIN_COMMANDS = {
+  ["return"] = true,
+  ["break"] = true,
+  continue = true,
+  catch = true,
+  try = true,
+  throw = true,
+  error = true,
+  lindex = true,
+  llength = true,
+  lsort = true,
+  lsearch = true,
+  lrange = true,
+  lreplace = true,
+  string = true,
+  regexp = true,
+  regsub = true,
+  split = true,
+  join = true,
+  dict = true,
+  incr = true,
+  append = true,
+  open = true,
+  close = true,
+  read = true,
+  gets = true,
+  eof = true,
+  file = true,
+  glob = true,
+  cd = true,
+  pwd = true,
+  info = true,
+  rename = true,
+  interp = true,
+  after = true,
+  update = true,
+  vwait = true,
+}
+
 -- Combine multiple modifiers into a single bitmask
 function M.combine_modifiers(modifier_names)
   local result = 0
@@ -135,6 +200,37 @@ function M.extract_tokens(ast)
       end
     end
 
+    -- Extract keyword tokens for builtin commands
+    -- Handle nodes with specific types (if, while, for, foreach, etc.)
+    if BUILTIN_NODE_TYPES[node.type] and node.range then
+      -- Get the keyword name from node type (e.g., "if", "while")
+      -- For compound types like "namespace_eval", extract just "namespace"
+      local keyword = node.type
+      if keyword:find("_") then
+        keyword = keyword:match("^([^_]+)")
+      end
+      table.insert(tokens, {
+        line = node.range.start.line,
+        start_char = node.range.start.column,
+        length = #keyword,
+        type = M.token_types.keyword,
+        modifiers = M.token_modifiers.defaultLibrary,
+        text = keyword,
+      })
+    end
+
+    -- Handle generic command nodes that are builtins (puts, return, break, etc.)
+    if node.type == "command" and node.name and BUILTIN_COMMANDS[node.name] and node.range then
+      table.insert(tokens, {
+        line = node.range.start.line,
+        start_char = node.range.start.column,
+        length = #node.name,
+        type = M.token_types.keyword,
+        modifiers = M.token_modifiers.defaultLibrary,
+        text = node.name,
+      })
+    end
+
     -- Recurse into children
     if node.children then
       for _, child in ipairs(node.children) do
@@ -144,6 +240,36 @@ function M.extract_tokens(ast)
     if node.body and node.body.children then
       for _, child in ipairs(node.body.children) do
         visit(child)
+      end
+    end
+    -- Handle if statement bodies (then_body, else_body, elseif)
+    if node.then_body and node.then_body.children then
+      for _, child in ipairs(node.then_body.children) do
+        visit(child)
+      end
+    end
+    if node.else_body and node.else_body.children then
+      for _, child in ipairs(node.else_body.children) do
+        visit(child)
+      end
+    end
+    if node["elseif"] then
+      for _, branch in ipairs(node["elseif"]) do
+        if branch.body and branch.body.children then
+          for _, child in ipairs(branch.body.children) do
+            visit(child)
+          end
+        end
+      end
+    end
+    -- Handle switch cases
+    if node.cases then
+      for _, case in ipairs(node.cases) do
+        if case.body and case.body.children then
+          for _, child in ipairs(case.body.children) do
+            visit(child)
+          end
+        end
       end
     end
   end

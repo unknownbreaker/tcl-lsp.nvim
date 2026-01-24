@@ -153,5 +153,22 @@ puts $name]]
       assert.equals("name", var_tokens[1].text)
       assert.is_true(bit.band(var_tokens[1].modifiers, semantic_tokens.token_modifiers.modification) > 0)
     end)
+
+    it("should mark builtin commands as keywords with defaultLibrary", function()
+      local code = [[if {$x > 0} {
+    puts "positive"
+}]]
+      local ast = parser.parse(code, "test.tcl")
+      local tokens = semantic_tokens.extract_tokens(ast)
+
+      local keyword_tokens = vim.tbl_filter(function(t)
+        return t.type == semantic_tokens.token_types.keyword
+      end, tokens)
+
+      assert.is_true(#keyword_tokens >= 1)
+      local if_token = keyword_tokens[1]
+      assert.equals("if", if_token.text)
+      assert.is_true(bit.band(if_token.modifiers, semantic_tokens.token_modifiers.defaultLibrary) > 0)
+    end)
   end)
 end)
