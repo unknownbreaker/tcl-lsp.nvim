@@ -62,7 +62,21 @@ describe("LSP E2E: Happy Path", function()
   end
 
   it("goto_definition: jumps to proc in another file", function()
-    -- This test will be implemented next
-    assert.is_true(false, "Test not implemented yet")
+    index_fixture()
+
+    -- Open main.tcl
+    local main_file = fixture_dir .. "/main.tcl"
+    vim.cmd("edit " .. vim.fn.fnameescape(main_file))
+    local bufnr = vim.api.nvim_get_current_buf()
+
+    -- Line 6: "set result [add 1 2]" - cursor on "add" (1-indexed: line 6, col 14)
+    -- vim cursor is 1-indexed, col is 0-indexed byte offset
+    vim.api.nvim_win_set_cursor(0, { 6, 13 })
+    local result = definition_feature.handle_definition(bufnr, 5, 13)
+
+    assert.is_not_nil(result, "Should find definition")
+    assert.is_true(result.uri:match("math%.tcl$") ~= nil, "Should jump to math.tcl")
+    -- proc add is on line 4 (0-indexed: 3)
+    assert.is_true(result.range.start.line <= 5, "Should point to proc add definition")
   end)
 end)
