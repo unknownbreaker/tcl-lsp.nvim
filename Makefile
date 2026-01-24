@@ -58,16 +58,19 @@ test-unit-lsp-server-file: ## Run specific server test file
 
 test-integration: ## Run integration tests
 	@echo "Running integration tests..."
-	busted tests/integration --verbose
+	@$(NVIM) --headless --noplugin -u tests/minimal_init.lua \
+		-c "lua require('plenary.test_harness').test_directory('tests/integration/', {minimal_init = 'tests/minimal_init.lua'})" \
+		-c "qa!" 2>&1 | $(TEST_FORMATTER)
 
 test-performance: ## Run performance benchmarks
 	@echo "Running performance tests..."
-	busted tests/integration/test_performance.lua --verbose
+	@$(NVIM) --headless --noplugin -u tests/minimal_init.lua \
+		-c "lua require('plenary.test_harness').test_directory('tests/integration/', {minimal_init = 'tests/minimal_init.lua', filter = 'performance'})" \
+		-c "qa!" 2>&1 | $(TEST_FORMATTER)
 
-test-coverage: ## Generate test coverage report
-	@echo "Generating coverage report..."
-	busted tests/lua --coverage --verbose
-	luacov
+test-coverage: ## Generate test coverage report (placeholder - Neovim tests don't support coverage yet)
+	@echo "Coverage reporting for Neovim plugins requires special setup."
+	@echo "Run 'make test' to run all tests without coverage."
 
 lint: lint-lua lint-tcl lint-js ## Run all linting
 	@echo "All linting completed"
