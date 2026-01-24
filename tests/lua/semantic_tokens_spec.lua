@@ -171,4 +171,23 @@ puts $name]]
       assert.is_true(bit.band(if_token.modifiers, semantic_tokens.token_modifiers.defaultLibrary) > 0)
     end)
   end)
+
+  describe("LSP Encoding", function()
+    it("should encode tokens to LSP format (relative positions)", function()
+      local tokens = {
+        { line = 1, start_char = 5, length = 5, type = 5, modifiers = 2 },
+        { line = 1, start_char = 12, length = 4, type = 8, modifiers = 1 },
+        { line = 3, start_char = 4, length = 4, type = 11, modifiers = 64 },
+      }
+
+      local encoded = semantic_tokens.encode_tokens(tokens)
+
+      -- LSP format: [deltaLine, deltaStartChar, length, tokenType, tokenModifiers]
+      assert.same({
+        0, 5, 5, 5, 2,    -- first token (line 1, char 5)
+        0, 7, 4, 8, 1,    -- same line, 7 chars later
+        2, 4, 4, 11, 64,  -- 2 lines down, char 4
+      }, encoded)
+    end)
+  end)
 end)

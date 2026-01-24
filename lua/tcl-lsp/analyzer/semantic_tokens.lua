@@ -278,4 +278,34 @@ function M.extract_tokens(ast)
   return tokens
 end
 
+-- Encode tokens to LSP semantic tokens format
+-- Returns flat array: [deltaLine, deltaStartChar, length, tokenType, tokenModifiers, ...]
+function M.encode_tokens(tokens)
+  -- Sort by position
+  table.sort(tokens, function(a, b)
+    if a.line ~= b.line then return a.line < b.line end
+    return a.start_char < b.start_char
+  end)
+
+  local result = {}
+  local prev_line = 1
+  local prev_char = 0
+
+  for _, token in ipairs(tokens) do
+    local delta_line = token.line - prev_line
+    local delta_char = delta_line == 0 and (token.start_char - prev_char) or token.start_char
+
+    table.insert(result, delta_line)
+    table.insert(result, delta_char)
+    table.insert(result, token.length)
+    table.insert(result, token.type)
+    table.insert(result, token.modifiers)
+
+    prev_line = token.line
+    prev_char = token.start_char
+  end
+
+  return result
+end
+
 return M
