@@ -1,0 +1,65 @@
+<?
+# Pet Detail View
+# Edge cases: variable interpolation, proc calls, dict access
+
+# pet_id should be passed in from router
+if {![info exists pet_id]} {
+    set pet_id "pet_1"
+}
+
+set pet [::petshop::models::pet::get $pet_id]
+set price [::petshop::services::pricing::calculate $pet]
+set in_stock [::petshop::models::inventory::get_stock $pet_id]
+?>
+<html>
+<head>
+    <title><?= [dict get $pet name] ?> - Pet Details</title>
+</head>
+<body>
+    <nav>
+        <a href="/pets">&larr; Back to Pets</a>
+    </nav>
+
+    <article class="pet-detail">
+        <header>
+            <h1><?= [dict get $pet name] ?></h1>
+            <span class="id">ID: <?= [dict get $pet id] ?></span>
+        </header>
+
+        <section class="info">
+            <dl>
+                <dt>Species</dt>
+                <dd><?= [dict get $pet species] ?></dd>
+
+                <dt>Price</dt>
+                <dd class="price">$<?= $price ?></dd>
+
+                <dt>In Stock</dt>
+                <dd class="<?= $in_stock > 0 ? "available" : "unavailable" ?>">
+                    <?= $in_stock > 0 ? "$in_stock available" : "Out of stock" ?>
+                </dd>
+
+                <? if {[dict exists $pet weight]} { ?>
+                <dt>Weight</dt>
+                <dd><?= [dict get $pet weight] ?> lbs</dd>
+                <? } ?>
+            </dl>
+        </section>
+
+        <section class="actions">
+            <? if {$in_stock > 0} { ?>
+                <form action="/cart/add" method="POST">
+                    <input type="hidden" name="pet_id" value="<?= $pet_id ?>">
+                    <button type="submit" class="btn-primary">Add to Cart</button>
+                </form>
+            <? } else { ?>
+                <button disabled class="btn-disabled">Out of Stock</button>
+            <? } ?>
+        </section>
+
+        <footer>
+            <small>Added: <?= [clock format [dict get $pet created] -format {%Y-%m-%d}] ?></small>
+        </footer>
+    </article>
+</body>
+</html>

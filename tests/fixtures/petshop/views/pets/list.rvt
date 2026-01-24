@@ -1,0 +1,47 @@
+<?
+# Pet List View
+# Edge cases: loops in RVT, conditionals, cross-file proc calls
+
+set pets [::petshop::models::pet::list]
+set pet_count [llength $pets]
+?>
+<html>
+<head>
+    <title>Available Pets</title>
+</head>
+<body>
+    <h1>Available Pets (<?= $pet_count ?>)</h1>
+
+    <? if {$pet_count == 0} { ?>
+        <p class="empty">No pets available at this time.</p>
+    <? } else { ?>
+        <div class="pet-grid">
+            <? foreach pet $pets { ?>
+                <div class="pet-card" data-id="<?= [dict get $pet id] ?>">
+                    <h2><?= [dict get $pet name] ?></h2>
+                    <p class="species"><?= [dict get $pet species] ?></p>
+                    <span class="price">
+                        $<?= [::petshop::services::pricing::format [dict get $pet price]] ?>
+                    </span>
+                    <? if {[dict exists $pet weight] && [dict get $pet weight] > 10} { ?>
+                        <span class="badge">Large Pet</span>
+                    <? } ?>
+                    <a href="/pets/<?= [dict get $pet id] ?>" class="btn">View Details</a>
+                </div>
+            <? } ?>
+        </div>
+    <? } ?>
+
+    <?
+    # Inline proc in RVT (edge case)
+    proc format_summary {count} {
+        if {$count == 1} {
+            return "1 pet"
+        }
+        return "$count pets"
+    }
+    ?>
+
+    <p class="summary">Showing <?= [format_summary $pet_count] ?></p>
+</body>
+</html>
