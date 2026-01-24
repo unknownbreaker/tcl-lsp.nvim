@@ -66,6 +66,29 @@ proc ::ast::json::is_dict {value} {
         return 0
     }
 
+    # ✅ IMPROVED FIX: Check if this is a structured AST node with a "type" key
+    # AST nodes always have a "type" key, so if we can get it, this is a dict
+    if {[catch {dict get $value type} type_val] == 0} {
+        # It has a "type" key - it's an AST node dict
+        return 1
+    }
+
+    # ✅ Also check for other common AST dict patterns
+    # start/end_pos dicts have "line" and "column" keys
+    if {[catch {dict get $value line}] == 0 && [catch {dict get $value column}] == 0} {
+        return 1
+    }
+
+    # range dicts have "start" key
+    if {[catch {dict get $value start}] == 0} {
+        return 1
+    }
+
+    # body dicts have "children" key
+    if {[catch {dict get $value children}] == 0} {
+        return 1
+    }
+
     # 🔧 FIX: Check for characters that suggest it's a string, not a dict
     # If the value contains literal control chars or quotes,
     # it's almost certainly a string value, not a structured dict.

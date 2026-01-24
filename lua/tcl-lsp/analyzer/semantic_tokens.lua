@@ -53,6 +53,9 @@ for i, name in ipairs(M.token_modifiers_legend) do
   M.token_modifiers[name] = bit.lshift(1, i - 1)
 end
 
+-- Length of "proc " keyword including trailing space
+local PROC_KEYWORD_LENGTH = 5
+
 -- Combine multiple modifiers into a single bitmask
 function M.combine_modifiers(modifier_names)
   local result = 0
@@ -62,6 +65,48 @@ function M.combine_modifiers(modifier_names)
     end
   end
   return result
+end
+
+-- Extract semantic tokens from AST
+function M.extract_tokens(ast)
+  local tokens = {}
+
+  local function visit(node)
+    if not node then
+      return
+    end
+
+    if node.type == "proc" then
+      -- Extract proc name token
+      -- Note: This assumes "proc name" format with single space.
+      -- Qualified names like "proc ::ns::name" will have incorrect start_char.
+      -- TODO: Use name_range from AST if available for accurate positioning.
+      if node.name and node.range then
+        table.insert(tokens, {
+          line = node.range.start.line,
+          start_char = node.range.start.column + PROC_KEYWORD_LENGTH,
+          length = #node.name,
+          type = M.token_types.function_,
+          modifiers = M.token_modifiers.definition,
+        })
+      end
+    end
+
+    -- Recurse into children
+    if node.children then
+      for _, child in ipairs(node.children) do
+        visit(child)
+      end
+    end
+    if node.body and node.body.children then
+      for _, child in ipairs(node.body.children) do
+        visit(child)
+      end
+    end
+  end
+
+  visit(ast)
+  return tokens
 end
 
 return M
