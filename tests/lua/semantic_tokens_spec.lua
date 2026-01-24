@@ -29,4 +29,28 @@ describe("Semantic Tokens", function()
       assert.equals("function", semantic_tokens.token_types_legend[6])
     end)
   end)
+
+  describe("Token Modifiers", function()
+    it("should define modifier bitmasks", function()
+      assert.is_table(semantic_tokens.token_modifiers)
+      assert.equals(1, semantic_tokens.token_modifiers.declaration)      -- bit 0
+      assert.equals(2, semantic_tokens.token_modifiers.definition)       -- bit 1
+      assert.equals(4, semantic_tokens.token_modifiers.readonly)         -- bit 2
+      assert.equals(32, semantic_tokens.token_modifiers.modification)    -- bit 5
+      assert.equals(64, semantic_tokens.token_modifiers.defaultLibrary)  -- bit 6
+      assert.equals(256, semantic_tokens.token_modifiers.async)          -- bit 8
+    end)
+
+    it("should provide token_modifiers_legend array", function()
+      assert.is_table(semantic_tokens.token_modifiers_legend)
+      assert.equals("declaration", semantic_tokens.token_modifiers_legend[1])
+      assert.equals("definition", semantic_tokens.token_modifiers_legend[2])
+    end)
+
+    it("should combine modifiers with bitwise OR", function()
+      local mods = semantic_tokens.token_modifiers
+      local combined = semantic_tokens.combine_modifiers({ "definition", "readonly" })
+      assert.equals(mods.definition + mods.readonly, combined)
+    end)
+  end)
 end)
