@@ -1,11 +1,12 @@
 {
+  "env": {
+    "BASH_DEFAULT_TIMEOUT_MS": "120000"
+  },
   "permissions": {
     "allow": [
       "Bash(make *)",
-      "Bash(tclsh *)",
+      "Bash(tclsh*)",
       "Bash(nvim *)",
-      "Bash(git add * && git commit *)",
-      "Bash(git *)",
       "Bash(bd *)",
       "Bash(luacheck *)",
       "Bash(stylua *)",
@@ -13,12 +14,12 @@
       "Bash(luajit *)",
       "Bash(chmod +x *)",
       "Bash(./scripts/*)",
+      "Bash(test *)",
       "Bash(mkdir -p *)",
       "Bash(pkill *)",
       "Read(./**)",
       "Edit(./**)",
       "Write(./**)",
-      "Read(/tmp/**)",
       "Write(/tmp/**)",
       "Read(/var/folders/**)"
     ],
@@ -27,8 +28,5 @@
       "Read(**/*secret*)",
       "Read(**/*credential*)"
     ]
-  },
-  "env": {
-    "BASH_DEFAULT_TIMEOUT_MS": "120000"
   }
 }
