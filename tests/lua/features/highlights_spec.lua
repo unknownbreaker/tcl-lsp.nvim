@@ -123,4 +123,22 @@ describe("Highlights Feature", function()
       assert.is_true(success, "setup() should not throw")
     end)
   end)
+
+  describe("RVT support", function()
+    it("should handle RVT files with mixed content", function()
+      local bufnr = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
+        "<html>",
+        "<? proc test {} {} ?>",
+        "</html>",
+      })
+      vim.api.nvim_set_option_value("filetype", "rvt", { buf = bufnr })
+
+      local result = highlights.handle_semantic_tokens(bufnr)
+      assert.is_table(result.data)
+      assert.is_true(#result.data > 0) -- Should have tokens
+
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+    end)
+  end)
 end)

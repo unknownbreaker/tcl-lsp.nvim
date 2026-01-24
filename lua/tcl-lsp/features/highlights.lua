@@ -33,21 +33,49 @@ function M.handle_semantic_tokens(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local code = table.concat(lines, "\n")
   local filepath = vim.api.nvim_buf_get_name(bufnr)
+  local filetype = vim.bo[bufnr].filetype
 
   -- Handle empty buffers
   if code == "" or #lines == 0 then
     return { data = {} }
   end
 
-  local ast = parser.parse(code, filepath)
-  if not ast then
-    return { data = {} }
+  local all_tokens = {}
+
+  if filetype == "rvt" then
+    -- RVT files: extract TCL blocks and process each separately
+    local rvt = require("tcl-lsp.parser.rvt")
+    local blocks = rvt.find_blocks(code)
+
+    for _, block in ipairs(blocks) do
+      local ast = parser.parse(block.code, filepath)
+      if ast then
+        local tokens = semantic_tokens.extract_tokens(ast)
+        -- Offset tokens by block position
+        -- Parser returns 1-indexed lines, RVT block positions are also 1-indexed
+        -- Token line 1 from parser corresponds to block.start_line in file
+        for _, token in ipairs(tokens) do
+          -- Line offset: token.line 1 -> block.start_line
+          token.line = token.line + block.start_line - 1
+          -- Note: After line offset, token.line == block.start_line is only true
+          -- when original token.line was 1 (first line of block). This is when we
+          -- need to apply column offset since the block may not start at column 0.
+          if token.line == block.start_line then
+            token.start_char = token.start_char + block.start_col - 1
+          end
+          table.insert(all_tokens, token)
+        end
+      end
+    end
+  else
+    -- Regular TCL files: parse entire content
+    local ast = parser.parse(code, filepath)
+    if ast then
+      all_tokens = semantic_tokens.extract_tokens(ast)
+    end
   end
 
-  local tokens = semantic_tokens.extract_tokens(ast)
-  local encoded = semantic_tokens.encode_tokens(tokens)
-
-  return { data = encoded }
+  return { data = semantic_tokens.encode_tokens(all_tokens) }
 end
 
 --- Setup semantic tokens for TCL/RVT filetypes
