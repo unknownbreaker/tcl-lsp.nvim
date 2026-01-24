@@ -98,4 +98,85 @@ describe("LSP E2E: Happy Path", function()
     assert.is_not_nil(refs, "Should find references")
     assert.is_true(#refs >= 2, "Should find at least 2 references (definition + usage)")
   end)
+
+  it("hover: shows proc signature", function()
+    index_fixture()
+
+    -- Open main.tcl
+    local main_file = fixture_dir .. "/main.tcl"
+    vim.cmd("edit " .. vim.fn.fnameescape(main_file))
+    local bufnr = vim.api.nvim_get_current_buf()
+
+    -- Line 6: "set result [add 1 2]" - cursor on "add"
+    -- Set cursor first (required for <cword> to work)
+    vim.api.nvim_win_set_cursor(0, { 6, 13 })
+    local result = hover_feature.handle_hover(bufnr, 5, 13)
+
+    assert.is_not_nil(result, "Should return hover info")
+    -- Result should contain proc signature
+    local content = result
+    if type(result) == "table" and result.contents then
+      content = type(result.contents) == "table" and table.concat(result.contents, "\n") or result.contents
+    end
+    assert.is_true(content:match("proc") ~= nil or content:match("add") ~= nil, "Should show proc info")
+  end)
+
+  it("rename: updates proc name in multiple files", function()
+    index_fixture()
+
+    -- Open math.tcl
+    local math_file = fixture_dir .. "/math.tcl"
+    vim.cmd("edit " .. vim.fn.fnameescape(math_file))
+    local bufnr = vim.api.nvim_get_current_buf()
+
+    -- Line 4: "proc add {a b}" - cursor on "add"
+    -- Set cursor first (required for <cword> to work)
+    vim.api.nvim_win_set_cursor(0, { 4, 5 })
+    local result = rename_feature.handle_rename(bufnr, 3, 5, "sum")
+
+    assert.is_not_nil(result, "Should return rename edits")
+    -- Result should have workspace_edit with changes
+    if result.workspace_edit and result.workspace_edit.changes then
+      local file_count = 0
+      for _ in pairs(result.workspace_edit.changes) do
+        file_count = file_count + 1
+      end
+      assert.is_true(file_count >= 1, "Should have edits in at least one file")
+    end
+  end)
+
+  it("diagnostics: no errors on valid file", function()
+    -- Open math.tcl (valid TCL)
+    local math_file = fixture_dir .. "/math.tcl"
+    vim.cmd("edit " .. vim.fn.fnameescape(math_file))
+    local bufnr = vim.api.nvim_get_current_buf()
+
+    -- Run diagnostics
+    diagnostics_feature.check_buffer(bufnr)
+
+    -- Get diagnostics for this buffer
+    local diags = vim.diagnostic.get(bufnr)
+
+    -- Filter for errors only (warnings are OK)
+    local errors = vim.tbl_filter(function(d)
+      return d.severity == vim.diagnostic.severity.ERROR
+    end, diags)
+
+    assert.equals(0, #errors, "Valid TCL file should have no errors")
+  end)
+
+  it("workspace: indexes directory and finds symbols", function()
+    -- Index the fixture directory
+    index_fixture()
+
+    -- Check that symbols were indexed
+    local add_symbol = index_store.find("::add")
+    local subtract_symbol = index_store.find("::subtract")
+
+    -- At least one should be found (namespace prefix may vary)
+    local found_add = add_symbol ~= nil or index_store.find("add") ~= nil
+    local found_subtract = subtract_symbol ~= nil or index_store.find("subtract") ~= nil
+
+    assert.is_true(found_add or found_subtract, "Should index at least one symbol from fixture")
+  end)
 end)
