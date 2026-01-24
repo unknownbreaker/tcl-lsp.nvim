@@ -21,6 +21,8 @@ describe("LSP E2E: Happy Path", function()
     package.loaded["tcl-lsp.features.rename"] = nil
     package.loaded["tcl-lsp.analyzer.indexer"] = nil
     package.loaded["tcl-lsp.analyzer.index"] = nil
+    package.loaded["tcl-lsp.analyzer.definitions"] = nil
+    package.loaded["tcl-lsp.analyzer.references"] = nil
 
     -- Load features
     definition_feature = require("tcl-lsp.features.definition")
@@ -78,5 +80,22 @@ describe("LSP E2E: Happy Path", function()
     assert.is_true(result.uri:match("math%.tcl$") ~= nil, "Should jump to math.tcl")
     -- proc add is on line 4 (0-indexed: 3)
     assert.is_true(result.range.start.line <= 5, "Should point to proc add definition")
+  end)
+
+  it("find_references: finds usages across files", function()
+    index_fixture()
+
+    -- Open math.tcl
+    local math_file = fixture_dir .. "/math.tcl"
+    vim.cmd("edit " .. vim.fn.fnameescape(math_file))
+    local bufnr = vim.api.nvim_get_current_buf()
+
+    -- Line 4: "proc add {a b}" - cursor on "add" (1-indexed: line 4, col 6 for vim cursor)
+    -- 0-indexed for handle_references: line 3, col 5
+    vim.api.nvim_win_set_cursor(0, { 4, 5 })
+    local refs = references_feature.handle_references(bufnr, 3, 5)
+
+    assert.is_not_nil(refs, "Should find references")
+    assert.is_true(#refs >= 2, "Should find at least 2 references (definition + usage)")
   end)
 end)

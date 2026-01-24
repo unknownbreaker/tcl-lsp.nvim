@@ -122,6 +122,32 @@ local function visit_node(node, refs, filepath, current_namespace)
     end
   end
 
+  -- Handle command_substitution nodes (e.g., [add 1 2] inside set)
+  if node.type == "command_substitution" and node.command then
+    local cmd = node.command
+    -- command is an array-like table: cmd[1] = name, cmd[2+] = args
+    local cmd_name = cmd[1]
+    if cmd_name and type(cmd_name) == "string" and not BUILTINS[cmd_name] then
+      local args = {}
+      for i = 2, #cmd do
+        table.insert(args, tostring(cmd[i]))
+      end
+      table.insert(refs, {
+        type = "call",
+        name = cmd_name,
+        namespace = current_namespace,
+        file = filepath,
+        range = node.range,
+        text = cmd_name .. " " .. table.concat(args, " "),
+      })
+    end
+  end
+
+  -- Check for command_substitution in set value
+  if node.type == "set" and type(node.value) == "table" then
+    visit_node(node.value, refs, filepath, current_namespace)
+  end
+
   -- Recurse into children
   if node.children then
     for _, child in ipairs(node.children) do
