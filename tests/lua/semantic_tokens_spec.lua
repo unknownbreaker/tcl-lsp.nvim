@@ -100,19 +100,41 @@ proc bar {x} {
       local tokens = semantic_tokens.extract_tokens(ast)
 
       assert.is_table(tokens)
-      assert.equals(2, #tokens)
+      assert.is_true(#tokens >= 2)
+
+      -- Find function tokens
+      local func_tokens = vim.tbl_filter(function(t)
+        return t.type == semantic_tokens.token_types.function_
+      end, tokens)
+
+      assert.equals(2, #func_tokens)
 
       -- First proc: "foo"
-      assert.is_number(tokens[1].line)
-      assert.is_number(tokens[1].start_char)
-      assert.equals(3, tokens[1].length)  -- "foo"
-      assert.equals(semantic_tokens.token_types.function_, tokens[1].type)
+      assert.is_number(func_tokens[1].line)
+      assert.is_number(func_tokens[1].start_char)
+      assert.equals(3, func_tokens[1].length)  -- "foo"
 
       -- Second proc: "bar"
-      assert.is_number(tokens[2].line)
-      assert.is_number(tokens[2].start_char)
-      assert.equals(3, tokens[2].length)  -- "bar"
-      assert.equals(semantic_tokens.token_types.function_, tokens[2].type)
+      assert.is_number(func_tokens[2].line)
+      assert.is_number(func_tokens[2].start_char)
+      assert.equals(3, func_tokens[2].length)  -- "bar"
+    end)
+
+    it("should extract parameter tokens from proc", function()
+      local code = [[proc greet {name age} {
+    puts "$name is $age"
+}]]
+      local ast = parser.parse(code, "test.tcl")
+      local tokens = semantic_tokens.extract_tokens(ast)
+
+      -- Find parameter tokens
+      local param_tokens = vim.tbl_filter(function(t)
+        return t.type == semantic_tokens.token_types.parameter
+      end, tokens)
+
+      assert.equals(2, #param_tokens)
+      assert.equals("name", param_tokens[1].text)
+      assert.equals("age", param_tokens[2].text)
     end)
   end)
 end)

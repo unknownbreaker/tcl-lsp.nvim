@@ -89,6 +89,30 @@ function M.extract_tokens(ast)
           type = M.token_types.function_,
           modifiers = M.token_modifiers.definition,
         })
+
+        -- Extract parameter tokens
+        -- Note: Same limitation as proc name - position calculation assumes
+        -- single space separators. Params with defaults or multi-line won't be positioned correctly.
+        -- TODO: Use param_range from AST if available for accurate positioning.
+        if node.params and #node.params > 0 then
+          -- Start after "proc <name> {" = proc_keyword + name_length + space + brace
+          local param_offset = PROC_KEYWORD_LENGTH + #node.name + 2 -- +1 space +1 brace
+
+          for _, param in ipairs(node.params) do
+            if param.name then
+              table.insert(tokens, {
+                line = node.range.start.line,
+                start_char = node.range.start.column + param_offset,
+                length = #param.name,
+                type = M.token_types.parameter,
+                modifiers = M.token_modifiers.declaration,
+                text = param.name,
+              })
+              -- Move offset: param_name_length + 1 for space separator
+              param_offset = param_offset + #param.name + 1
+            end
+          end
+        end
       end
     end
 
