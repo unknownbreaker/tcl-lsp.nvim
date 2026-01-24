@@ -713,9 +713,9 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       -- Rename variable create to default_type
       local edits = rename_feature.handle_rename(bufnr, 8, 15, "default_type")
 
-      if edits then
+      if edits and edits.workspace_edit and edits.workspace_edit.changes then
         -- Check that line 12 (proc create) was NOT modified
-        for _, file_edits in pairs(edits) do
+        for _, file_edits in pairs(edits.workspace_edit.changes) do
           for _, edit in ipairs(file_edits) do
             if edit.range.start.line == 11 then
               error("CRITICAL: Renaming variable corrupted proc with same name")
