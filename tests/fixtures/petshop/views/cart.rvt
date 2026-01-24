@@ -1,0 +1,88 @@
+<?
+# Shopping Cart View
+# Edge cases: proc definitions in RVT, nested braces in HTML, form handling
+
+# Local helper proc defined in template (edge case)
+proc local_helper {item} {
+    set name [dict get $item name]
+    set price [dict get $item price]
+    return "<li class=\"cart-item\">$name - \$$price</li>"
+}
+
+proc format_currency {amount} {
+    return [format "$%.2f" $amount]
+}
+
+# Mock cart data
+if {![info exists cart_items]} {
+    set cart_items [list]
+}
+
+set total [::petshop::services::pricing::calculate_cart $cart_items]
+set item_count [llength $cart_items]
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Shopping Cart</title>
+    <style>
+        .cart-item { padding: 10px; border-bottom: 1px solid #eee; }
+        .cart-item:hover { background: #f9f9f9; }
+        .total { font-size: 1.5em; font-weight: bold; }
+        .empty-cart { color: #666; font-style: italic; }
+        /* Edge case: braces in CSS inside HTML context */
+        .badge { display: inline-block; padding: 2px 8px; }
+        .badge::before { content: "{"; }
+        .badge::after { content: "}"; }
+    </style>
+</head>
+<body>
+    <h1>Shopping Cart</h1>
+
+    <? if {$item_count == 0} { ?>
+        <p class="empty-cart">Your cart is empty</p>
+        <a href="/pets">Browse Pets</a>
+    <? } else { ?>
+        <ul class="cart-list">
+            <? foreach item $cart_items { ?>
+                <?= [local_helper $item] ?>
+            <? } ?>
+        </ul>
+
+        <div class="cart-summary">
+            <p>Items: <?= $item_count ?></p>
+            <p class="total">Total: <?= [format_currency $total] ?></p>
+        </div>
+
+        <form action="/checkout" method="POST" class="checkout-form">
+            <? foreach item $cart_items { ?>
+                <input type="hidden"
+                       name="items[]"
+                       value="<?= [dict get $item id] ?>"
+                       data-price="<?= [dict get $item price] ?>">
+            <? } ?>
+
+            <label for="discount">Discount Code:</label>
+            <input type="text"
+                   id="discount"
+                   name="discount_code"
+                   placeholder="Enter code"
+                   pattern="[A-Z0-9]+"
+                   title="Discount codes are uppercase alphanumeric">
+
+            <button type="submit">Proceed to Checkout</button>
+        </form>
+    <? } ?>
+
+    <script>
+        // Edge case: JavaScript with braces in HTML
+        document.querySelector('form').addEventListener('submit', function(e) {
+            var items = document.querySelectorAll('input[name="items[]"]');
+            if (items.length === 0) {
+                e.preventDefault();
+                alert('Cart is empty!');
+            }
+        });
+    </script>
+</body>
+</html>

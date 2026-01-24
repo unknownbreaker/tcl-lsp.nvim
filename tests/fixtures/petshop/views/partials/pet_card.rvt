@@ -1,0 +1,47 @@
+<?
+# Pet Card Partial
+# Edge cases: partial includes with variable scoping, upvar in RVT
+
+# Expect 'pet' variable to be passed in from parent
+if {![info exists pet]} {
+    error "pet_card.rvt requires 'pet' variable"
+}
+
+# Access parent scope variable (edge case)
+if {[uplevel 1 {info exists show_price}]} {
+    upvar 1 show_price show_price
+} else {
+    set show_price 1
+}
+
+set pet_name [dict get $pet name]
+set pet_species [dict get $pet species]
+set pet_id [dict get $pet id]
+?>
+<div class="pet-card" id="pet-<?= $pet_id ?>">
+    <div class="pet-card-header">
+        <h3><?= $pet_name ?></h3>
+        <span class="species-badge <?= $pet_species ?>"><?= $pet_species ?></span>
+    </div>
+
+    <div class="pet-card-body">
+        <? if {[dict exists $pet description]} { ?>
+            <p><?= [dict get $pet description] ?></p>
+        <? } ?>
+
+        <? if {$show_price && [dict exists $pet price]} { ?>
+            <p class="price">
+                <?= [::petshop::services::pricing::format [dict get $pet price]] ?>
+            </p>
+        <? } ?>
+    </div>
+
+    <div class="pet-card-footer">
+        <a href="/pets/<?= $pet_id ?>" class="btn btn-view">View</a>
+        <button class="btn btn-cart"
+                data-pet-id="<?= $pet_id ?>"
+                onclick="addToCart('<?= $pet_id ?>')">
+            Add to Cart
+        </button>
+    </div>
+</div>
