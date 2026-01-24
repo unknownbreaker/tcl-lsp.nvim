@@ -56,6 +56,9 @@ end
 -- Length of "proc " keyword including trailing space
 local PROC_KEYWORD_LENGTH = 5
 
+-- Length of "set " keyword including trailing space
+local SET_KEYWORD_LENGTH = 4
+
 -- Combine multiple modifiers into a single bitmask
 function M.combine_modifiers(modifier_names)
   local result = 0
@@ -113,6 +116,22 @@ function M.extract_tokens(ast)
             end
           end
         end
+      end
+    end
+
+    -- Extract variable tokens from set commands
+    -- Note: Position calculation assumes "set varname" format with single space.
+    -- TODO: Use var_range from AST if available for accurate positioning.
+    if node.type == "set" then
+      if node.var_name and node.range then
+        table.insert(tokens, {
+          line = node.range.start.line,
+          start_char = node.range.start.column + SET_KEYWORD_LENGTH,
+          length = #node.var_name,
+          type = M.token_types.variable,
+          modifiers = M.token_modifiers.modification,
+          text = node.var_name,
+        })
       end
     end
 

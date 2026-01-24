@@ -136,5 +136,22 @@ proc bar {x} {
       assert.equals("name", param_tokens[1].text)
       assert.equals("age", param_tokens[2].text)
     end)
+
+    it("should extract variable tokens from set commands", function()
+      local code = [[set name "World"
+puts $name]]
+      local ast = parser.parse(code, "test.tcl")
+      local tokens = semantic_tokens.extract_tokens(ast)
+
+      local var_tokens = vim.tbl_filter(function(t)
+        return t.type == semantic_tokens.token_types.variable
+      end, tokens)
+
+      -- Should have at least the set target variable
+      assert.is_true(#var_tokens >= 1)
+      -- First: set target (modification)
+      assert.equals("name", var_tokens[1].text)
+      assert.is_true(bit.band(var_tokens[1].modifiers, semantic_tokens.token_modifiers.modification) > 0)
+    end)
   end)
 end)
