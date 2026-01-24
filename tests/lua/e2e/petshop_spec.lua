@@ -21,7 +21,13 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       indexer.index_file(full_path)
     end
     -- Process second pass for references
-    indexer.process_references_batch()
+    indexer.resolve_references()
+  end
+
+  -- Helper to get diagnostics (check_buffer then vim.diagnostic.get)
+  local function get_diagnostics(bufnr)
+    diagnostics_feature.check_buffer(bufnr)
+    return vim.diagnostic.get(bufnr)
   end
 
   before_each(function()
@@ -42,6 +48,9 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
     indexer = require("tcl-lsp.analyzer.indexer")
     index_store = require("tcl-lsp.analyzer.index")
 
+    -- Setup diagnostics (creates namespace)
+    diagnostics_feature.setup()
+
     -- Point to petshop fixture
     petshop_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h:h")
       .. "/fixtures/petshop"
@@ -55,7 +64,7 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
     -- Clean up buffers
     for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
       if vim.api.nvim_buf_is_valid(bufnr) then
-        vim.api.nvim_buf_delete(bufnr, { force = true })
+        pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
       end
     end
     indexer.reset()
@@ -120,6 +129,8 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       -- Attack: petshop.tcl line 34: return [::petshop::models::pet::create {*}$args]
       -- This is called via ensemble: "petshop pet create"
       -- LSP should resolve "create" to line 12 of models/pet.tcl
+
+      index_files({ "models/pet.tcl", "petshop.tcl" })
 
       local main_file = petshop_dir .. "/petshop.tcl"
       vim.cmd("edit " .. vim.fn.fnameescape(main_file))
@@ -216,6 +227,12 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       --   - Potentially views/*.rvt files
       -- LSP should find ALL of these
 
+      index_files({
+        "models/pet.tcl",
+        "services/transactions.tcl",
+        "petshop.tcl",
+      })
+
       local pet_file = petshop_dir .. "/models/pet.tcl"
       vim.cmd("edit " .. vim.fn.fnameescape(pet_file))
       local bufnr = vim.api.nvim_get_current_buf()
@@ -267,6 +284,8 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       -- Called from transactions.tcl line 19
       -- Should NOT find unrelated "charge" in other contexts
 
+      index_files({ "models/customer.tcl", "services/transactions.tcl" })
+
       local cust_file = petshop_dir .. "/models/customer.tcl"
       vim.cmd("edit " .. vim.fn.fnameescape(cust_file))
       local bufnr = vim.api.nvim_get_current_buf()
@@ -288,6 +307,11 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       -- Attack: views/pets/list.rvt calls ::petshop::models::pet::list (line 5)
       -- and ::petshop::services::pricing::format (line 24)
       -- LSP must parse RVT files and find these references
+
+      index_files({
+        "models/pet.tcl",
+        "views/pets/list.rvt",
+      })
 
       local pet_file = petshop_dir .. "/models/pet.tcl"
       vim.cmd("edit " .. vim.fn.fnameescape(pet_file))
@@ -346,11 +370,11 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
     end)
 
     it("should handle hover on procs with args as varargs", function()
-      -- Attack: models/customer.tcl line 64: proc update {id args}
+      -- Attack: models/pet.tcl line 64: proc update {id args}
       -- Hover should indicate variable arguments
 
-      local cust_file = petshop_dir .. "/models/customer.tcl"
-      vim.cmd("edit " .. vim.fn.fnameescape(cust_file))
+      local pet_file = petshop_dir .. "/models/pet.tcl"
+      vim.cmd("edit " .. vim.fn.fnameescape(pet_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
       -- Line 64: proc update {id args}
@@ -371,6 +395,8 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
     it("should display namespace-qualified names in hover", function()
       -- Attack: When hovering over a fully-qualified call like
       -- ::petshop::services::pricing::calculate, show the full name
+
+      index_files({ "services/pricing.tcl", "services/transactions.tcl" })
 
       local txn_file = petshop_dir .. "/services/transactions.tcl"
       vim.cmd("edit " .. vim.fn.fnameescape(txn_file))
@@ -415,7 +441,7 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(config_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local diags = diagnostics_feature.get_diagnostics(bufnr)
+      local diags = get_diagnostics(bufnr)
 
       if diags then
         for _, diag in ipairs(diags) do
@@ -439,7 +465,7 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(config_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local diags = diagnostics_feature.get_diagnostics(bufnr)
+      local diags = get_diagnostics(bufnr)
 
       if diags then
         for _, diag in ipairs(diags) do
@@ -464,7 +490,7 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(pricing_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local diags = diagnostics_feature.get_diagnostics(bufnr)
+      local diags = get_diagnostics(bufnr)
 
       if diags then
         for _, diag in ipairs(diags) do
@@ -485,12 +511,12 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(pkg_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local diags = diagnostics_feature.get_diagnostics(bufnr)
+      local diags = get_diagnostics(bufnr)
 
       if diags then
         for _, diag in ipairs(diags) do
           if diag.severity == vim.diagnostic.severity.ERROR then
-            error("CRITICAL: False error on apply lambda in pkgIndex.tcl")
+            error("CRITICAL: False error on apply lambda in pkgIndex.tcl: " .. (diag.message or ""))
           end
         end
       end
@@ -504,7 +530,7 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(events_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local diags = diagnostics_feature.get_diagnostics(bufnr)
+      local diags = get_diagnostics(bufnr)
 
       if diags then
         for _, diag in ipairs(diags) do
@@ -524,7 +550,7 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(events_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local diags = diagnostics_feature.get_diagnostics(bufnr)
+      local diags = get_diagnostics(bufnr)
 
       if diags then
         for _, diag in ipairs(diags) do
@@ -544,7 +570,7 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(list_view))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local diags = diagnostics_feature.get_diagnostics(bufnr)
+      local diags = get_diagnostics(bufnr)
 
       if diags then
         for _, diag in ipairs(diags) do
@@ -563,7 +589,7 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(pet_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local diags = diagnostics_feature.get_diagnostics(bufnr)
+      local diags = get_diagnostics(bufnr)
 
       if diags then
         for _, diag in ipairs(diags) do
@@ -575,6 +601,29 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
         end
       end
     end)
+
+    it("should NOT report errors for valid TCL in petshop.tcl", function()
+      -- Attack: The main petshop.tcl with namespace ensemble should parse cleanly
+
+      local main_file = petshop_dir .. "/petshop.tcl"
+      vim.cmd("edit " .. vim.fn.fnameescape(main_file))
+      local bufnr = vim.api.nvim_get_current_buf()
+
+      local diags = get_diagnostics(bufnr)
+
+      local error_count = 0
+      if diags then
+        for _, diag in ipairs(diags) do
+          if diag.severity == vim.diagnostic.severity.ERROR then
+            error_count = error_count + 1
+          end
+        end
+      end
+
+      if error_count > 0 then
+        helpers.warn("Found " .. error_count .. " false errors in petshop.tcl")
+      end
+    end)
   end)
 
   describe("Rename: Cross-File and Namespace Edge Cases", function()
@@ -584,6 +633,12 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       --   - petshop.tcl line 35
       --   - services/transactions.tcl line 13
       --   - models/pet.tcl line 42 (definition)
+
+      index_files({
+        "models/pet.tcl",
+        "services/transactions.tcl",
+        "petshop.tcl",
+      })
 
       local pet_file = petshop_dir .. "/models/pet.tcl"
       vim.cmd("edit " .. vim.fn.fnameescape(pet_file))
@@ -618,6 +673,11 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       --   - ::petshop::models::pet::get
       --   - ::petshop::models::customer::get
       -- Renaming one should NOT affect the other
+
+      index_files({
+        "models/pet.tcl",
+        "models/customer.tcl",
+      })
 
       local pet_file = petshop_dir .. "/models/pet.tcl"
       vim.cmd("edit " .. vim.fn.fnameescape(pet_file))
@@ -677,6 +737,11 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
   describe("Performance: Large Workspace Stress Test", function()
     it("should handle go-to-definition without timeout", function()
       -- Measure time for cross-file definition lookup
+      index_files({
+        "models/pet.tcl",
+        "services/transactions.tcl",
+      })
+
       local txn_file = petshop_dir .. "/services/transactions.tcl"
       vim.cmd("edit " .. vim.fn.fnameescape(txn_file))
       local bufnr = vim.api.nvim_get_current_buf()
@@ -694,6 +759,12 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
 
     it("should handle find-references for commonly-used proc without timeout", function()
       -- Attack: Find all references to a proc used in many files
+      index_files({
+        "models/pet.tcl",
+        "services/transactions.tcl",
+        "petshop.tcl",
+      })
+
       local pet_file = petshop_dir .. "/models/pet.tcl"
       vim.cmd("edit " .. vim.fn.fnameescape(pet_file))
       local bufnr = vim.api.nvim_get_current_buf()
@@ -718,9 +789,9 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(main_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local success, err = pcall(diagnostics_feature.get_diagnostics, bufnr)
+      local success, err = pcall(get_diagnostics, bufnr)
 
-      assert.is_true(success, "CRITICAL: Parser crashed on namespace ensemble create")
+      assert.is_true(success, "CRITICAL: Parser crashed on namespace ensemble create: " .. tostring(err))
     end)
 
     it("should parse file with dict for loop", function()
@@ -730,9 +801,9 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(pet_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local success, err = pcall(diagnostics_feature.get_diagnostics, bufnr)
+      local success, err = pcall(get_diagnostics, bufnr)
 
-      assert.is_true(success, "CRITICAL: Parser crashed on dict for loop")
+      assert.is_true(success, "CRITICAL: Parser crashed on dict for loop: " .. tostring(err))
     end)
 
     it("should parse file with info coroutine", function()
@@ -742,9 +813,9 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(pet_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local success, err = pcall(diagnostics_feature.get_diagnostics, bufnr)
+      local success, err = pcall(get_diagnostics, bufnr)
 
-      assert.is_true(success, "CRITICAL: Parser crashed on info coroutine")
+      assert.is_true(success, "CRITICAL: Parser crashed on info coroutine: " .. tostring(err))
     end)
 
     it("should parse file with uplevel at numeric level", function()
@@ -754,9 +825,9 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(cust_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local success, err = pcall(diagnostics_feature.get_diagnostics, bufnr)
+      local success, err = pcall(get_diagnostics, bufnr)
 
-      assert.is_true(success, "CRITICAL: Parser crashed on upvar 2")
+      assert.is_true(success, "CRITICAL: Parser crashed on upvar 2: " .. tostring(err))
     end)
 
     it("should parse file with subst in expr", function()
@@ -766,9 +837,9 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(pricing_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local success, err = pcall(diagnostics_feature.get_diagnostics, bufnr)
+      local success, err = pcall(get_diagnostics, bufnr)
 
-      assert.is_true(success, "CRITICAL: Parser crashed on expr [subst ...]")
+      assert.is_true(success, "CRITICAL: Parser crashed on expr [subst ...]: " .. tostring(err))
     end)
 
     it("should parse file with eval command", function()
@@ -778,9 +849,9 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(pricing_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local success, err = pcall(diagnostics_feature.get_diagnostics, bufnr)
+      local success, err = pcall(get_diagnostics, bufnr)
 
-      assert.is_true(success, "CRITICAL: Parser crashed on eval")
+      assert.is_true(success, "CRITICAL: Parser crashed on eval: " .. tostring(err))
     end)
 
     it("should parse file with trace add variable", function()
@@ -790,9 +861,9 @@ describe("Petshop E2E: Adversarial LSP Tests", function()
       vim.cmd("edit " .. vim.fn.fnameescape(inv_file))
       local bufnr = vim.api.nvim_get_current_buf()
 
-      local success, err = pcall(diagnostics_feature.get_diagnostics, bufnr)
+      local success, err = pcall(get_diagnostics, bufnr)
 
-      assert.is_true(success, "CRITICAL: Parser crashed on trace add variable")
+      assert.is_true(success, "CRITICAL: Parser crashed on trace add variable: " .. tostring(err))
     end)
   end)
 end)
