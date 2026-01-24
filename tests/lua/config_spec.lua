@@ -100,6 +100,22 @@ describe("TCL LSP Configuration", function()
       assert.truthy(vim.tbl_contains(defaults.filetypes, "rvt"))
       assert.equals(2, #defaults.filetypes, "Should have exactly 2 default filetypes")
     end)
+
+    it("should have semantic_tokens configuration", function()
+      local defaults = config.get()
+
+      -- Check semantic_tokens section exists
+      assert.is_table(defaults.semantic_tokens, "semantic_tokens should be a table")
+
+      -- Check default values
+      assert.is_true(defaults.semantic_tokens.enabled, "semantic_tokens.enabled should default to true")
+      assert.equals(150, defaults.semantic_tokens.debounce_ms, "semantic_tokens.debounce_ms should default to 150")
+      assert.equals(
+        1000,
+        defaults.semantic_tokens.large_file_threshold,
+        "semantic_tokens.large_file_threshold should default to 1000"
+      )
+    end)
   end)
 
   describe("Configuration Setup", function()
@@ -171,6 +187,39 @@ describe("TCL LSP Configuration", function()
       local result2 = config.get()
       assert.equals("warn", result2.log_level)
       assert.equals(8000, result2.timeout)
+    end)
+
+    it("should allow overriding semantic_tokens configuration", function()
+      config.setup {
+        semantic_tokens = {
+          enabled = false,
+          debounce_ms = 300,
+          large_file_threshold = 500,
+        },
+      }
+
+      local result = config.get()
+
+      assert.is_false(result.semantic_tokens.enabled, "Should override enabled to false")
+      assert.equals(300, result.semantic_tokens.debounce_ms, "Should override debounce_ms")
+      assert.equals(500, result.semantic_tokens.large_file_threshold, "Should override large_file_threshold")
+    end)
+
+    it("should allow partial override of semantic_tokens configuration", function()
+      config.setup {
+        semantic_tokens = {
+          enabled = false,
+        },
+      }
+
+      local result = config.get()
+
+      -- Overridden value
+      assert.is_false(result.semantic_tokens.enabled, "Should override enabled to false")
+
+      -- Default values preserved
+      assert.equals(150, result.semantic_tokens.debounce_ms, "Should preserve default debounce_ms")
+      assert.equals(1000, result.semantic_tokens.large_file_threshold, "Should preserve default large_file_threshold")
     end)
   end)
 

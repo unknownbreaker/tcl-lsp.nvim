@@ -37,6 +37,13 @@ local defaults = {
     strict = false, -- Collect all errors vs fail fast
     log_violations = true, -- Log validation errors
   },
+
+  -- Semantic tokens configuration
+  semantic_tokens = {
+    enabled = true, -- Enable semantic highlighting
+    debounce_ms = 150, -- Debounce delay for token requests
+    large_file_threshold = 1000, -- Line count above which to skip highlighting
+  },
 }
 
 -- Internal state management
