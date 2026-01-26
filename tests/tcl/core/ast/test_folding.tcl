@@ -314,6 +314,79 @@ test_count "Single-line namespace - no fold" {
 
 puts ""
 
+# Group 6: Comment folding
+puts "Group 6: Comment Folding"
+puts "-----------------------------------------"
+
+test_count "Multi-line comment block only" {
+    # Test comments alone without any code
+    set code {# This is a comment
+# that spans multiple
+# lines}
+    set ast [::ast::build $code]
+    # Multi-line comment = 1 fold
+    ::ast::folding::extract_ranges $ast
+} 1
+
+test_count "Two comment blocks separated by blank line" {
+    set code {# block 1 line 1
+# block 1 line 2
+
+# block 2 line 1
+# block 2 line 2}
+    set ast [::ast::build $code]
+    # Two comment blocks = 2 folds
+    ::ast::folding::extract_ranges $ast
+} 2
+
+test_count "Single comment line - no fold" {
+    set code {# just one comment}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 0
+
+test "Comment fold kind is comment" {
+    set code {# comment line 1
+# comment line 2}
+    set ast [::ast::build $code]
+    set ranges [::ast::folding::extract_ranges $ast]
+    set range [lindex $ranges 0]
+    dict get $range kind
+} "comment"
+
+test_count "Comment block with multi-line proc" {
+    set code {# header comment
+# second line
+proc foo {} {
+    puts "hello"
+}}
+    set ast [::ast::build $code]
+    # 1 comment fold + 1 proc fold = 2 total
+    ::ast::folding::extract_ranges $ast
+} 2
+
+test "Comment fold startLine is 0-indexed" {
+    set code {# comment line 1
+# comment line 2}
+    set ast [::ast::build $code]
+    set ranges [::ast::folding::extract_ranges $ast]
+    set range [lindex $ranges 0]
+    # First line is line 1 in parser, becomes 0 for LSP
+    dict get $range startLine
+} 0
+
+test "Comment fold endLine is 0-indexed" {
+    set code {# comment line 1
+# comment line 2}
+    set ast [::ast::build $code]
+    set ranges [::ast::folding::extract_ranges $ast]
+    set range [lindex $ranges 0]
+    # Second line is line 2 in parser, becomes 1 for LSP
+    dict get $range endLine
+} 1
+
+puts ""
+
 # Summary
 puts "========================================="
 puts "Results: $passed_tests/$total_tests passed"

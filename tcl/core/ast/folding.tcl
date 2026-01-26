@@ -21,13 +21,18 @@ namespace eval ::ast::folding {
 proc ::ast::folding::extract_ranges {ast} {
     set ranges [list]
 
-    if {![dict exists $ast children]} {
-        return $ranges
+    # Extract from comments (stored at root level)
+    if {[dict exists $ast comments]} {
+        set comment_ranges [::ast::folding::extract_comment_ranges [dict get $ast comments]]
+        lappend ranges {*}$comment_ranges
     }
 
-    foreach child [dict get $ast children] {
-        set child_ranges [::ast::folding::extract_from_node $child]
-        lappend ranges {*}$child_ranges
+    # Extract from children
+    if {[dict exists $ast children]} {
+        foreach child [dict get $ast children] {
+            set child_ranges [::ast::folding::extract_from_node $child]
+            lappend ranges {*}$child_ranges
+        }
     }
 
     return $ranges
@@ -194,6 +199,89 @@ proc ::ast::folding::make_range {node} {
         kind "region"]
 }
 
+# Extract folding ranges from consecutive comment lines
+#
+# Args:
+#   comments - List of comment dicts from AST
+#
+# Returns:
+#   List of range dicts for comment blocks (2+ consecutive lines)
+#
+proc ::ast::folding::extract_comment_ranges {comments} {
+    set ranges [list]
+
+    if {[llength $comments] < 2} {
+        return $ranges
+    }
+
+    # Group consecutive comments
+    set groups [list]
+    set current_group [list]
+    set last_line -1
+
+    foreach comment $comments {
+        if {![dict exists $comment range]} {
+            continue
+        }
+
+        set range [dict get $comment range]
+        set line 1
+
+        if {[dict exists $range start line]} {
+            set line [dict get $range start line]
+        } elseif {[dict exists $range start_line]} {
+            set line [dict get $range start_line]
+        }
+
+        if {$last_line == -1 || $line == $last_line + 1} {
+            lappend current_group $comment
+        } else {
+            if {[llength $current_group] >= 2} {
+                lappend groups $current_group
+            }
+            set current_group [list $comment]
+        }
+
+        set last_line $line
+    }
+
+    # Don't forget last group
+    if {[llength $current_group] >= 2} {
+        lappend groups $current_group
+    }
+
+    # Create ranges from groups
+    foreach group $groups {
+        set first [lindex $group 0]
+        set last [lindex $group end]
+
+        set first_range [dict get $first range]
+        set last_range [dict get $last range]
+
+        set start_line 1
+        set end_line 1
+
+        if {[dict exists $first_range start line]} {
+            set start_line [dict get $first_range start line]
+        } elseif {[dict exists $first_range start_line]} {
+            set start_line [dict get $first_range start_line]
+        }
+
+        if {[dict exists $last_range start line]} {
+            set end_line [dict get $last_range start line]
+        } elseif {[dict exists $last_range start_line]} {
+            set end_line [dict get $last_range start_line]
+        }
+
+        lappend ranges [dict create \
+            startLine [expr {$start_line - 1}] \
+            endLine [expr {$end_line - 1}] \
+            kind "comment"]
+    }
+
+    return $ranges
+}
+
 # ===========================================================================
 # MAIN - For self-testing
 # ===========================================================================
@@ -241,6 +329,20 @@ proc bar {} {
     set ast3 [::ast::build $code3]
     set ranges3 [::ast::folding::extract_ranges $ast3]
     puts "  Found [llength $ranges3] fold ranges (expected 2)"
+    puts ""
+
+    # Test 4: Comment block
+    puts "Test 4: Comment block"
+    set code4 {# Header comment
+# continues here
+# and here}
+    set ast4 [::ast::build $code4]
+    set ranges4 [::ast::folding::extract_ranges $ast4]
+    puts "  Found [llength $ranges4] fold ranges (expected 1)"
+    if {[llength $ranges4] > 0} {
+        set r [lindex $ranges4 0]
+        puts "  Range: startLine=[dict get $r startLine] endLine=[dict get $r endLine] kind=[dict get $r kind]"
+    }
     puts ""
 
     puts "✓ Folding module self-tests complete"
