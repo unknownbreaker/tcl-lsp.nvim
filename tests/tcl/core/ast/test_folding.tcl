@@ -108,8 +108,85 @@ test_count "Empty code - no folds" {
 
 puts ""
 
-# Group 2: Fold range structure
-puts "Group 2: Fold Range Structure"
+# Group 2: Control flow folding
+puts "Group 2: Control Flow Folding"
+puts "-----------------------------------------"
+
+test_count "If statement - one fold" {
+    set code {if {$x > 0} {
+    puts "positive"
+    puts "number"
+}}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 1
+
+test_count "If-else - one fold (whole if block)" {
+    set code {if {$x > 0} {
+    puts "positive"
+} else {
+    puts "not positive"
+}}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 1
+
+test_count "Foreach loop - one fold" {
+    set code {foreach item $list {
+    puts $item
+    process $item
+}}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 1
+
+test_count "While loop - one fold" {
+    set code {while {$i < 10} {
+    puts $i
+    incr i
+}}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 1
+
+test_count "For loop - one fold" {
+    set code {for {set i 0} {$i < 10} {incr i} {
+    puts $i
+    process $i
+}}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 1
+
+test_count "Switch statement - one fold" {
+    set code {switch $value {
+    a { puts "alpha" }
+    b { puts "beta" }
+}}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 1
+
+test_count "Single-line if - no fold" {
+    set code {if {$x > 0} { puts "positive" }}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 0
+
+test_count "Nested if in proc - two folds" {
+    set code {proc foo {} {
+    if {$x > 0} {
+        puts "positive"
+    }
+}}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 2
+
+puts ""
+
+# Group 3: Fold range structure
+puts "Group 3: Fold Range Structure (proc)"
 puts "-----------------------------------------"
 
 test "Fold range has startLine" {
@@ -154,8 +231,8 @@ test "Fold kind is region" {
 
 puts ""
 
-# Group 3: Line number conversion (parser to LSP)
-puts "Group 3: Line Number Conversion"
+# Group 4: Line number conversion (parser to LSP)
+puts "Group 4: Line Number Conversion"
 puts "-----------------------------------------"
 
 test "startLine converted from parser" {

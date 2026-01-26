@@ -77,6 +77,58 @@ proc ::ast::folding::extract_from_node {node} {
         }
     }
 
+    # Recurse into then_body (for if statements)
+    if {[dict exists $node then_body]} {
+        set then_body [dict get $node then_body]
+        if {[dict exists $then_body children]} {
+            foreach child [dict get $then_body children] {
+                set child_ranges [::ast::folding::extract_from_node $child]
+                lappend ranges {*}$child_ranges
+            }
+        }
+    }
+
+    # Recurse into else_body (for if statements)
+    if {[dict exists $node else_body]} {
+        set else_body [dict get $node else_body]
+        if {[dict exists $else_body children]} {
+            foreach child [dict get $else_body children] {
+                set child_ranges [::ast::folding::extract_from_node $child]
+                lappend ranges {*}$child_ranges
+            }
+        }
+    }
+
+    # Recurse into elseif branches (for if statements)
+    if {[dict exists $node elseif]} {
+        foreach branch [dict get $node elseif] {
+            if {[dict exists $branch body]} {
+                set branch_body [dict get $branch body]
+                if {[dict exists $branch_body children]} {
+                    foreach child [dict get $branch_body children] {
+                        set child_ranges [::ast::folding::extract_from_node $child]
+                        lappend ranges {*}$child_ranges
+                    }
+                }
+            }
+        }
+    }
+
+    # Recurse into switch cases
+    if {[dict exists $node cases]} {
+        foreach case [dict get $node cases] {
+            if {[dict exists $case body]} {
+                set case_body [dict get $case body]
+                if {[dict exists $case_body children]} {
+                    foreach child [dict get $case_body children] {
+                        set child_ranges [::ast::folding::extract_from_node $child]
+                        lappend ranges {*}$child_ranges
+                    }
+                }
+            }
+        }
+    }
+
     return $ranges
 }
 
@@ -91,6 +143,11 @@ proc ::ast::folding::extract_from_node {node} {
 proc ::ast::folding::is_foldable {node_type} {
     set foldable_types {
         proc
+        if
+        foreach
+        for
+        while
+        switch
     }
     return [expr {$node_type in $foldable_types}]
 }
