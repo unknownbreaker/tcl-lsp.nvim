@@ -279,6 +279,24 @@ function M.setup()
   vim.api.nvim_create_user_command("TclFormat", function()
     M.format_buffer()
   end, { desc = "Format TCL code" })
+
+  -- Create autocmd group for formatting
+  local group = vim.api.nvim_create_augroup("TclLspFormatting", { clear = true })
+
+  -- Format on save (checks config each time)
+  vim.api.nvim_create_autocmd("BufWritePre", {
+    group = group,
+    pattern = { "*.tcl", "*.rvt" },
+    callback = function(args)
+      local ok, config = pcall(require, "tcl-lsp.config")
+      if ok then
+        local cfg = config.get(args.buf)
+        if cfg.formatting and cfg.formatting.on_save then
+          M.format_buffer(args.buf)
+        end
+      end
+    end,
+  })
 end
 
 return M

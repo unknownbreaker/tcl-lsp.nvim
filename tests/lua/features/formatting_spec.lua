@@ -175,4 +175,16 @@ describe("Formatting Feature", function()
       assert.is_not_nil(commands.TclFormat)
     end)
   end)
+
+  describe("format on save", function()
+    it("should register autocmd group after setup", function()
+      formatting.setup()
+      -- Check that autocmd group exists
+      local ok = pcall(vim.api.nvim_get_autocmds, {
+        group = "TclLspFormatting",
+        event = "BufWritePre",
+      })
+      assert.is_true(ok)
+    end)
+  end)
 end)
