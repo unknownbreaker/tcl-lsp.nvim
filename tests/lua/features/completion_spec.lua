@@ -113,4 +113,74 @@ set another 123
       assert.equals(vim.lsp.protocol.CompletionItemKind.Module, item.kind)
     end)
   end)
+
+  describe("get_completions", function()
+    it("returns empty table for empty buffer", function()
+      local items = completion.get_completions("", 1, 0, "/test.tcl")
+      assert.is_table(items)
+    end)
+
+    it("includes builtins in command context", function()
+      local items = completion.get_completions("pu", 1, 2, "/test.tcl")
+      local has_puts = false
+      for _, item in ipairs(items) do
+        if item.label == "puts" then
+          has_puts = true
+          break
+        end
+      end
+      assert.is_true(has_puts)
+    end)
+
+    it("filters to variables after $", function()
+      local code = [[set myvar "hello"
+puts $my]]
+      local items = completion.get_completions(code, 2, 8, "/test.tcl")
+      -- Should include myvar, exclude procs/builtins
+      local found_var = false
+      local found_builtin = false
+      for _, item in ipairs(items) do
+        if item.label == "myvar" then
+          found_var = true
+        end
+        if item.detail == "builtin" then
+          found_builtin = true
+        end
+      end
+      assert.is_true(found_var)
+      assert.is_false(found_builtin)
+    end)
+
+    it("filters to packages after package require", function()
+      local code = "package require ht"
+      local items = completion.get_completions(code, 1, 18, "/test.tcl")
+      -- Should include http, exclude procs/variables
+      local found_http = false
+      local found_proc = false
+      for _, item in ipairs(items) do
+        if item.label == "http" then
+          found_http = true
+        end
+        if item.detail == "proc" then
+          found_proc = true
+        end
+      end
+      assert.is_true(found_http)
+      assert.is_false(found_proc)
+    end)
+
+    it("includes procs from current file", function()
+      local code = [[proc my_helper {} { return 1 }
+my_]]
+      local items = completion.get_completions(code, 2, 3, "/test.tcl")
+      local found = false
+      for _, item in ipairs(items) do
+        if item.label == "my_helper" then
+          found = true
+          break
+        end
+      end
+      assert.is_true(found)
+    end)
+  end)
 end)
