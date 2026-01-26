@@ -132,4 +132,47 @@ describe("Formatting Feature", function()
       assert.equals(code, result)
     end)
   end)
+
+  describe("format_buffer", function()
+    it("should format current buffer", function()
+      -- Create a test buffer
+      local bufnr = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
+        "proc foo {} {",
+        "puts hello   ",
+        "}",
+      })
+
+      formatting.format_buffer(bufnr)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      -- Should have removed trailing whitespace from line 2
+      assert.equals("puts hello", lines[2]:match("^%s*(.-)%s*$"))
+
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+    end)
+
+    it("should return true on success", function()
+      local bufnr = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "puts hello" })
+
+      local result = formatting.format_buffer(bufnr)
+      assert.is_true(result)
+
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+    end)
+
+    it("should return false for invalid buffer", function()
+      local result = formatting.format_buffer(99999)
+      assert.is_false(result)
+    end)
+  end)
+
+  describe("TclFormat command", function()
+    it("should be created after setup", function()
+      formatting.setup()
+      local commands = vim.api.nvim_get_commands({})
+      assert.is_not_nil(commands.TclFormat)
+    end)
+  end)
 end)

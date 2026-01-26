@@ -219,9 +219,66 @@ function M.format_code(code, options)
   return result
 end
 
+--- Format a buffer
+---@param bufnr number|nil Buffer number (default: current buffer)
+---@return boolean success Whether formatting succeeded
+function M.format_buffer(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return false
+  end
+
+  -- Get buffer content
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local code = table.concat(lines, "\n")
+
+  -- Get formatting options from config
+  local ok, config = pcall(require, "tcl-lsp.config")
+  local fmt_opts = {}
+  if ok then
+    local cfg = config.get(bufnr)
+    fmt_opts = cfg.formatting or {}
+  end
+
+  -- Format the code
+  local formatted = M.format_code(code, {
+    indent_style = fmt_opts.indent_style,
+    indent_size = fmt_opts.indent_size,
+  })
+
+  if not formatted then
+    return false
+  end
+
+  -- Only update if changed
+  if formatted == code then
+    return true
+  end
+
+  -- Split back into lines
+  local new_lines = {}
+  for line in (formatted .. "\n"):gmatch("([^\n]*)\n") do
+    table.insert(new_lines, line)
+  end
+
+  -- Remove extra trailing empty line if original didn't have one
+  if #new_lines > 0 and new_lines[#new_lines] == "" and not code:match("\n$") then
+    table.remove(new_lines)
+  end
+
+  -- Update buffer
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_lines)
+
+  return true
+end
+
 --- Set up formatting feature
 function M.setup()
-  -- Will register commands and autocmds in later tasks
+  -- Create user command
+  vim.api.nvim_create_user_command("TclFormat", function()
+    M.format_buffer()
+  end, { desc = "Format TCL code" })
 end
 
 return M
