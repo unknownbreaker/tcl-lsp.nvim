@@ -10,6 +10,7 @@ local diagnostics = require "tcl-lsp.features.diagnostics"
 local rename = require "tcl-lsp.features.rename"
 local highlights = require "tcl-lsp.features.highlights"
 local folding = require "tcl-lsp.features.folding"
+local formatting = require "tcl-lsp.features.formatting"
 
 local M = {}
 
@@ -111,6 +112,9 @@ function M.setup(user_config)
 
   -- Set up folding feature
   folding.setup()
+
+  -- Set up formatting feature
+  formatting.setup()
 end
 
 -- Manual server start (for testing and API)
@@ -152,6 +156,11 @@ function M.get_folding_ranges(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local code = table.concat(lines, "\n")
   return folding.get_folding_ranges(code)
+end
+
+-- Format current buffer (for testing and API)
+function M.format(bufnr)
+  return formatting.format_buffer(bufnr)
 end
 
 return M
