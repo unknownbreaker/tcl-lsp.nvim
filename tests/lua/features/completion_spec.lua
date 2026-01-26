@@ -183,4 +183,32 @@ my_]]
       assert.is_true(found)
     end)
   end)
+
+  describe("setup", function()
+    it("is callable", function()
+      assert.has_no.errors(function()
+        completion.setup()
+      end)
+    end)
+  end)
+
+  describe("omnifunc", function()
+    it("returns start position when findstart=1", function()
+      -- Mock vim functions
+      local original_fn = vim.fn
+      vim.fn = setmetatable({
+        getline = function()
+          return "puts hello"
+        end,
+        col = function()
+          return 11
+        end,
+      }, { __index = original_fn })
+
+      local result = completion.omnifunc(1, "")
+      assert.is_number(result)
+
+      vim.fn = original_fn
+    end)
+  end)
 end)

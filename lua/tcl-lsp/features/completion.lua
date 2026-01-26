@@ -6,6 +6,7 @@ local extractor = require("tcl-lsp.analyzer.extractor")
 local builtins = require("tcl-lsp.data.builtins")
 local packages = require("tcl-lsp.data.packages")
 local index = require("tcl-lsp.analyzer.index")
+local config = require("tcl-lsp.config")
 
 local M = {}
 
@@ -143,6 +144,82 @@ function M.get_completions(code, line, col, filepath)
   end
 
   return items
+end
+
+--- Omnifunc for TCL completion
+---@param findstart number 1 to find start, 0 to get completions
+---@param base string Prefix to complete (when findstart=0)
+---@return number|table Start column or completion items
+function M.omnifunc(findstart, base)
+  if findstart == 1 then
+    -- Find start of completion
+    local line = vim.fn.getline(".")
+    local col = vim.fn.col(".") - 1
+
+    -- Walk backwards to find start of word
+    while col > 0 do
+      local char = line:sub(col, col)
+      if char:match("[%w_:]") or char == "$" then
+        col = col - 1
+      else
+        break
+      end
+    end
+
+    return col
+  else
+    -- Get completions
+    local cfg = config.get()
+    if not cfg.completion.enabled then
+      return {}
+    end
+
+    local bufnr = vim.api.nvim_get_current_buf()
+    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    local code = table.concat(lines, "\n")
+    local pos = vim.api.nvim_win_get_cursor(0)
+    local line = pos[1]
+    local col = pos[2]
+    local filepath = vim.api.nvim_buf_get_name(bufnr)
+
+    local items = M.get_completions(code, line, col, filepath)
+
+    -- Filter by base prefix
+    if base and base ~= "" then
+      local filtered = {}
+      local base_lower = base:lower()
+      for _, item in ipairs(items) do
+        if item.label:lower():sub(1, #base) == base_lower then
+          table.insert(filtered, item)
+        end
+      end
+      items = filtered
+    end
+
+    -- Convert to omnifunc format
+    local results = {}
+    for _, item in ipairs(items) do
+      table.insert(results, {
+        word = item.insertText,
+        abbr = item.label,
+        kind = item.detail,
+        menu = "[TCL]",
+      })
+    end
+
+    return results
+  end
+end
+
+--- Set up completion for TCL files
+function M.setup()
+  -- Set omnifunc for TCL files
+  vim.api.nvim_create_autocmd("FileType", {
+    pattern = { "tcl", "rvt" },
+    callback = function(args)
+      vim.bo[args.buf].omnifunc = "v:lua.require'tcl-lsp.features.completion'.omnifunc"
+    end,
+  })
 end
 
 return M
