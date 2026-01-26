@@ -77,4 +77,40 @@ set another 123
       -- May be empty or contain partial results - just shouldn't crash
     end)
   end)
+
+  describe("build_completion_item", function()
+    it("builds item for proc", function()
+      local symbol = { name = "my_proc", type = "proc", qualified_name = "::my_proc" }
+      local item = completion.build_completion_item(symbol)
+      assert.equals("my_proc", item.label)
+      assert.equals("proc", item.detail)
+      assert.equals("my_proc", item.insertText)
+      assert.equals(vim.lsp.protocol.CompletionItemKind.Function, item.kind)
+    end)
+
+    it("builds item for variable", function()
+      local symbol = { name = "myvar", type = "variable", qualified_name = "::myvar" }
+      local item = completion.build_completion_item(symbol)
+      assert.equals("myvar", item.label)
+      assert.equals("variable", item.detail)
+      assert.equals("myvar", item.insertText)
+      assert.equals(vim.lsp.protocol.CompletionItemKind.Variable, item.kind)
+    end)
+
+    it("builds item for builtin", function()
+      local builtin = { name = "puts", type = "builtin" }
+      local item = completion.build_completion_item(builtin)
+      assert.equals("puts", item.label)
+      assert.equals("builtin", item.detail)
+      assert.equals(vim.lsp.protocol.CompletionItemKind.Keyword, item.kind)
+    end)
+
+    it("builds item for namespace", function()
+      local symbol = { name = "myns", type = "namespace", qualified_name = "::myns" }
+      local item = completion.build_completion_item(symbol)
+      assert.equals("myns", item.label)
+      assert.equals("namespace", item.detail)
+      assert.equals(vim.lsp.protocol.CompletionItemKind.Module, item.kind)
+    end)
+  end)
 end)

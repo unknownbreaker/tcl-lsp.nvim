@@ -6,6 +6,27 @@ local extractor = require("tcl-lsp.analyzer.extractor")
 
 local M = {}
 
+--- Map symbol types to LSP CompletionItemKind
+local KIND_MAP = {
+  proc = vim.lsp.protocol.CompletionItemKind.Function,
+  variable = vim.lsp.protocol.CompletionItemKind.Variable,
+  builtin = vim.lsp.protocol.CompletionItemKind.Keyword,
+  namespace = vim.lsp.protocol.CompletionItemKind.Module,
+  package = vim.lsp.protocol.CompletionItemKind.Module,
+}
+
+--- Build a completion item from a symbol
+---@param symbol table Symbol with name, type fields
+---@return table LSP completion item
+function M.build_completion_item(symbol)
+  return {
+    label = symbol.name,
+    kind = KIND_MAP[symbol.type] or vim.lsp.protocol.CompletionItemKind.Text,
+    detail = symbol.type,
+    insertText = symbol.name,
+  }
+end
+
 --- Detect completion context from line text
 ---@param line_text string The line text
 ---@param col number Column position (1-indexed)
