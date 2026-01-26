@@ -62,9 +62,20 @@ local BUILTINS = {
   vwait = true,
 }
 
+-- Track visited nodes to prevent infinite recursion
+local visited = {}
+
 local function visit_node(node, refs, filepath, current_namespace)
   if not node then
     return
+  end
+
+  -- Prevent infinite recursion from circular references
+  if type(node) == "table" then
+    if visited[node] then
+      return
+    end
+    visited[node] = true
   end
 
   if node.type == "namespace_eval" then
@@ -110,14 +121,25 @@ local function visit_node(node, refs, filepath, current_namespace)
 
   if node.type == "command" then
     local cmd_name = node.name
-    if cmd_name and not BUILTINS[cmd_name] then
+    if cmd_name and type(cmd_name) == "string" and not BUILTINS[cmd_name] then
+      -- Safely build args text (only use string args)
+      local args_text = ""
+      if node.args then
+        local str_args = {}
+        for _, arg in ipairs(node.args) do
+          if type(arg) == "string" then
+            table.insert(str_args, arg)
+          end
+        end
+        args_text = table.concat(str_args, " ")
+      end
       table.insert(refs, {
         type = "call",
         name = cmd_name,
         namespace = current_namespace,
         file = filepath,
         range = node.range,
-        text = cmd_name .. " " .. table.concat(node.args or {}, " "),
+        text = cmd_name .. " " .. args_text,
       })
     end
   end
@@ -128,9 +150,12 @@ local function visit_node(node, refs, filepath, current_namespace)
     -- command is an array-like table: cmd[1] = name, cmd[2+] = args
     local cmd_name = cmd[1]
     if cmd_name and type(cmd_name) == "string" and not BUILTINS[cmd_name] then
+      -- Safely build args (only use string values)
       local args = {}
-      for i = 2, #cmd do
-        table.insert(args, tostring(cmd[i]))
+      for i = 2, math.min(#cmd, 10) do  -- Limit to first 10 args
+        if type(cmd[i]) == "string" then
+          table.insert(args, cmd[i])
+        end
       end
       table.insert(refs, {
         type = "call",
@@ -169,6 +194,8 @@ end
 ---@return table[] List of reference objects
 function M.extract_references(ast, filepath)
   local refs = {}
+  -- Reset visited table for each extraction
+  visited = {}
   visit_node(ast, refs, filepath, "::")
   return refs
 end
