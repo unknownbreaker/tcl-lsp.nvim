@@ -44,6 +44,13 @@ local defaults = {
     debounce_ms = 150, -- Debounce delay for token requests
     large_file_threshold = 1000, -- Line count above which to skip highlighting
   },
+
+  -- Formatting configuration
+  formatting = {
+    on_save = false, -- Auto-format on save (default: off)
+    indent_size = nil, -- nil = auto-detect, or 2/4
+    indent_style = nil, -- nil = auto-detect, or "spaces"/"tabs"
+  },
 }
 
 -- Internal state management
