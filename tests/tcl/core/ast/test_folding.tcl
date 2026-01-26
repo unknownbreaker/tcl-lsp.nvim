@@ -268,6 +268,52 @@ test "Multi-line proc spans correct lines" {
 
 puts ""
 
+# Group 5: Namespace folding
+puts "Group 5: Namespace Folding"
+puts "-----------------------------------------"
+
+test_count "Namespace eval - one fold" {
+    set code {namespace eval ::myns {
+    variable x 1
+    proc helper {} { return 1 }
+}}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 1
+
+test_count "Nested namespace - outer fold only" {
+    # Note: Parser stores namespace body as raw text, not parsed AST
+    # So inner namespace is not recursively parsed - only outer folds
+    set code {namespace eval ::outer {
+    namespace eval ::inner {
+        proc foo {} { return 1 }
+    }
+}}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 1
+
+test_count "Namespace with multi-line proc - outer fold only" {
+    # Note: Parser stores namespace body as raw text, not parsed AST
+    # Procs inside namespace body are not recursively parsed
+    set code {namespace eval ::myns {
+    proc foo {} {
+        puts "hello"
+        return 1
+    }
+}}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 1
+
+test_count "Single-line namespace - no fold" {
+    set code {namespace eval ::myns { variable x 1 }}
+    set ast [::ast::build $code]
+    ::ast::folding::extract_ranges $ast
+} 0
+
+puts ""
+
 # Summary
 puts "========================================="
 puts "Results: $passed_tests/$total_tests passed"
