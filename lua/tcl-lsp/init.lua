@@ -11,6 +11,7 @@ local rename = require "tcl-lsp.features.rename"
 local highlights = require "tcl-lsp.features.highlights"
 local folding = require "tcl-lsp.features.folding"
 local formatting = require "tcl-lsp.features.formatting"
+local completion = require "tcl-lsp.features.completion"
 
 local M = {}
 
@@ -115,6 +116,9 @@ function M.setup(user_config)
 
   -- Set up formatting feature
   formatting.setup()
+
+  -- Set up completion feature
+  completion.setup()
 end
 
 -- Manual server start (for testing and API)
