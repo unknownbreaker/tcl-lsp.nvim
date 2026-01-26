@@ -64,6 +64,45 @@ function M.format_for_telescope(refs)
   return entries
 end
 
+--- Find references within a single file's AST
+---@param ast table Parsed AST
+---@param word string Symbol name to find
+---@param filepath string Path to the file
+---@return table List of references found in the file
+local function find_refs_in_ast(ast, word, filepath)
+  local results = {}
+  local extractor = require("tcl-lsp.analyzer.extractor")
+  local ref_extractor = require("tcl-lsp.analyzer.ref_extractor")
+
+  -- Get symbol definitions in this file
+  local symbols = extractor.extract_symbols(ast, filepath)
+  for _, sym in ipairs(symbols) do
+    if sym.name == word or sym.qualified_name:match("::" .. word .. "$") then
+      table.insert(results, {
+        type = "definition",
+        file = filepath,
+        range = sym.range,
+        text = sym.type .. " " .. sym.name,
+      })
+    end
+  end
+
+  -- Get references (calls) in this file
+  local refs = ref_extractor.extract_references(ast, filepath)
+  for _, ref in ipairs(refs) do
+    if ref.name == word or ref.name:match("::" .. word .. "$") then
+      table.insert(results, {
+        type = ref.type,
+        file = filepath,
+        range = ref.range,
+        text = ref.text,
+      })
+    end
+  end
+
+  return results
+end
+
 --- Handle find-references request
 ---@param bufnr number Buffer number
 ---@param line number Line number (0-indexed)
@@ -89,20 +128,23 @@ function M.handle_references(bufnr, line, col)
     return nil
   end
 
+  local filepath = vim.api.nvim_buf_get_name(bufnr)
+
   -- Get scope context at cursor position (1-indexed)
   local scope = require("tcl-lsp.parser.scope")
   local context = scope.get_context(ast, line + 1, col + 1)
 
-  -- Find symbol in index
+  -- First try the cross-file index
   local symbol = definitions.find_in_index(word, context)
-  if not symbol then
-    return nil
+  if symbol then
+    local refs = references.find_references(symbol.qualified_name)
+    if refs and #refs > 0 then
+      return refs
+    end
   end
 
-  -- Get all references to this symbol
-  local refs = references.find_references(symbol.qualified_name)
-
-  return refs
+  -- Fallback: search current file AST for references
+  return find_refs_in_ast(ast, word, filepath)
 end
 
 --- Show references in UI (Telescope if available, otherwise quickfix)

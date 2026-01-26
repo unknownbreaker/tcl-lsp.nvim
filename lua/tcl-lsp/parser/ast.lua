@@ -155,6 +155,9 @@ end
 -- Default parser timeout in milliseconds (10 seconds)
 local PARSER_TIMEOUT_MS = 10000
 
+-- Track active async jobs for cleanup on exit
+local active_jobs = {}
+
 -- Execute TCL parser with timeout and get JSON result
 local function execute_tcl_parser(code, filepath)
   debug_print("\n========================================")
@@ -497,7 +500,8 @@ local function execute_tcl_parser_async(code, filepath, callback)
   local output_chunks = {}
   local stderr_chunks = {}
 
-  local job_id = vim.fn.jobstart(cmd, {
+  local job_id
+  job_id = vim.fn.jobstart(cmd, {
     stdout_buffered = true,
     stderr_buffered = true,
     on_stdout = function(_, data)
@@ -519,6 +523,9 @@ local function execute_tcl_parser_async(code, filepath, callback)
       end
     end,
     on_exit = function(_, exit_code)
+      -- Remove from active jobs
+      active_jobs[job_id] = nil
+
       -- Clean up temp file
       vim.fn.delete(temp_file)
 
@@ -547,7 +554,24 @@ local function execute_tcl_parser_async(code, filepath, callback)
     vim.schedule(function()
       callback(nil, "Failed to start parser process")
     end)
+  else
+    -- Track active job
+    active_jobs[job_id] = temp_file
   end
+end
+
+-- Stop all active async parser jobs (call on VimLeavePre)
+local function stop_all_jobs()
+  for job_id, temp_file in pairs(active_jobs) do
+    pcall(vim.fn.jobstop, job_id)
+    pcall(vim.fn.delete, temp_file)
+  end
+  active_jobs = {}
+end
+
+-- Export cleanup function
+function M.cleanup()
+  stop_all_jobs()
 end
 
 -- Async parse TCL code - calls callback(ast, err) when done

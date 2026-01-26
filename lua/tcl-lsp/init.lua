@@ -64,6 +64,17 @@ function M.setup(user_config)
       end,
     })
 
+    -- Clean up async parser jobs on exit (prevents hang on quit)
+    vim.api.nvim_create_autocmd("VimLeavePre", {
+      group = tcl_group,
+      callback = function()
+        local parser = require("tcl-lsp.parser")
+        if parser.cleanup then
+          parser.cleanup()
+        end
+      end,
+    })
+
     plugin_state.autocommands_created = true
   end
 
