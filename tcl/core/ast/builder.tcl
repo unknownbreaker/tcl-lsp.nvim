@@ -18,7 +18,7 @@ if {[catch {source [file join $parent_dir tokenizer.tcl]} err]} {
 }
 
 # Load all AST core modules
-foreach module {utils delimiters comments commands json} {
+foreach module {utils delimiters comments commands json folding} {
     if {[catch {source [file join $script_dir ${module}.tcl]} err]} {
         puts stderr "Error loading ${module}.tcl: $err"
         exit 1
