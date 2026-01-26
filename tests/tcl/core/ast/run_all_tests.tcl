@@ -57,6 +57,9 @@ run_test_suite "Comment Extraction" \
 run_test_suite "Command Extraction" \
     [file join $test_dir test_commands.tcl]
 
+run_test_suite "Folding Range Extraction" \
+    [file join $test_dir test_folding.tcl]
+
 puts ""
 puts "PARSER TESTS"
 puts "========================================="

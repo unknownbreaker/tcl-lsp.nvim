@@ -9,6 +9,7 @@ local hover = require "tcl-lsp.features.hover"
 local diagnostics = require "tcl-lsp.features.diagnostics"
 local rename = require "tcl-lsp.features.rename"
 local highlights = require "tcl-lsp.features.highlights"
+local folding = require "tcl-lsp.features.folding"
 
 local M = {}
 
@@ -107,6 +108,9 @@ function M.setup(user_config)
 
   -- Set up semantic highlighting feature
   highlights.setup()
+
+  -- Set up folding feature
+  folding.setup()
 end
 
 -- Manual server start (for testing and API)
@@ -141,5 +145,13 @@ end
 
 -- Plugin version information (satisfies test requirement)
 M.version = "0.1.0-dev"
+
+-- Get folding ranges for current buffer (for testing and API)
+function M.get_folding_ranges(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local code = table.concat(lines, "\n")
+  return folding.get_folding_ranges(code)
+end
 
 return M
