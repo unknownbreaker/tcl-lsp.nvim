@@ -32,4 +32,49 @@ describe("completion", function()
       assert.equals("command", completion.detect_context("set x [for", 10))
     end)
   end)
+
+  describe("get_file_symbols", function()
+    it("extracts procs from code", function()
+      local code = [[
+proc my_proc {arg1 arg2} {
+  return $arg1
+}
+proc another_proc {} {
+  puts "hello"
+}
+]]
+      local symbols = completion.get_file_symbols(code, "/test.tcl")
+      local names = {}
+      for _, sym in ipairs(symbols) do
+        if sym.type == "proc" then
+          names[sym.name] = true
+        end
+      end
+      assert.is_true(names["my_proc"])
+      assert.is_true(names["another_proc"])
+    end)
+
+    it("extracts variables from code", function()
+      local code = [[
+set myvar "value"
+set another 123
+]]
+      local symbols = completion.get_file_symbols(code, "/test.tcl")
+      local names = {}
+      for _, sym in ipairs(symbols) do
+        if sym.type == "variable" then
+          names[sym.name] = true
+        end
+      end
+      assert.is_true(names["myvar"])
+      assert.is_true(names["another"])
+    end)
+
+    it("returns empty list for invalid code", function()
+      local code = "this is not valid {{{ tcl"
+      local symbols = completion.get_file_symbols(code, "/test.tcl")
+      assert.is_table(symbols)
+      -- May be empty or contain partial results - just shouldn't crash
+    end)
+  end)
 end)

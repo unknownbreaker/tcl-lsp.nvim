@@ -1,6 +1,9 @@
 -- lua/tcl-lsp/features/completion.lua
 -- Context-aware autocompletion for TCL/RVT files
 
+local parser = require("tcl-lsp.parser")
+local extractor = require("tcl-lsp.analyzer.extractor")
+
 local M = {}
 
 --- Detect completion context from line text
@@ -26,6 +29,19 @@ function M.detect_context(line_text, col)
   end
 
   return "command"
+end
+
+--- Extract symbols from code for completion
+---@param code string TCL source code
+---@param filepath string File path
+---@return table List of symbols
+function M.get_file_symbols(code, filepath)
+  local ast = parser.parse(code, filepath)
+  if not ast then
+    return {}
+  end
+
+  return extractor.extract_symbols(ast, filepath)
 end
 
 return M
