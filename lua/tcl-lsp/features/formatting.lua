@@ -3,6 +3,74 @@
 
 local M = {}
 
+local parser = require "tcl-lsp.parser"
+
+--- Calculate brace depth for each line
+--- Uses brace counting which is more reliable for formatting than AST line numbers
+---@param code string The TCL code
+---@return table Map of line number to indent depth for that line's content
+local function calculate_brace_depth(code)
+  local depth_map = {}
+  local line_num = 1
+  local current_depth = 0
+
+  -- First, split into lines and process each line
+  for line in (code .. "\n"):gmatch("([^\n]*)\n") do
+    -- Count braces to determine if this line opens or closes a block
+    local opens = 0
+    local closes = 0
+    local in_string = false
+    local escape_next = false
+
+    for i = 1, #line do
+      local char = line:sub(i, i)
+
+      if escape_next then
+        escape_next = false
+      elseif char == "\\" then
+        escape_next = true
+      elseif char == '"' and not in_string then
+        in_string = true
+      elseif char == '"' and in_string then
+        in_string = false
+      elseif not in_string then
+        if char == "{" then
+          opens = opens + 1
+        elseif char == "}" then
+          closes = closes + 1
+        end
+      end
+    end
+
+    -- Determine the indent depth for this line's content
+    -- If line starts with closing brace, it should be outdented
+    local stripped = line:gsub("^[ \t]+", "")
+    local starts_with_close = stripped:match("^}") ~= nil
+
+    if starts_with_close then
+      -- This line's closing brace is at the outer depth
+      depth_map[line_num] = math.max(0, current_depth - 1)
+    else
+      depth_map[line_num] = current_depth
+    end
+
+    -- Update depth for next line based on net brace change
+    current_depth = current_depth + opens - closes
+    current_depth = math.max(0, current_depth)
+
+    line_num = line_num + 1
+  end
+
+  return depth_map
+end
+
+--- Check if line content is just a closing brace (possibly with whitespace)
+---@param content string The line content (already stripped of leading whitespace)
+---@return boolean True if line is a closing brace line
+local function is_closing_brace_line(content)
+  return content:match("^%s*}%s*$") ~= nil or content == "}"
+end
+
 --- Detect indentation style from code
 ---@param code string The code to analyze
 ---@return string style "spaces" or "tabs"
@@ -80,22 +148,70 @@ function M.format_code(code, options)
 
   local has_trailing_newline = code:match("\n$") ~= nil
 
-  -- Split into lines, strip trailing whitespace from each
-  local lines = {}
-  for line in (code .. "\n"):gmatch("([^\n]*)\n") do
-    -- Remove trailing whitespace
-    local trimmed = line:gsub("[ \t]+$", "")
-    table.insert(lines, trimmed)
+  -- Detect or use configured indent style
+  local indent_style = options.indent_style
+  local indent_size = options.indent_size
+
+  if not indent_style or not indent_size then
+    local detected_style, detected_size = M.detect_indent(code)
+    indent_style = indent_style or detected_style
+    indent_size = indent_size or detected_size
   end
 
-  -- Remove the extra empty line we added if original didn't have trailing newline
+  -- Create indent string
+  local indent_str
+  if indent_style == "tabs" then
+    indent_str = "\t"
+  else
+    indent_str = string.rep(" ", indent_size)
+  end
+
+  -- Try to parse to check for syntax errors
+  -- If parsing fails, just do basic trailing whitespace cleanup (don't change indentation)
+  local ast, _ = parser.parse(code)
+
+  -- Calculate brace-based depth for indentation
+  local depth_map = calculate_brace_depth(code)
+
+  -- Process lines
+  local lines = {}
+  local line_num = 1
+
+  for line in (code .. "\n"):gmatch("([^\n]*)\n") do
+    -- Remove trailing whitespace
+    local content = line:gsub("[ \t]+$", "")
+
+    -- Get content without leading whitespace
+    local stripped = content:gsub("^[ \t]+", "")
+
+    -- Apply indent if we have a valid AST (no syntax errors)
+    if ast and stripped ~= "" then
+      local depth = depth_map[line_num] or 0
+
+      -- Closing braces should be outdented one level
+      if is_closing_brace_line(stripped) then
+        depth = math.max(0, depth)
+      end
+
+      if depth > 0 then
+        content = string.rep(indent_str, depth) .. stripped
+      else
+        content = stripped
+      end
+    end
+    -- If parse error or empty line, keep content as-is (with trailing whitespace stripped)
+
+    table.insert(lines, content)
+    line_num = line_num + 1
+  end
+
+  -- Handle trailing newline
   if #lines > 0 and lines[#lines] == "" and not has_trailing_newline then
     table.remove(lines)
   end
 
   local result = table.concat(lines, "\n")
 
-  -- Restore trailing newline if original had one
   if has_trailing_newline and not result:match("\n$") then
     result = result .. "\n"
   end

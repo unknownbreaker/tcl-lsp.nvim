@@ -93,4 +93,43 @@ describe("Formatting Feature", function()
       assert.equals(2, size)
     end)
   end)
+
+  describe("indentation fixing", function()
+    it("should fix badly indented proc", function()
+      local code = "proc foo {} {\nputs hello\n}"
+      local result = formatting.format_code(code)
+      -- Should have indentation on the puts line
+      assert.is_not_nil(result:match("\n[ \t]+puts"))
+    end)
+
+    it("should fix nested if indentation", function()
+      local code = "proc foo {} {\nif {1} {\nputs hello\n}\n}"
+      local result = formatting.format_code(code)
+      -- The puts should be more indented than the if
+      local lines = {}
+      for line in result:gmatch("[^\n]+") do
+        table.insert(lines, line)
+      end
+      -- Check that deeper nesting has more indent
+      if #lines >= 4 then
+        local if_indent = #(lines[2]:match("^([ \t]*)") or "")
+        local puts_indent = #(lines[3]:match("^([ \t]*)") or "")
+        assert.is_true(puts_indent > if_indent, "puts should be more indented than if")
+      end
+    end)
+
+    it("should handle syntax errors gracefully", function()
+      local code = "proc foo { missing brace"
+      local result = formatting.format_code(code)
+      -- Should return original code (with trailing whitespace stripped)
+      assert.is_not_nil(result)
+      assert.is_not_nil(result:match("proc foo"))
+    end)
+
+    it("should not change already well-formatted code", function()
+      local code = "proc foo {} {\n    puts hello\n}"
+      local result = formatting.format_code(code)
+      assert.equals(code, result)
+    end)
+  end)
 end)
