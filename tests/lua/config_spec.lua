@@ -560,4 +560,32 @@ describe("TCL LSP Configuration", function()
       assert.equals("测试配置", result.unicode_text)
     end)
   end)
+
+  describe("completion config", function()
+    before_each(function()
+      package.loaded["tcl-lsp.config"] = nil
+      config = require("tcl-lsp.config")
+      config.reset()
+    end)
+
+    it("has completion defaults", function()
+      config.setup({})
+      local cfg = config.get()
+      assert.is_table(cfg.completion)
+      assert.equals(true, cfg.completion.enabled)
+      assert.equals(2, cfg.completion.trigger_length)
+    end)
+
+    it("allows overriding completion settings", function()
+      config.setup({
+        completion = {
+          enabled = false,
+          trigger_length = 3,
+        },
+      })
+      local cfg = config.get()
+      assert.equals(false, cfg.completion.enabled)
+      assert.equals(3, cfg.completion.trigger_length)
+    end)
+  end)
 end)

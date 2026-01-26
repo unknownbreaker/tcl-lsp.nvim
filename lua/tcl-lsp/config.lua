@@ -51,6 +51,12 @@ local defaults = {
     indent_size = nil, -- nil = auto-detect, or 2/4
     indent_style = nil, -- nil = auto-detect, or "spaces"/"tabs"
   },
+
+  -- Completion configuration
+  completion = {
+    enabled = true, -- Enable completion
+    trigger_length = 2, -- Characters before triggering
+  },
 }
 
 -- Internal state management
