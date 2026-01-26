@@ -1,5 +1,6 @@
 -- lua/tcl-lsp/analyzer/indexer.lua
 -- Background Indexer - scans workspace files without blocking the editor
+-- Uses parallel parsing for speed (configurable concurrency)
 
 local parser = require("tcl-lsp.parser")
 local index = require("tcl-lsp.analyzer.index")
@@ -8,6 +9,9 @@ local ref_extractor = require("tcl-lsp.analyzer.ref_extractor")
 
 local M = {}
 
+-- Number of concurrent parse jobs (adjust based on system)
+local PARALLEL_JOBS = 6
+
 M.state = {
   status = "idle", -- idle | scanning | ready
   queued = {},
@@ -15,6 +19,7 @@ M.state = {
   indexed_count = 0,
   root_dir = nil,
   pending_refs = {}, -- ASTs stored for second pass reference extraction
+  active_jobs = 0, -- Current number of running parse jobs
 }
 
 function M.reset()
@@ -25,6 +30,7 @@ function M.reset()
     indexed_count = 0,
     root_dir = nil,
     pending_refs = {},
+    active_jobs = 0,
   }
 end
 
@@ -33,6 +39,7 @@ function M.get_status()
     status = M.state.status,
     total = M.state.total_files,
     indexed = M.state.indexed_count,
+    active_jobs = M.state.active_jobs,
   }
 end
 
@@ -164,46 +171,79 @@ function M.resolve_references()
   M.state.pending_refs = {}
 end
 
+-- Called when a file finishes indexing
+local function on_file_complete()
+  M.state.indexed_count = M.state.indexed_count + 1
+  M.state.active_jobs = M.state.active_jobs - 1
+
+  -- Try to start more jobs
+  M.fill_job_slots()
+end
+
+-- Start indexing a single file (async)
+local function start_file_job(filepath)
+  M.state.active_jobs = M.state.active_jobs + 1
+
+  M.index_file_async(filepath, function(success)
+    -- Schedule completion handler to avoid deep callback nesting
+    vim.schedule(on_file_complete)
+  end)
+end
+
+-- Fill available job slots with queued files
+function M.fill_job_slots()
+  if M.state.status ~= "scanning" then
+    return
+  end
+
+  -- Start jobs until we hit the limit or run out of files
+  while M.state.active_jobs < PARALLEL_JOBS and #M.state.queued > 0 do
+    local file = table.remove(M.state.queued, 1)
+    start_file_job(file)
+  end
+
+  -- Check if we're done (no active jobs and no queued files)
+  if M.state.active_jobs == 0 and #M.state.queued == 0 then
+    -- All files indexed, now resolve references
+    M.resolve_references()
+    M.state.status = "ready"
+
+    -- Notify user
+    vim.schedule(function()
+      vim.notify(
+        string.format("TCL index ready: %d files", M.state.indexed_count),
+        vim.log.levels.INFO
+      )
+    end)
+  end
+end
+
 function M.start(root_dir)
   M.state.root_dir = root_dir
   M.state.queued = M.find_tcl_files(root_dir)
   M.state.total_files = #M.state.queued
   M.state.indexed_count = 0
   M.state.status = "scanning"
-  M.state.pending_refs = {} -- Reset for new indexing run
+  M.state.pending_refs = {}
+  M.state.active_jobs = 0
 
-  -- Start async processing
-  M.process_next_file()
-end
-
--- Process one file at a time asynchronously
-function M.process_next_file()
-  if M.state.status ~= "scanning" then
-    return
-  end
-
-  local file = table.remove(M.state.queued, 1)
-  if not file then
-    -- All files indexed, now resolve references
-    M.resolve_references()
+  if M.state.total_files == 0 then
     M.state.status = "ready"
     return
   end
 
-  -- Index file asynchronously, then process next
-  M.index_file_async(file, function(success)
-    M.state.indexed_count = M.state.indexed_count + 1
-
-    -- Schedule next file processing (yields to editor between files)
-    vim.schedule(function()
-      M.process_next_file()
-    end)
-  end)
+  -- Start parallel processing
+  M.fill_job_slots()
 end
 
--- Legacy function for compatibility (deprecated, use process_next_file)
+-- Legacy function for compatibility
+function M.process_next_file()
+  M.fill_job_slots()
+end
+
+-- Legacy function for compatibility
 function M.process_batch()
-  M.process_next_file()
+  M.fill_job_slots()
 end
 
 return M
