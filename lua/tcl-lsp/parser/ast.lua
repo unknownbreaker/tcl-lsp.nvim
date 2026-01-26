@@ -461,4 +461,144 @@ function M.parse_with_errors(code, filepath)
   return { ast = ast, errors = errors }
 end
 
+-- Async version of execute_tcl_parser (non-blocking)
+-- callback(ast, err) is called when parsing completes
+local function execute_tcl_parser_async(code, filepath, callback)
+  -- Check if tclsh is available
+  if vim.fn.executable("tclsh") == 0 then
+    vim.schedule(function()
+      callback(nil, "tclsh executable not found in PATH. Please install TCL.")
+    end)
+    return
+  end
+
+  local parser_script = get_parser_script_path()
+  if not parser_script then
+    vim.schedule(function()
+      callback(nil, "TCL parser script not found. Please check plugin installation.")
+    end)
+    return
+  end
+
+  -- Create temporary file for TCL code
+  local temp_file = vim.fn.tempname() .. ".tcl"
+  local file = io.open(temp_file, "w")
+  if not file then
+    vim.schedule(function()
+      callback(nil, "Failed to create temporary file")
+    end)
+    return
+  end
+  file:write(code)
+  file:close()
+
+  -- Execute parser asynchronously
+  local cmd = { "tclsh", parser_script, temp_file }
+  local output_chunks = {}
+  local stderr_chunks = {}
+
+  local job_id = vim.fn.jobstart(cmd, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      if data then
+        for _, line in ipairs(data) do
+          if line ~= "" then
+            table.insert(output_chunks, line)
+          end
+        end
+      end
+    end,
+    on_stderr = function(_, data)
+      if data then
+        for _, line in ipairs(data) do
+          if line ~= "" then
+            table.insert(stderr_chunks, line)
+          end
+        end
+      end
+    end,
+    on_exit = function(_, exit_code)
+      -- Clean up temp file
+      vim.fn.delete(temp_file)
+
+      local output = table.concat(output_chunks, "\n")
+      local stderr_output = table.concat(stderr_chunks, "\n")
+
+      if exit_code ~= 0 then
+        local err_msg = stderr_output ~= "" and stderr_output or output
+        callback(nil, "Parser error: " .. err_msg)
+        return
+      end
+
+      -- Parse JSON output
+      local ok, result = pcall(vim.json.decode, output)
+      if not ok then
+        callback(nil, "Failed to parse JSON output: " .. tostring(result))
+        return
+      end
+
+      callback(result, nil)
+    end,
+  })
+
+  if job_id <= 0 then
+    vim.fn.delete(temp_file)
+    vim.schedule(function()
+      callback(nil, "Failed to start parser process")
+    end)
+  end
+end
+
+-- Async parse TCL code - calls callback(ast, err) when done
+-- This is non-blocking and safe to call from the main loop
+function M.parse_async(code, filepath, callback)
+  -- Handle empty input
+  if not code or code == "" or code:match("^%s*$") then
+    vim.schedule(function()
+      callback({
+        type = "root",
+        children = {},
+        range = {
+          start = { line = 1, column = 1 },
+          end_pos = { line = 1, column = 1 },
+        },
+      }, nil)
+    end)
+    return
+  end
+
+  -- Execute TCL parser asynchronously
+  execute_tcl_parser_async(code, filepath or "<string>", function(ast, err)
+    if err then
+      callback(nil, err)
+      return
+    end
+
+    if not ast then
+      callback(nil, "Parser returned nil")
+      return
+    end
+
+    -- Check if AST has errors
+    if ast.had_error and (ast.had_error == 1 or ast.had_error == true) then
+      local error_messages = {}
+      if ast.errors and type(ast.errors) == "table" then
+        for _, error_node in ipairs(ast.errors) do
+          if type(error_node) == "table" and error_node.message then
+            table.insert(error_messages, tostring(error_node.message))
+          elseif type(error_node) == "string" then
+            table.insert(error_messages, error_node)
+          end
+        end
+      end
+      local error_msg = #error_messages > 0 and table.concat(error_messages, "; ") or "Syntax error"
+      callback(nil, error_msg)
+      return
+    end
+
+    callback(ast, nil)
+  end)
+end
+
 return M

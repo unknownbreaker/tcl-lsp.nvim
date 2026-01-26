@@ -8,8 +8,6 @@ local ref_extractor = require("tcl-lsp.analyzer.ref_extractor")
 
 local M = {}
 
-local BATCH_SIZE = 5
-
 M.state = {
   status = "idle", -- idle | scanning | ready
   queued = {},
@@ -50,6 +48,7 @@ function M.find_tcl_files(root_dir)
   return files
 end
 
+-- Synchronous index_file (used for single-file re-indexing on save)
 function M.index_file(filepath)
   -- Remove old symbols from this file
   index.remove_file(filepath)
@@ -62,7 +61,7 @@ function M.index_file(filepath)
   local content = f:read("*all")
   f:close()
 
-  -- Parse to AST
+  -- Parse to AST (sync)
   local ast = parser.parse(content, filepath)
   if not ast then
     return false
@@ -78,6 +77,41 @@ function M.index_file(filepath)
   table.insert(M.state.pending_refs, { ast = ast, filepath = filepath })
 
   return true
+end
+
+-- Async index_file (used for background batch indexing)
+-- callback(success) is called when done
+function M.index_file_async(filepath, callback)
+  -- Remove old symbols from this file
+  index.remove_file(filepath)
+
+  -- Read file content
+  local f = io.open(filepath, "r")
+  if not f then
+    callback(false)
+    return
+  end
+  local content = f:read("*all")
+  f:close()
+
+  -- Parse to AST asynchronously
+  parser.parse_async(content, filepath, function(ast, err)
+    if not ast then
+      callback(false)
+      return
+    end
+
+    -- Extract and index symbols
+    local symbols = extractor.extract_symbols(ast, filepath)
+    for _, symbol in ipairs(symbols) do
+      index.add_symbol(symbol)
+    end
+
+    -- Store AST for reference extraction in second pass
+    table.insert(M.state.pending_refs, { ast = ast, filepath = filepath })
+
+    callback(true)
+  end)
 end
 
 -- Resolve a reference to its qualified name in the index
@@ -138,29 +172,38 @@ function M.start(root_dir)
   M.state.status = "scanning"
   M.state.pending_refs = {} -- Reset for new indexing run
 
-  M.process_batch()
+  -- Start async processing
+  M.process_next_file()
 end
 
-function M.process_batch()
+-- Process one file at a time asynchronously
+function M.process_next_file()
   if M.state.status ~= "scanning" then
     return
   end
 
-  for _ = 1, BATCH_SIZE do
-    local file = table.remove(M.state.queued, 1)
-    if not file then
-      -- All files indexed, now resolve references
-      M.resolve_references()
-      M.state.status = "ready"
-      return
-    end
-
-    M.index_file(file)
-    M.state.indexed_count = M.state.indexed_count + 1
+  local file = table.remove(M.state.queued, 1)
+  if not file then
+    -- All files indexed, now resolve references
+    M.resolve_references()
+    M.state.status = "ready"
+    return
   end
 
-  -- Yield to editor, continue next tick
-  vim.defer_fn(M.process_batch, 1)
+  -- Index file asynchronously, then process next
+  M.index_file_async(file, function(success)
+    M.state.indexed_count = M.state.indexed_count + 1
+
+    -- Schedule next file processing (yields to editor between files)
+    vim.schedule(function()
+      M.process_next_file()
+    end)
+  end)
+end
+
+-- Legacy function for compatibility (deprecated, use process_next_file)
+function M.process_batch()
+  M.process_next_file()
 end
 
 return M

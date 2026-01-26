@@ -60,7 +60,7 @@ local defaults = {
 
   -- Indexer configuration
   indexer = {
-    enabled = false, -- Disable background indexing by default (causes lag on large projects)
+    enabled = true, -- Background indexing is now async and non-blocking
   },
 }
 

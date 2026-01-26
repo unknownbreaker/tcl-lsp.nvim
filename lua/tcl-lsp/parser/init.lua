@@ -13,6 +13,7 @@ M.validator = require "tcl-lsp.parser.validator"
 M.parse = M.ast.parse
 M.parse_file = M.ast.parse_file
 M.parse_with_errors = M.ast.parse_with_errors
+M.parse_async = M.ast.parse_async
 
 -- Re-export validation functions
 M.validate_ast = M.validator.validate_ast
