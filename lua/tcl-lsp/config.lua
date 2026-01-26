@@ -57,6 +57,11 @@ local defaults = {
     enabled = true, -- Enable completion
     trigger_length = 2, -- Characters before triggering
   },
+
+  -- Indexer configuration
+  indexer = {
+    enabled = false, -- Disable background indexing by default (causes lag on large projects)
+  },
 }
 
 -- Internal state management

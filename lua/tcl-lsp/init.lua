@@ -48,14 +48,18 @@ function M.setup(user_config)
       end,
     })
 
-    -- Re-index file on save
+    -- Re-index file on save (only if indexer is enabled)
     vim.api.nvim_create_autocmd("BufWritePost", {
       group = tcl_group,
       pattern = { "*.tcl", "*.rvt" },
       callback = function(args)
-        local indexer = require("tcl-lsp.analyzer.indexer")
-        if indexer.get_status().status == "ready" then
-          indexer.index_file(args.file)
+        local current_config = config.get()
+        local indexer_config = current_config.indexer or {}
+        if indexer_config.enabled then
+          local indexer = require("tcl-lsp.analyzer.indexer")
+          if indexer.get_status().status == "ready" then
+            indexer.index_file(args.file)
+          end
         end
       end,
     })
