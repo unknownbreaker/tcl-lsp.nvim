@@ -57,36 +57,59 @@ local function visit_node(node, symbols, filepath, current_namespace)
 
   if node.type == "set" then
     local var_name = node.var_name
-    local qualified = current_namespace .. "::" .. var_name
-    if current_namespace == "::" then
-      qualified = "::" .. var_name
+    -- Skip if var_name is not a string (e.g., complex array access)
+    if type(var_name) ~= "string" then
+      -- Try to extract base name if it's a table with a name field
+      if type(var_name) == "table" and var_name.name then
+        var_name = var_name.name
+      else
+        var_name = nil
+      end
     end
 
-    table.insert(symbols, {
-      type = "variable",
-      name = var_name,
-      qualified_name = qualified,
-      file = filepath,
-      range = node.range,
-      scope = current_namespace,
-    })
+    if var_name then
+      local qualified = current_namespace .. "::" .. var_name
+      if current_namespace == "::" then
+        qualified = "::" .. var_name
+      end
+
+      table.insert(symbols, {
+        type = "variable",
+        name = var_name,
+        qualified_name = qualified,
+        file = filepath,
+        range = node.range,
+        scope = current_namespace,
+      })
+    end
   end
 
   if node.type == "variable" then
     local var_name = node.name
-    local qualified = current_namespace .. "::" .. var_name
-    if current_namespace == "::" then
-      qualified = "::" .. var_name
+    -- Skip if var_name is not a string
+    if type(var_name) ~= "string" then
+      if type(var_name) == "table" and var_name.name then
+        var_name = var_name.name
+      else
+        var_name = nil
+      end
     end
 
-    table.insert(symbols, {
-      type = "variable",
-      name = var_name,
-      qualified_name = qualified,
-      file = filepath,
-      range = node.range,
-      scope = current_namespace,
-    })
+    if var_name then
+      local qualified = current_namespace .. "::" .. var_name
+      if current_namespace == "::" then
+        qualified = "::" .. var_name
+      end
+
+      table.insert(symbols, {
+        type = "variable",
+        name = var_name,
+        qualified_name = qualified,
+        file = filepath,
+        range = node.range,
+        scope = current_namespace,
+      })
+    end
   end
 
   -- Recurse into children
