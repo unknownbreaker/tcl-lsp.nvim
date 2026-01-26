@@ -62,32 +62,34 @@ local BUILTINS = {
   vwait = true,
 }
 
--- Track visited nodes to prevent infinite recursion
-local visited = {}
+-- Max recursion depth to prevent infinite loops
+local MAX_DEPTH = 50
 
-local function visit_node(node, refs, filepath, current_namespace)
+local function visit_node(node, refs, filepath, current_namespace, depth)
   if not node then
     return
   end
 
-  -- Prevent infinite recursion from circular references
-  if type(node) == "table" then
-    if visited[node] then
-      return
-    end
-    visited[node] = true
+  -- Prevent infinite recursion with depth limit
+  depth = depth or 0
+  if depth > MAX_DEPTH then
+    return
   end
 
   if node.type == "namespace_eval" then
-    local new_namespace = current_namespace .. "::" .. node.name
+    local ns_name = node.name
+    if type(ns_name) ~= "string" then
+      return
+    end
+    local new_namespace = current_namespace .. "::" .. ns_name
     if current_namespace == "::" then
-      new_namespace = "::" .. node.name
+      new_namespace = "::" .. ns_name
     end
 
     -- Recurse with new namespace context
     if node.body and node.body.children then
       for _, child in ipairs(node.body.children) do
-        visit_node(child, refs, filepath, new_namespace)
+        visit_node(child, refs, filepath, new_namespace, depth + 1)
       end
     end
     return
@@ -95,7 +97,7 @@ local function visit_node(node, refs, filepath, current_namespace)
 
   if node.type == "namespace_export" then
     for _, export_name in ipairs(node.exports or {}) do
-      if export_name ~= "*" then
+      if type(export_name) == "string" and export_name ~= "*" then
         table.insert(refs, {
           type = "export",
           name = export_name,
@@ -109,24 +111,29 @@ local function visit_node(node, refs, filepath, current_namespace)
   end
 
   if node.type == "interp_alias" then
-    table.insert(refs, {
-      type = "export",
-      name = node.alias,
-      target = node.target,
-      file = filepath,
-      range = node.range,
-      text = "interp alias " .. (node.alias or "") .. " " .. (node.target or ""),
-    })
+    local alias = node.alias
+    local target = node.target
+    if type(alias) == "string" then
+      table.insert(refs, {
+        type = "export",
+        name = alias,
+        target = target,
+        file = filepath,
+        range = node.range,
+        text = "interp alias " .. (alias or "") .. " " .. (type(target) == "string" and target or ""),
+      })
+    end
   end
 
   if node.type == "command" then
     local cmd_name = node.name
     if cmd_name and type(cmd_name) == "string" and not BUILTINS[cmd_name] then
-      -- Safely build args text (only use string args)
+      -- Safely build args text (only use string args, limit count)
       local args_text = ""
-      if node.args then
+      if node.args and type(node.args) == "table" then
         local str_args = {}
-        for _, arg in ipairs(node.args) do
+        for i, arg in ipairs(node.args) do
+          if i > 5 then break end  -- Limit to first 5 args
           if type(arg) == "string" then
             table.insert(str_args, arg)
           end
@@ -147,43 +154,44 @@ local function visit_node(node, refs, filepath, current_namespace)
   -- Handle command_substitution nodes (e.g., [add 1 2] inside set)
   if node.type == "command_substitution" and node.command then
     local cmd = node.command
-    -- command is an array-like table: cmd[1] = name, cmd[2+] = args
-    local cmd_name = cmd[1]
-    if cmd_name and type(cmd_name) == "string" and not BUILTINS[cmd_name] then
-      -- Safely build args (only use string values)
-      local args = {}
-      for i = 2, math.min(#cmd, 10) do  -- Limit to first 10 args
-        if type(cmd[i]) == "string" then
-          table.insert(args, cmd[i])
+    if type(cmd) == "table" then
+      local cmd_name = cmd[1]
+      if cmd_name and type(cmd_name) == "string" and not BUILTINS[cmd_name] then
+        -- Safely build args (only use string values, limit count)
+        local args = {}
+        for i = 2, math.min(#cmd, 6) do
+          if type(cmd[i]) == "string" then
+            table.insert(args, cmd[i])
+          end
         end
+        table.insert(refs, {
+          type = "call",
+          name = cmd_name,
+          namespace = current_namespace,
+          file = filepath,
+          range = node.range,
+          text = cmd_name .. " " .. table.concat(args, " "),
+        })
       end
-      table.insert(refs, {
-        type = "call",
-        name = cmd_name,
-        namespace = current_namespace,
-        file = filepath,
-        range = node.range,
-        text = cmd_name .. " " .. table.concat(args, " "),
-      })
     end
   end
 
-  -- Check for command_substitution in set value
-  if node.type == "set" and type(node.value) == "table" then
-    visit_node(node.value, refs, filepath, current_namespace)
+  -- Check for command_substitution in set value (with type check)
+  if node.type == "set" and node.value and type(node.value) == "table" and node.value.type then
+    visit_node(node.value, refs, filepath, current_namespace, depth + 1)
   end
 
   -- Recurse into children
-  if node.children then
+  if node.children and type(node.children) == "table" then
     for _, child in ipairs(node.children) do
-      visit_node(child, refs, filepath, current_namespace)
+      visit_node(child, refs, filepath, current_namespace, depth + 1)
     end
   end
 
   -- Recurse into body (for procs)
-  if node.body and node.body.children then
+  if node.body and type(node.body) == "table" and node.body.children then
     for _, child in ipairs(node.body.children) do
-      visit_node(child, refs, filepath, current_namespace)
+      visit_node(child, refs, filepath, current_namespace, depth + 1)
     end
   end
 end
@@ -194,9 +202,7 @@ end
 ---@return table[] List of reference objects
 function M.extract_references(ast, filepath)
   local refs = {}
-  -- Reset visited table for each extraction
-  visited = {}
-  visit_node(ast, refs, filepath, "::")
+  visit_node(ast, refs, filepath, "::", 0)
   return refs
 end
 
