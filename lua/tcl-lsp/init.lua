@@ -68,6 +68,12 @@ function M.setup(user_config)
     vim.api.nvim_create_autocmd("VimLeavePre", {
       group = tcl_group,
       callback = function()
+        -- Stop indexer first to prevent it from starting new parser jobs
+        local indexer = require("tcl-lsp.analyzer.indexer")
+        if indexer.cleanup then
+          indexer.cleanup()
+        end
+        -- Then stop any running parser jobs
         local parser = require("tcl-lsp.parser")
         if parser.cleanup then
           parser.cleanup()

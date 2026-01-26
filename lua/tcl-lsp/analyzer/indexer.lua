@@ -20,6 +20,7 @@ M.state = {
   root_dir = nil,
   pending_refs = {}, -- ASTs stored for second pass reference extraction
   active_jobs = 0, -- Current number of running parse jobs
+  shutting_down = false, -- Set to true during cleanup to prevent new jobs
 }
 
 function M.reset()
@@ -31,7 +32,15 @@ function M.reset()
     root_dir = nil,
     pending_refs = {},
     active_jobs = 0,
+    shutting_down = false,
   }
+end
+
+-- Stop all indexing and prevent new jobs from starting
+function M.cleanup()
+  M.state.shutting_down = true
+  M.state.queued = {}
+  M.state.status = "idle"
 end
 
 function M.get_status()
@@ -173,6 +182,11 @@ end
 
 -- Called when a file finishes indexing
 local function on_file_complete()
+  -- Ignore callbacks if we're shutting down
+  if M.state.shutting_down then
+    return
+  end
+
   M.state.indexed_count = M.state.indexed_count + 1
   M.state.active_jobs = M.state.active_jobs - 1
 
@@ -192,6 +206,11 @@ end
 
 -- Fill available job slots with queued files
 function M.fill_job_slots()
+  -- Don't start new jobs if we're shutting down
+  if M.state.shutting_down then
+    return
+  end
+
   if M.state.status ~= "scanning" then
     return
   end
