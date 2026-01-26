@@ -3,6 +3,66 @@
 
 local M = {}
 
+--- Detect indentation style from code
+---@param code string The code to analyze
+---@return string style "spaces" or "tabs"
+---@return number size Indent size (spaces count or 1 for tabs)
+function M.detect_indent(code)
+  if not code or code == "" then
+    return "spaces", 4
+  end
+
+  local tab_count = 0
+  local space_counts = {}
+  local lines_checked = 0
+  local max_lines = 100
+
+  for line in code:gmatch("[^\n]+") do
+    if lines_checked >= max_lines then
+      break
+    end
+
+    -- Check for leading whitespace
+    local leading = line:match("^([ \t]+)")
+    if leading then
+      if leading:match("^\t") then
+        tab_count = tab_count + 1
+      else
+        local spaces = #leading
+        -- Only count likely indent levels (2, 4, 6, 8, etc.)
+        if spaces > 0 and spaces <= 16 then
+          space_counts[spaces] = (space_counts[spaces] or 0) + 1
+        end
+      end
+    end
+
+    lines_checked = lines_checked + 1
+  end
+
+  -- If tabs predominate, use tabs
+  if tab_count > 0 then
+    local total_spaces = 0
+    for _, count in pairs(space_counts) do
+      total_spaces = total_spaces + count
+    end
+    if tab_count >= total_spaces then
+      return "tabs", 1
+    end
+  end
+
+  -- Find most common space indent pattern
+  -- Check for 2-space indent pattern (lines with 2, 4, 6 spaces)
+  local two_space_score = (space_counts[2] or 0) + (space_counts[4] or 0) + (space_counts[6] or 0)
+  -- Check for 4-space indent pattern (lines with 4, 8, 12 spaces)
+  local four_space_score = (space_counts[4] or 0) + (space_counts[8] or 0) + (space_counts[12] or 0)
+
+  if two_space_score > four_space_score and two_space_score > 0 then
+    return "spaces", 2
+  end
+
+  return "spaces", 4
+end
+
 --- Format TCL code
 ---@param code string|nil The TCL code to format
 ---@param options table|nil Optional formatting options

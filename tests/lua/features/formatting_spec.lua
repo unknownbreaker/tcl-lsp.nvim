@@ -56,4 +56,41 @@ describe("Formatting Feature", function()
       assert.equals("puts hello\n", result)
     end)
   end)
+
+  describe("detect_indent", function()
+    it("should detect 4-space indent", function()
+      local code = "proc foo {} {\n    puts hello\n}"
+      local style, size = formatting.detect_indent(code)
+      assert.equals("spaces", style)
+      assert.equals(4, size)
+    end)
+
+    it("should detect 2-space indent", function()
+      local code = "proc foo {} {\n  puts hello\n}"
+      local style, size = formatting.detect_indent(code)
+      assert.equals("spaces", style)
+      assert.equals(2, size)
+    end)
+
+    it("should detect tab indent", function()
+      local code = "proc foo {} {\n\tputs hello\n}"
+      local style, size = formatting.detect_indent(code)
+      assert.equals("tabs", style)
+      assert.equals(1, size)
+    end)
+
+    it("should default to 4 spaces for no indentation", function()
+      local code = "puts hello"
+      local style, size = formatting.detect_indent(code)
+      assert.equals("spaces", style)
+      assert.equals(4, size)
+    end)
+
+    it("should detect 2-space from multiple lines", function()
+      local code = "proc foo {} {\n  line1\n  line2\n    nested\n}"
+      local style, size = formatting.detect_indent(code)
+      assert.equals("spaces", style)
+      assert.equals(2, size)
+    end)
+  end)
 end)
