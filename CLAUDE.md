@@ -6,7 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 tcl-lsp.nvim is a Language Server Protocol (LSP) implementation for TCL that integrates with Neovim. It provides intelligent code editing features for TCL/RVT files.
 
-**Current Status:** Phase 3 in progress - go-to-definition, find-references, hover, diagnostics, and rename complete.
+**Current Status:** Core LSP features implemented (definition, references, hover, diagnostics, rename, completion, formatting, folding, highlights, semantic tokens). Stub files (0 bytes) indicate planned features.
+
+## Session Start (REQUIRED)
+
+**Always invoke `/using-superpowers` at the start of every session.** This loads the skill routing system that ensures the correct workflow skills (TDD, debugging, brainstorming, code review, etc.) are used for each task.
 
 ## Progress Tracking (REQUIRED)
 
@@ -36,7 +40,7 @@ bd sync
 - Dependencies between tasks are tracked
 - Progress is visible via `bd stats`
 
-Use TodoWrite only for simple single-step tasks within a session. For anything multi-step, multi-session, or strategic: use beads.
+Do NOT use TodoWrite for task tracking. Use beads for everything.
 
 ## Commands
 
@@ -71,29 +75,9 @@ make format-lua    # Format Lua with stylua
 
 ### Two-Language Design
 
-The project uses TCL for parsing and Lua for Neovim integration:
+TCL handles parsing, Lua handles Neovim integration. They communicate via JSON: the TCL parser (`tcl/core/`) produces an AST serialized as JSON, and the Lua side (`lua/tcl-lsp/parser/ast.lua`) deserializes it for analysis. Stub files (0 bytes) indicate planned but unimplemented modules.
 
-```
-lua/tcl-lsp/           # Neovim plugin (Lua)
-├── init.lua           # Plugin entry, user commands, autocommands
-├── config.lua         # Configuration management
-├── server.lua         # LSP server lifecycle
-├── parser/            # Bridge to TCL parser (Phase 3)
-├── features/          # LSP features: completion, hover, diagnostics (stubs)
-└── actions/           # Code actions: rename, refactor (stubs)
-
-tcl/core/              # Parser implementation (TCL)
-├── tokenizer.tcl      # Token extraction
-└── ast/               # AST builder modules
-    ├── builder.tcl    # Main orchestrator, public API
-    ├── json.tcl       # JSON serialization
-    ├── utils.tcl      # Position tracking, ranges
-    └── parsers/       # Command-specific parsers
-        ├── procedures.tcl
-        ├── variables.tcl
-        ├── control_flow.tcl
-        └── ...
-```
+Key directories: `parser/` (TCL bridge + schema), `analyzer/` (indexing + symbol resolution), `features/` (LSP handlers), `actions/` (code actions).
 
 ### Public API
 
@@ -123,6 +107,39 @@ Each feature module in `lua/tcl-lsp/features/` follows this pattern:
 - `tests/integration/` - End-to-end tests
 
 Each TCL module has built-in self-tests runnable directly: `tclsh tcl/core/ast/json.tcl`
+
+## Development Workflow
+
+Schema-first, test-first, small-scope. One beads issue = one focused change.
+
+### For new features:
+
+1. **Plan** — `bd stats`, `bd ready`, create beads issues with dependencies
+2. **Schema** — Define data shapes in `parser/schema.lua` first, run `/validate-schema`
+3. **TDD** — Write failing tests, use `adversarial-tester` agent for edge cases, then implement until green
+4. **Review** — `/lint`, use `lua-reviewer` or `tcl-reviewer` agents, `make pre-commit`
+5. **Ship** — Commit, push, `bd sync`
+
+### Session close protocol:
+
+**Never skip this.** Work is not done until pushed.
+
+```bash
+git status                  # Check what changed
+git add <files>             # Stage code changes
+bd sync                     # Commit beads changes
+git commit -m "feat: ..."   # Commit code
+bd sync                     # Commit any new beads changes
+git push                    # Push to remote
+```
+
+## Known Gotchas
+
+- **Indexer must stop before parser cleanup on quit.** Otherwise Neovim hangs on exit because the indexer holds references to the parser process.
+- **Background indexer is disabled by default.** Enabling it caused UI lag. Any background processing must be carefully throttled.
+- **AST traversal needs depth limits.** The ref_extractor hit infinite recursion on deeply nested/circular structures. Always guard recursive AST walks with a depth limit.
+- **`var_name` in AST nodes can be a table, not just a string.** The extractor must handle both types. Don't assume string.
+- **Same-file references need a fallback path.** Cross-file reference resolution can fail; always fall back to same-file search.
 
 ## Development Notes
 
