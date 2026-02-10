@@ -160,14 +160,9 @@ function M.handle_hover(bufnr, line, col)
   -- Extract variable name from TCL syntax
   word = extract_variable_name(word)
 
-  -- Get buffer content and parse
-  local content = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  if #content == 0 then
-    return nil
-  end
-
-  local parser = require("tcl-lsp.parser")
-  local ast, _ = parser.parse(table.concat(content, "\n"))
+  -- Parse buffer (cached by changedtick)
+  local cache = require("tcl-lsp.utils.cache")
+  local ast, _ = cache.parse(bufnr)
   if not ast then
     return nil
   end
@@ -208,6 +203,7 @@ function M.handle_hover(bufnr, line, col)
     -- Extract doc comment from source lines
     local doc_comment = nil
     if symbol.range and symbol.range.start then
+      local content = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       doc_comment = docs.extract_comments(content, symbol.range.start.line)
     end
     return M.format_proc_hover(symbol, doc_comment)

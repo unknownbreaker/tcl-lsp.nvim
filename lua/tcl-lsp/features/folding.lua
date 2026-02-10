@@ -4,8 +4,6 @@
 
 local M = {}
 
-local parser = require "tcl-lsp.parser"
-
 --- Foldable node types (mirrors TCL ::ast::folding::is_foldable)
 local FOLDABLE_TYPES = {
   proc = true,
@@ -21,17 +19,18 @@ local FOLDABLE_TYPES = {
   oo_method = true,
 }
 
---- Get folding ranges from TCL code
----@param code string|nil The TCL code
+--- Get folding ranges from a buffer
+---@param bufnr number Buffer number
 ---@param filepath string|nil Optional filepath
 ---@return table[] Array of FoldingRange objects
-function M.get_folding_ranges(code, filepath)
-  if not code or code == "" then
+function M.get_folding_ranges(bufnr, filepath)
+  if not bufnr then
     return {}
   end
 
-  -- Parse the code to get AST
-  local ast, err = parser.parse(code, filepath)
+  -- Parse the buffer (cached by changedtick)
+  local cache = require("tcl-lsp.utils.cache")
+  local ast, err = cache.parse(bufnr, filepath)
   if not ast then
     return {}
   end

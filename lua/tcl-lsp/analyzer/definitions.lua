@@ -159,10 +159,9 @@ function M.find_definition(bufnr, line, col)
   -- Extract variable name from TCL syntax ($var, ${var}, $arr(key), etc.)
   word = extract_variable_name(word)
 
-  -- Get buffer content and parse
-  local content = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local parser = require("tcl-lsp.parser")
-  local ast, err = parser.parse(table.concat(content, "\n"))
+  -- Parse buffer (cached by changedtick)
+  local cache = require("tcl-lsp.utils.cache")
+  local ast, err = cache.parse(bufnr)
   if not ast then
     return nil
   end

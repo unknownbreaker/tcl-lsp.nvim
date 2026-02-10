@@ -30,20 +30,22 @@ function M.handle_semantic_tokens(bufnr)
     return { data = {} }
   end
 
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local code = table.concat(lines, "\n")
   local filepath = vim.api.nvim_buf_get_name(bufnr)
   local filetype = vim.bo[bufnr].filetype
-
-  -- Handle empty buffers
-  if code == "" or #lines == 0 then
-    return { data = {} }
-  end
+  local cache = require("tcl-lsp.utils.cache")
 
   local all_tokens = {}
 
   if filetype == "rvt" then
     -- RVT files: extract TCL blocks and process each separately
+    -- Individual block parses stay uncached (synthetic code snippets)
+    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    local code = table.concat(lines, "\n")
+
+    if code == "" or #lines == 0 then
+      return { data = {} }
+    end
+
     local rvt = require("tcl-lsp.parser.rvt")
     local blocks = rvt.find_blocks(code)
 
@@ -51,15 +53,8 @@ function M.handle_semantic_tokens(bufnr)
       local ast = parser.parse(block.code, filepath)
       if ast then
         local tokens = semantic_tokens.extract_tokens(ast)
-        -- Offset tokens by block position
-        -- Parser returns 1-indexed lines, RVT block positions are also 1-indexed
-        -- Token line 1 from parser corresponds to block.start_line in file
         for _, token in ipairs(tokens) do
-          -- Line offset: token.line 1 -> block.start_line
           token.line = token.line + block.start_line - 1
-          -- Note: After line offset, token.line == block.start_line is only true
-          -- when original token.line was 1 (first line of block). This is when we
-          -- need to apply column offset since the block may not start at column 0.
           if token.line == block.start_line then
             token.start_char = token.start_char + block.start_col - 1
           end
@@ -68,11 +63,12 @@ function M.handle_semantic_tokens(bufnr)
       end
     end
   else
-    -- Regular TCL files: parse entire content
-    local ast = parser.parse(code, filepath)
-    if ast then
-      all_tokens = semantic_tokens.extract_tokens(ast)
+    -- Regular TCL files: parse entire content (cached by changedtick)
+    local ast = cache.parse(bufnr, filepath)
+    if not ast then
+      return { data = {} }
     end
+    all_tokens = semantic_tokens.extract_tokens(ast)
   end
 
   return { data = semantic_tokens.encode_tokens(all_tokens) }

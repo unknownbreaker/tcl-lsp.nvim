@@ -120,10 +120,9 @@ function M.handle_references(bufnr, line, col)
     word = word:sub(2)
   end
 
-  -- Get buffer content and parse
-  local content = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local parser = require("tcl-lsp.parser")
-  local ast, err = parser.parse(table.concat(content, "\n"))
+  -- Parse buffer (cached by changedtick)
+  local cache = require("tcl-lsp.utils.cache")
+  local ast, err = cache.parse(bufnr)
   if not ast then
     return nil
   end

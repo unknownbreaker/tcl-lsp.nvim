@@ -28,7 +28,9 @@ describe("Diagnostics Feature - Adversarial Tests", function()
 
   before_each(function()
     -- Reload modules to get clean state
+    -- Cache must be cleared so it picks up the fresh parser reference
     package.loaded["tcl-lsp.features.diagnostics"] = nil
+    package.loaded["tcl-lsp.utils.cache"] = nil
     package.loaded["tcl-lsp.parser"] = nil
     diagnostics = require("tcl-lsp.features.diagnostics")
     parser = require("tcl-lsp.parser")

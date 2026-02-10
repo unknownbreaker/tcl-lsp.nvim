@@ -140,6 +140,7 @@ git push                    # Push to remote
 - **AST traversal needs depth limits.** The ref_extractor hit infinite recursion on deeply nested/circular structures. Always guard recursive AST walks with a depth limit.
 - **`var_name` in AST nodes can be a table, not just a string.** The extractor must handle both types. Don't assume string.
 - **Same-file references need a fallback path.** Cross-file reference resolution can fail; always fall back to same-file search.
+- **AST cache keys on changedtick.** Features should use `cache.parse(bufnr)` instead of `parser.parse(code)` for buffer-based operations. The parser module stays pure (no buffer awareness) for testing and file-based parsing. Tests that mock `parser.parse_with_errors` must also clear `package.loaded["tcl-lsp.utils.cache"]` so the cache picks up the fresh parser reference.
 
 ## Development Notes
 

@@ -1,7 +1,6 @@
 -- lua/tcl-lsp/features/completion.lua
 -- Context-aware autocompletion for TCL/RVT files
 
-local parser = require("tcl-lsp.parser")
 local extractor = require("tcl-lsp.analyzer.extractor")
 local builtins = require("tcl-lsp.data.builtins")
 local packages = require("tcl-lsp.data.packages")
@@ -56,12 +55,13 @@ function M.detect_context(line_text, col)
   return "command"
 end
 
---- Extract symbols from code for completion
----@param code string TCL source code
+--- Extract symbols from buffer for completion
+---@param bufnr number Buffer number
 ---@param filepath string File path
 ---@return table List of symbols
-function M.get_file_symbols(code, filepath)
-  local ast = parser.parse(code, filepath)
+function M.get_file_symbols(bufnr, filepath)
+  local cache = require("tcl-lsp.utils.cache")
+  local ast = cache.parse(bufnr, filepath)
   if not ast then
     return {}
   end
@@ -70,21 +70,23 @@ function M.get_file_symbols(code, filepath)
 end
 
 --- Get all completions for the given position
----@param code string Full buffer content
+---@param bufnr number Buffer number
 ---@param line number Line number (1-indexed)
 ---@param col number Column number (0-indexed)
 ---@param filepath string File path
 ---@return table List of completion items
-function M.get_completions(code, line, col, filepath)
+function M.get_completions(bufnr, line, col, filepath)
   local items = {}
-  local lines = vim.split(code, "\n", { plain = true })
-  local line_text = lines[line] or ""
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local code = table.concat(lines, "\n")
+  local all_lines = vim.split(code, "\n", { plain = true })
+  local line_text = all_lines[line] or ""
 
   -- Detect context
   local context = M.detect_context(line_text, col)
 
   -- Get symbols from current file
-  local file_symbols = M.get_file_symbols(code, filepath)
+  local file_symbols = M.get_file_symbols(bufnr, filepath)
 
   -- Get symbols from index (project-wide)
   local index_symbols = {}
@@ -175,14 +177,12 @@ function M.omnifunc(findstart, base)
     end
 
     local bufnr = vim.api.nvim_get_current_buf()
-    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-    local code = table.concat(lines, "\n")
     local pos = vim.api.nvim_win_get_cursor(0)
     local line = pos[1]
     local col = pos[2]
     local filepath = vim.api.nvim_buf_get_name(bufnr)
 
-    local items = M.get_completions(code, line, col, filepath)
+    local items = M.get_completions(bufnr, line, col, filepath)
 
     -- Filter by base prefix
     if base and base ~= "" then

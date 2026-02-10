@@ -1,9 +1,21 @@
 -- tests/lua/features/completion_spec.lua
+
+--- Create a scratch buffer with given content and return bufnr
+---@param content string TCL code
+---@return number bufnr
+local function make_buf(content)
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  local lines = vim.split(content, "\n", { plain = true })
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  return bufnr
+end
+
 describe("completion", function()
   local completion
 
   before_each(function()
     package.loaded["tcl-lsp.features.completion"] = nil
+    package.loaded["tcl-lsp.utils.cache"] = nil
     completion = require("tcl-lsp.features.completion")
   end)
 
@@ -35,15 +47,15 @@ describe("completion", function()
 
   describe("get_file_symbols", function()
     it("extracts procs from code", function()
-      local code = [[
+      local bufnr = make_buf([[
 proc my_proc {arg1 arg2} {
   return $arg1
 }
 proc another_proc {} {
   puts "hello"
 }
-]]
-      local symbols = completion.get_file_symbols(code, "/test.tcl")
+]])
+      local symbols = completion.get_file_symbols(bufnr, "/test.tcl")
       local names = {}
       for _, sym in ipairs(symbols) do
         if sym.type == "proc" then
@@ -52,14 +64,15 @@ proc another_proc {} {
       end
       assert.is_true(names["my_proc"])
       assert.is_true(names["another_proc"])
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
     it("extracts variables from code", function()
-      local code = [[
+      local bufnr = make_buf([[
 set myvar "value"
 set another 123
-]]
-      local symbols = completion.get_file_symbols(code, "/test.tcl")
+]])
+      local symbols = completion.get_file_symbols(bufnr, "/test.tcl")
       local names = {}
       for _, sym in ipairs(symbols) do
         if sym.type == "variable" then
@@ -68,13 +81,14 @@ set another 123
       end
       assert.is_true(names["myvar"])
       assert.is_true(names["another"])
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
     it("returns empty list for invalid code", function()
-      local code = "this is not valid {{{ tcl"
-      local symbols = completion.get_file_symbols(code, "/test.tcl")
+      local bufnr = make_buf("this is not valid {{{ tcl")
+      local symbols = completion.get_file_symbols(bufnr, "/test.tcl")
       assert.is_table(symbols)
-      -- May be empty or contain partial results - just shouldn't crash
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
   end)
 
@@ -116,12 +130,15 @@ set another 123
 
   describe("get_completions", function()
     it("returns empty table for empty buffer", function()
-      local items = completion.get_completions("", 1, 0, "/test.tcl")
+      local bufnr = make_buf("")
+      local items = completion.get_completions(bufnr, 1, 0, "/test.tcl")
       assert.is_table(items)
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
     it("includes builtins in command context", function()
-      local items = completion.get_completions("pu", 1, 2, "/test.tcl")
+      local bufnr = make_buf("pu")
+      local items = completion.get_completions(bufnr, 1, 2, "/test.tcl")
       local has_puts = false
       for _, item in ipairs(items) do
         if item.label == "puts" then
@@ -130,13 +147,12 @@ set another 123
         end
       end
       assert.is_true(has_puts)
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
     it("filters to variables after $", function()
-      local code = [[set myvar "hello"
-puts $my]]
-      local items = completion.get_completions(code, 2, 8, "/test.tcl")
-      -- Should include myvar, exclude procs/builtins
+      local bufnr = make_buf('set myvar "hello"\nputs $my')
+      local items = completion.get_completions(bufnr, 2, 8, "/test.tcl")
       local found_var = false
       local found_builtin = false
       for _, item in ipairs(items) do
@@ -149,12 +165,12 @@ puts $my]]
       end
       assert.is_true(found_var)
       assert.is_false(found_builtin)
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
     it("filters to packages after package require", function()
-      local code = "package require ht"
-      local items = completion.get_completions(code, 1, 18, "/test.tcl")
-      -- Should include http, exclude procs/variables
+      local bufnr = make_buf("package require ht")
+      local items = completion.get_completions(bufnr, 1, 18, "/test.tcl")
       local found_http = false
       local found_proc = false
       for _, item in ipairs(items) do
@@ -167,12 +183,12 @@ puts $my]]
       end
       assert.is_true(found_http)
       assert.is_false(found_proc)
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
     it("includes procs from current file", function()
-      local code = [[proc my_helper {} { return 1 }
-my_]]
-      local items = completion.get_completions(code, 2, 3, "/test.tcl")
+      local bufnr = make_buf("proc my_helper {} { return 1 }\nmy_")
+      local items = completion.get_completions(bufnr, 2, 3, "/test.tcl")
       local found = false
       for _, item in ipairs(items) do
         if item.label == "my_helper" then
@@ -181,6 +197,7 @@ my_]]
         end
       end
       assert.is_true(found)
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
   end)
 
@@ -194,7 +211,6 @@ my_]]
 
   describe("omnifunc", function()
     it("returns start position when findstart=1", function()
-      -- Mock vim functions
       local original_fn = vim.fn
       vim.fn = setmetatable({
         getline = function()

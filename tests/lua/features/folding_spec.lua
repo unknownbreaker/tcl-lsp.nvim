@@ -3,11 +3,22 @@
 
 local helpers = require "tests.spec.test_helpers"
 
+--- Create a scratch buffer with given content and return bufnr
+---@param content string TCL code
+---@return number bufnr
+local function make_buf(content)
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  local lines = vim.split(content, "\n", { plain = true })
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  return bufnr
+end
+
 describe("Folding Feature", function()
   local folding
 
   before_each(function()
     package.loaded["tcl-lsp.features.folding"] = nil
+    package.loaded["tcl-lsp.utils.cache"] = nil
     folding = require("tcl-lsp.features.folding")
   end)
 
@@ -20,49 +31,50 @@ describe("Folding Feature", function()
 
   describe("get_folding_ranges", function()
     it("should return empty array for empty code", function()
-      local ranges = folding.get_folding_ranges("")
+      local bufnr = make_buf("")
+      local ranges = folding.get_folding_ranges(bufnr)
       assert.is_table(ranges)
       assert.equals(0, #ranges)
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
-    it("should return empty array for nil code", function()
+    it("should return empty array for nil bufnr", function()
       local ranges = folding.get_folding_ranges(nil)
       assert.is_table(ranges)
       assert.equals(0, #ranges)
     end)
 
     it("should return fold range for multi-line proc", function()
-      local code = [[proc foo {args} {
+      local bufnr = make_buf([[proc foo {args} {
     puts "hello"
     puts "world"
-}]]
-      local ranges = folding.get_folding_ranges(code)
+}]])
+      local ranges = folding.get_folding_ranges(bufnr)
       assert.is_table(ranges)
       assert.equals(1, #ranges)
       assert.equals("region", ranges[1].kind)
-      -- LSP uses 0-indexed lines
-      -- Parser returns 1-indexed lines, we subtract 1
-      -- Just verify the range spans multiple lines
       assert.is_true(ranges[1].endLine > ranges[1].startLine)
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
     it("should not fold single-line proc", function()
-      local code = [[proc foo {} { return 1 }]]
-      local ranges = folding.get_folding_ranges(code)
+      local bufnr = make_buf([[proc foo {} { return 1 }]])
+      local ranges = folding.get_folding_ranges(bufnr)
       assert.is_table(ranges)
       assert.equals(0, #ranges)
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
     it("should return multiple fold ranges for nested structures", function()
-      local code = [[proc outer {} {
+      local bufnr = make_buf([[proc outer {} {
     if {1} {
         puts "hello"
     }
-}]]
-      local ranges = folding.get_folding_ranges(code)
+}]])
+      local ranges = folding.get_folding_ranges(bufnr)
       assert.is_table(ranges)
-      -- Should have at least proc and if folds
       assert.is_true(#ranges >= 1)
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
   end)
 
@@ -200,7 +212,7 @@ describe("Folding Feature", function()
     end)
 
     it("should fold a complex TCL file", function()
-      helpers.write_file(test_file, [[
+      local content = [[
 # Header comment
 # More header info
 # Third line
@@ -217,15 +229,13 @@ namespace eval ::test {
         return 1
     }
 }
-]])
-      local content = helpers.read_file(test_file)
-      local ranges = folding.get_folding_ranges(content)
+]]
+      local bufnr = make_buf(content)
+      local ranges = folding.get_folding_ranges(bufnr)
 
       assert.is_table(ranges)
-      -- Should have comment block + main proc + if + namespace + helper
       assert.is_true(#ranges >= 3)
 
-      -- Check we have at least one comment and one region
       local has_comment = false
       local has_region = false
       for _, r in ipairs(ranges) do
@@ -238,6 +248,7 @@ namespace eval ::test {
       end
       assert.is_true(has_comment, "Should have at least one comment fold")
       assert.is_true(has_region, "Should have at least one region fold")
+      vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
   end)
 end)

@@ -9,6 +9,7 @@
       "Bash(nvim *)",
       "Bash(bd *)",
       "Bash(luacheck *)",
+      "Bash(luarocks *)",
       "Bash(stylua *)",
       "Bash(nagelfar *)",
       "Bash(luajit *)",

@@ -1,8 +1,6 @@
 -- lua/tcl-lsp/features/diagnostics.lua
 -- Diagnostics feature - surfaces parser syntax errors
 
-local parser = require("tcl-lsp.parser")
-
 local M = {}
 
 -- Diagnostic namespace (created in setup)
@@ -50,24 +48,16 @@ function M.check_buffer(bufnr)
     end
   end
 
-  -- Get buffer content
-  local lines_ok, lines = pcall(vim.api.nvim_buf_get_lines, bufnr, 0, -1, false)
-  if not lines_ok then
-    return
-  end
-
-  local content = table.concat(lines, "\n")
-
-  -- Get filepath (also protected)
+  -- Get filepath (protected)
   local filepath_ok, filepath = pcall(vim.api.nvim_buf_get_name, bufnr)
   if not filepath_ok then
     filepath = ""
   end
 
-  -- Parse and get errors (wrapped in pcall for safety)
-  local parse_ok, result = pcall(parser.parse_with_errors, content, filepath)
+  -- Parse buffer (cached by changedtick)
+  local cache = require("tcl-lsp.utils.cache")
+  local parse_ok, result = pcall(cache.parse_with_errors, bufnr, filepath)
   if not parse_ok then
-    -- Notify user about parser failure
     local err_msg = tostring(result)
     vim.schedule(function()
       if err_msg:match("timeout") then

@@ -64,11 +64,14 @@ function M.setup(user_config)
       end,
     })
 
-    -- Clean up async parser jobs on exit (prevents hang on quit)
+    -- Clean up on exit (prevents hang on quit)
     vim.api.nvim_create_autocmd("VimLeavePre", {
       group = tcl_group,
       callback = function()
-        -- Stop indexer first to prevent it from starting new parser jobs
+        -- Clear AST cache first
+        local cache = require("tcl-lsp.utils.cache")
+        cache.clear()
+        -- Stop indexer before parser to prevent new parser jobs
         local indexer = require("tcl-lsp.analyzer.indexer")
         if indexer.cleanup then
           indexer.cleanup()
@@ -78,6 +81,16 @@ function M.setup(user_config)
         if parser.cleanup then
           parser.cleanup()
         end
+      end,
+    })
+
+    -- Invalidate cache when buffer is deleted
+    vim.api.nvim_create_autocmd("BufDelete", {
+      group = tcl_group,
+      pattern = { "*.tcl", "*.rvt" },
+      callback = function(args)
+        local cache = require("tcl-lsp.utils.cache")
+        cache.invalidate(args.buf)
       end,
     })
 
@@ -178,9 +191,7 @@ M.version = "0.1.0-dev"
 -- Get folding ranges for current buffer (for testing and API)
 function M.get_folding_ranges(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local code = table.concat(lines, "\n")
-  return folding.get_folding_ranges(code)
+  return folding.get_folding_ranges(bufnr)
 end
 
 -- Format current buffer (for testing and API)
