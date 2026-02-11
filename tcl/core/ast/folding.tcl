@@ -153,7 +153,7 @@ proc ::ast::folding::is_foldable {node_type} {
         for
         while
         switch
-        namespace
+        namespace_eval
     }
     return [expr {$node_type in $foldable_types}]
 }

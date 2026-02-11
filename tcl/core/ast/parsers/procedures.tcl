@@ -85,7 +85,7 @@ proc ::ast::parsers::procedures::parse_proc {cmd_text start_line end_line depth}
     # If args_list was empty or whitespace, params is already [] from initialization
 
     # Recursively parse the procedure body for nested structures
-    set body_start_line [expr {$start_line + 1}]
+    set body_start_line $start_line
     set nested_nodes [::ast::find_all_nodes $body $body_start_line [expr {$depth + 1}]]
 
     set body_node [dict create children $nested_nodes]

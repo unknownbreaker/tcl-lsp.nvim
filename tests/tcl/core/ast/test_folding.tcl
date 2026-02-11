@@ -236,15 +236,15 @@ puts "Group 4: Line Number Conversion"
 puts "-----------------------------------------"
 
 test "startLine converted from parser" {
-    # The parser has a known off-by-one: it reports start_line=2 for first command
-    # Our folding module converts: (parser_line - 1) = 0-indexed LSP line
-    # So parser line 2 -> LSP line 1
+    # Parser reports start_line=1 for first command
+    # Folding converts: (parser_line - 1) = 0-indexed LSP line
+    # So parser line 1 -> LSP line 0
     set code "proc foo {} \{\n    puts \"hello\"\n\}"
     set ast [::ast::build $code]
     set ranges [::ast::folding::extract_ranges $ast]
     set range [lindex $ranges 0]
     dict get $range startLine
-} 1
+} 0
 
 test "endLine converted from parser" {
     # Parser reports end_line=3, folding converts to LSP: 3-1=2
@@ -281,9 +281,8 @@ test_count "Namespace eval - one fold" {
     ::ast::folding::extract_ranges $ast
 } 1
 
-test_count "Nested namespace - outer fold only" {
-    # Note: Parser stores namespace body as raw text, not parsed AST
-    # So inner namespace is not recursively parsed - only outer folds
+test_count "Nested namespace - outer and inner folds" {
+    # Namespace bodies are recursively parsed, so inner namespace folds too
     set code {namespace eval ::outer {
     namespace eval ::inner {
         proc foo {} { return 1 }
@@ -291,11 +290,10 @@ test_count "Nested namespace - outer fold only" {
 }}
     set ast [::ast::build $code]
     ::ast::folding::extract_ranges $ast
-} 1
+} 2
 
-test_count "Namespace with multi-line proc - outer fold only" {
-    # Note: Parser stores namespace body as raw text, not parsed AST
-    # Procs inside namespace body are not recursively parsed
+test_count "Namespace with multi-line proc - both fold" {
+    # Namespace bodies are recursively parsed, so the multi-line proc folds too
     set code {namespace eval ::myns {
     proc foo {} {
         puts "hello"
@@ -304,7 +302,7 @@ test_count "Namespace with multi-line proc - outer fold only" {
 }}
     set ast [::ast::build $code]
     ::ast::folding::extract_ranges $ast
-} 1
+} 2
 
 test_count "Single-line namespace - no fold" {
     set code {namespace eval ::myns { variable x 1 }}

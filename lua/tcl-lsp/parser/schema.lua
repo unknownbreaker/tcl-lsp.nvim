@@ -249,12 +249,21 @@ M.nodes = {
     },
   },
 
-  -- Namespace node
+  -- Namespace eval node (namespace eval name {body})
+  namespace_eval = {
+    fields = {
+      type = common.type_field,
+      name = { required = true, type = "string" },
+      body = { required = true, type = "any" },
+      range = common.range_field,
+      depth = common.depth_field,
+    },
+  },
+
+  -- Generic namespace node (for unrecognized subcommands)
   namespace = {
     fields = {
       type = common.type_field,
-      name = { required = false, type = "string" },
-      body = { required = false, type = "any" },
       subcommand = { required = false, type = "string" },
       range = common.range_field,
       depth = common.depth_field,
@@ -275,7 +284,7 @@ M.nodes = {
   namespace_export = {
     fields = {
       type = common.type_field,
-      patterns = { required = true, type = "array" },
+      exports = { required = true, type = "array" },
       range = common.range_field,
       depth = common.depth_field,
     },

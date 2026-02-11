@@ -14,7 +14,7 @@ local FOLDABLE_TYPES = {
   ["for"] = true,
   ["while"] = true,
   switch = true,
-  namespace = true,
+  namespace_eval = true,
   oo_class = true,
   oo_method = true,
 }

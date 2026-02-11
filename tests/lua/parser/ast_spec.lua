@@ -350,7 +350,7 @@ namespace eval MyNamespace {
 
       assert.is_nil(err, "Should parse namespace")
       local ns_node = ast.children[1]
-      assert.equals("namespace", ns_node.type)
+      assert.equals("namespace_eval", ns_node.type)
       assert.equals("MyNamespace", ns_node.name)
       assert.is_table(ns_node.body)
     end)

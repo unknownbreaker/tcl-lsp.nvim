@@ -28,7 +28,7 @@ proc ::ast::parsers::control_flow::parse_if {cmd_text start_line end_line depth}
     # Get then body and recursively parse it
     set then_body_token [::tokenizer::get_token $cmd_text 2]
     set then_body_text [::ast::delimiters::strip_outer $then_body_token]
-    set then_children [::ast::find_all_nodes $then_body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+    set then_children [::ast::find_all_nodes $then_body_text $start_line [expr {$depth + 1}]]
     set then_body [dict create children $then_children]
 
     # Initialize result
@@ -53,7 +53,7 @@ proc ::ast::parsers::control_flow::parse_if {cmd_text start_line end_line depth}
                 set elseif_condition [::tokenizer::get_token $cmd_text [expr {$i + 1}]]
                 set elseif_body_token [::tokenizer::get_token $cmd_text [expr {$i + 2}]]
                 set elseif_body_text [::ast::delimiters::strip_outer $elseif_body_token]
-                set elseif_children [::ast::find_all_nodes $elseif_body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+                set elseif_children [::ast::find_all_nodes $elseif_body_text $start_line [expr {$depth + 1}]]
 
                 lappend elseif_branches [dict create \
                     condition $elseif_condition \
@@ -68,7 +68,7 @@ proc ::ast::parsers::control_flow::parse_if {cmd_text start_line end_line depth}
             if {$i + 1 < $word_count} {
                 set else_body_token [::tokenizer::get_token $cmd_text [expr {$i + 1}]]
                 set else_body_text [::ast::delimiters::strip_outer $else_body_token]
-                set else_children [::ast::find_all_nodes $else_body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+                set else_children [::ast::find_all_nodes $else_body_text $start_line [expr {$depth + 1}]]
                 set else_body [dict create children $else_children]
             }
             break
@@ -108,7 +108,7 @@ proc ::ast::parsers::control_flow::parse_while {cmd_text start_line end_line dep
     # Get body and recursively parse it
     set body_token [::tokenizer::get_token $cmd_text 2]
     set body_text [::ast::delimiters::strip_outer $body_token]
-    set body_children [::ast::find_all_nodes $body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+    set body_children [::ast::find_all_nodes $body_text $start_line [expr {$depth + 1}]]
     set body [dict create children $body_children]
 
     return [dict create \
@@ -138,7 +138,7 @@ proc ::ast::parsers::control_flow::parse_for {cmd_text start_line end_line depth
     # Get body and recursively parse it
     set body_token [::tokenizer::get_token $cmd_text 4]
     set body_text [::ast::delimiters::strip_outer $body_token]
-    set body_children [::ast::find_all_nodes $body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+    set body_children [::ast::find_all_nodes $body_text $start_line [expr {$depth + 1}]]
     set body [dict create children $body_children]
 
     return [dict create \
@@ -169,7 +169,7 @@ proc ::ast::parsers::control_flow::parse_foreach {cmd_text start_line end_line d
     # Get body and recursively parse it
     set body_token [::tokenizer::get_token $cmd_text 3]
     set body_text [::ast::delimiters::strip_outer $body_token]
-    set body_children [::ast::find_all_nodes $body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+    set body_children [::ast::find_all_nodes $body_text $start_line [expr {$depth + 1}]]
     set body [dict create children $body_children]
 
     return [dict create \
@@ -230,7 +230,7 @@ proc ::ast::parsers::control_flow::parse_switch {cmd_text start_line end_line de
 
         # Recursively parse the case body
         set body_text [::ast::delimiters::strip_outer $body_token]
-        set body_children [::ast::find_all_nodes $body_text [expr {$start_line + 1}] [expr {$depth + 1}]]
+        set body_children [::ast::find_all_nodes $body_text $start_line [expr {$depth + 1}]]
 
         lappend cases [dict create \
             pattern $pattern \

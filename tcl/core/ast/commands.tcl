@@ -32,7 +32,7 @@ proc ::ast::commands::extract {code start_line} {
     set line_num 0
 
     set current_cmd ""
-    set cmd_start_line $start_line
+    set cmd_start_line 0
     set brace_depth 0
     set in_quotes 0
 
