@@ -124,7 +124,7 @@ These are load-bearing. Violating any one breaks the system.
 
 ## Key Patterns
 
-**Feature module** (`features/*.lua`): `M.setup()` creates user command + FileType autocmd with buffer-local keymap. `M.handle_<action>(bufnr, line, col)` delegates to analyzer. Pattern: setup → autocmd → keymap → handle → analyzer → cache → parser.
+**Feature module** (`features/*.lua`): `M.setup()` creates user command + FileType autocmd with buffer-local keymap. `M.handle_<action>(bufnr, line, col)` delegates to analyzer. Features are client-side (user commands operating on the AST directly), not LSP server request handlers. Pattern: setup → autocmd → keymap → handle → analyzer → cache → parser.
 
 **AST traversal** (`analyzer/*.lua`): Recursive `visit_node(node, results, filepath, namespace, depth)` with depth guard. MUST recurse into BOTH `node.children` AND `node.body.children` (procs store body separately).
 
