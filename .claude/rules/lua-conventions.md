@@ -14,6 +14,34 @@ function M.public_function() end
 return M
 ```
 
+## Lazy Loading for Circular Dependencies
+
+When module A needs module B at runtime but B also depends on A during load, use deferred require:
+
+```lua
+-- parser/ast.lua (real example: ast needs validator, validator needs ast's types)
+local validator_loaded = false
+local validator = nil
+
+local function get_validator()
+  if not validator_loaded then
+    validator_loaded = true
+    local ok, v = pcall(require, "tcl-lsp.parser.validator")
+    if ok then
+      validator = v
+    end
+  end
+  return validator
+end
+```
+
+**When to use:** Only for actual circular dependency chains. If there's no cycle, use normal top-level `require`.
+
+**Key details:**
+- The `loaded` flag ensures `require` is called at most once (even if it fails)
+- `pcall` prevents crashes if the dependency is missing or errors during load
+- Call `get_validator()` at the point of use, not at module load time
+
 ## Feature Pattern
 
 Each feature in `features/` follows this structure:
