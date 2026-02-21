@@ -144,7 +144,7 @@ TCL test: `tclsh tests/tcl/core/ast/test_<module>.tcl`
 
 ## More Info
 
-- Workflow, beads, session protocols: `DEVELOPMENT.md`
+- Workflow and session protocols: `DEVELOPMENT.md`
 - Design docs: `docs/plans/`
 - Lua conventions: `.claude/rules/lua-conventions.md`
 - TCL conventions: `.claude/rules/tcl-conventions.md`
