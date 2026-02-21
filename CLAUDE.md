@@ -47,12 +47,14 @@ lua/tcl-lsp/
 ├── config.lua                ← config defaults, validation, deep merge
 ├── server.lua                ← LSP client lifecycle (start/stop/restart)
 ├── parser/
+│   ├── init.lua              ← re-exports ast/schema/validator for convenience
 │   ├── ast.lua               ← spawns tclsh, parses JSON (sync + async)
 │   ├── schema.lua            ← AST node type definitions (27 types)
 │   ├── validator.lua         ← validates AST against schema
 │   ├── scope.lua             ← scope analysis
 │   └── rvt.lua               ← Rivet template support
 ├── analyzer/
+│   ├── visitor.lua           ← shared AST walk (depth guard, namespace tracking)
 │   ├── definitions.lua       ← find_definition(bufnr, line, col)
 │   ├── references.lua        ← find_references(bufnr, line, col)
 │   ├── extractor.lua         ← extract symbol definitions from AST
@@ -62,6 +64,7 @@ lua/tcl-lsp/
 │   ├── index.lua             ← symbol index storage
 │   └── docs.lua              ← documentation extraction
 ├── features/                 ← each has M.setup() → autocmd → handle_<action>
+│   ├── _template.lua         ← reference template for new features (not loaded)
 │   ├── definition.lua        ← gd keybind
 │   ├── references.lua        ← find all references
 │   ├── hover.lua             ← hover information
@@ -72,6 +75,10 @@ lua/tcl-lsp/
 │   ├── folding.lua           ← fold ranges
 │   └── highlights.lua        ← semantic highlighting
 ├── utils/
+│   ├── limits.lua            ← centralized constants (MAX_DEPTH, PARSER_TIMEOUT_MS)
+│   ├── namespace.lua         ← namespace qualification helper
+│   ├── notify.lua            ← safe vim.notify wrapper (always vim.schedule)
+│   ├── buffer.lua            ← buffer validation helper
 │   ├── cache.lua             ← AST cache keyed on changedtick
 │   └── variable.lua          ← shared var_name type-checking + extraction
 └── data/

@@ -5,6 +5,7 @@ local M = {}
 
 local semantic_tokens = require("tcl-lsp.analyzer.semantic_tokens")
 local parser = require("tcl-lsp.parser")
+local buffer = require("tcl-lsp.utils.buffer")
 
 --- Get LSP server capabilities for semantic tokens
 ---@return table capabilities Semantic tokens provider configuration
@@ -26,7 +27,7 @@ end
 ---@return table result LSP SemanticTokens response with data array
 function M.handle_semantic_tokens(bufnr)
   -- Validate buffer
-  if not vim.api.nvim_buf_is_valid(bufnr) then
+  if not buffer.is_valid(bufnr) then
     return { data = {} }
   end
 

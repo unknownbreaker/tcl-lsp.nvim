@@ -4,6 +4,7 @@
 local M = {}
 
 local index = require("tcl-lsp.analyzer.index")
+local notify = require("tcl-lsp.utils.notify")
 
 --- Validate a new symbol name
 ---@param name string The proposed new name
@@ -189,12 +190,12 @@ local function execute_rename(new_name)
             if refs then
               local edit = M.prepare_workspace_edit(refs, old_word, name)
               vim.lsp.util.apply_workspace_edit(edit, "utf-8")
-              vim.notify(string.format("Renamed '%s' to '%s'", old_word, name), vim.log.levels.INFO)
+              notify.notify(string.format("Renamed '%s' to '%s'", old_word, name))
             end
           end
         end)
       else
-        vim.notify("Rename failed: " .. result.error, vim.log.levels.ERROR)
+        notify.notify("Rename failed: " .. result.error, vim.log.levels.ERROR)
       end
       return
     end
@@ -204,10 +205,9 @@ local function execute_rename(new_name)
 
     -- Count affected files
     local file_count = vim.tbl_count(result.workspace_edit.changes or {})
-    vim.notify(
+    notify.notify(
       string.format("Renamed '%s' to '%s' in %d files (%d occurrences)",
-        result.old_name, result.new_name, file_count, result.count),
-      vim.log.levels.INFO
+        result.old_name, result.new_name, file_count, result.count)
     )
   end
 

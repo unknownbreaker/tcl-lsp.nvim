@@ -137,7 +137,8 @@ function M.combine_modifiers(modifier_names)
   return result
 end
 
-local MAX_DEPTH = 50
+local limits = require("tcl-lsp.utils.limits")
+local MAX_DEPTH = limits.MAX_DEPTH
 
 -- Extract semantic tokens from AST
 function M.extract_tokens(ast)

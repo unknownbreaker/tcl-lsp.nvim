@@ -4,6 +4,8 @@
 local M = {}
 
 local definitions = require("tcl-lsp.analyzer.definitions")
+local buffer = require("tcl-lsp.utils.buffer")
+local notify = require("tcl-lsp.utils.notify")
 
 --- Handle go-to-definition request
 ---@param bufnr number Buffer number
@@ -11,7 +13,7 @@ local definitions = require("tcl-lsp.analyzer.definitions")
 ---@param col number Column number (0-indexed)
 ---@return table|nil LSP location format: { uri, range }, or nil if not found
 function M.handle_definition(bufnr, line, col)
-  if not vim.api.nvim_buf_is_valid(bufnr) then
+  if not buffer.is_valid(bufnr) then
     return nil
   end
   return definitions.find_definition(bufnr, line + 1, col + 1)
@@ -44,7 +46,7 @@ function M.setup()
       -- Jump to position
       vim.api.nvim_win_set_cursor(0, { target_line, target_col })
     else
-      vim.notify("No definition found", vim.log.levels.INFO)
+      notify.notify("No definition found")
     end
   end, { desc = "Go to TCL definition" })
 

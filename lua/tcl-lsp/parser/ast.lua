@@ -152,8 +152,8 @@ local function get_parser_script_path()
   return nil
 end
 
--- Default parser timeout in milliseconds (10 seconds)
-local PARSER_TIMEOUT_MS = 10000
+local limits = require("tcl-lsp.utils.limits")
+local PARSER_TIMEOUT_MS = limits.PARSER_TIMEOUT_MS
 
 -- Track active async jobs for cleanup on exit
 local active_jobs = {}
