@@ -48,9 +48,8 @@ lua/tcl-lsp/
 ├── server.lua                ← LSP client lifecycle (start/stop/restart)
 ├── parser/
 │   ├── ast.lua               ← spawns tclsh, parses JSON (sync + async)
-│   ├── schema.lua            ← AST node type definitions (25 types)
+│   ├── schema.lua            ← AST node type definitions (27 types)
 │   ├── validator.lua         ← validates AST against schema
-│   ├── symbols.lua           ← symbol extraction from AST
 │   ├── scope.lua             ← scope analysis
 │   └── rvt.lua               ← Rivet template support
 ├── analyzer/
@@ -72,11 +71,12 @@ lua/tcl-lsp/
 │   ├── formatting.lua        ← code formatting
 │   ├── folding.lua           ← fold ranges
 │   └── highlights.lua        ← semantic highlighting
-├── actions/                  ← code actions (rename, refactor, cleanup)
 ├── utils/
 │   ├── cache.lua             ← AST cache keyed on changedtick
-│   └── logger.lua, helpers.lua
-└── data/packages.lua         ← built-in TCL package database
+│   └── variable.lua          ← shared var_name type-checking + extraction
+└── data/
+    ├── builtins.lua           ← builtin command list + O(1) lookup
+    └── packages.lua           ← built-in TCL package database
 
 tcl/core/
 ├── parser.tcl                ← ENTRY: reads file, ::ast::build, outputs JSON
@@ -105,7 +105,7 @@ Every AST node is a Lua table (deserialized from JSON) with at minimum:
 Root adds: `filepath`, `children[]`, `comments`, `had_error` (0|1), `errors[]`
 Proc adds: `name`, `params[]` ({name, default?, is_varargs?}), `body.children[]`
 Set adds: `var_name`, `value`. Namespace_eval adds: `name`, `body`.
-Command (fallback): `name`, `args[]`. Full schema (25 types): `parser/schema.lua`
+Command (fallback): `name`, `args[]`. Full schema (27 types): `parser/schema.lua`
 
 **CRITICAL: `var_name` can be a string OR a table** (for array access like `arr($key)`). Every code path reading `var_name` must type-check first. This is the #1 bug source.
 
@@ -117,7 +117,7 @@ These are load-bearing. Violating any one breaks the system.
 2. **AST depth limit**: Every recursive `visit_node` MUST guard `depth > MAX_DEPTH`. Infinite recursion without it.
 3. **Parser purity**: `parser/ast.lua` takes code strings, never buffers. Buffer-aware parsing → `utils/cache.lua`.
 4. **Cache key**: changedtick, not content. Tests mocking `parser.parse_with_errors` must clear `package.loaded["tcl-lsp.utils.cache"]`.
-5. **var_name type**: String or table. Always type-check. (See AST Contract.)
+5. **var_name type**: String or table. Use `variable.safe_var_name()` from `utils/variable.lua`. (See AST Contract.)
 6. **Same-file fallback**: Cross-file ref resolution can fail. Always fall back to same-file search.
 7. **TCL load order**: `parser_utils.tcl` loads LAST in builder.tcl (references other parser functions).
 8. **Indexer off by default**: Background indexing causes UI lag. Must explicitly enable via `config.indexer.enabled`.
