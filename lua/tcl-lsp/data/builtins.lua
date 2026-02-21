@@ -1,8 +1,10 @@
---- Static list of TCL builtin commands for completion
+--- Static list of TCL builtin commands for completion and lookup
 --- @module tcl-lsp.data.builtins
 
+local M = {}
+
 -- stylua: ignore
-return {
+M.list = {
   -- I/O commands
   { name = "puts", type = "builtin" },
   { name = "gets", type = "builtin" },
@@ -162,3 +164,11 @@ return {
   { name = "auto_import", type = "builtin" },
   { name = "memory", type = "builtin" },
 }
+
+-- Auto-generated O(1) lookup: builtins.is_builtin["puts"] == true
+M.is_builtin = {}
+for _, item in ipairs(M.list) do
+  M.is_builtin[item.name] = true
+end
+
+return M

@@ -140,7 +140,7 @@ function M.get_completions(bufnr, line, col, filepath)
         table.insert(items, M.build_completion_item(sym))
       end
     end
-    for _, builtin in ipairs(builtins) do
+    for _, builtin in ipairs(builtins.list) do
       table.insert(items, M.build_completion_item(builtin))
     end
   end

@@ -3,64 +3,7 @@
 
 local M = {}
 
--- TCL built-in commands to skip (not user-defined procs)
-local BUILTINS = {
-  set = true,
-  puts = true,
-  expr = true,
-  ["if"] = true,
-  ["else"] = true,
-  ["for"] = true,
-  foreach = true,
-  ["while"] = true,
-  switch = true,
-  proc = true,
-  ["return"] = true,
-  ["break"] = true,
-  continue = true,
-  catch = true,
-  try = true,
-  throw = true,
-  error = true,
-  list = true,
-  lindex = true,
-  llength = true,
-  lappend = true,
-  lsort = true,
-  lsearch = true,
-  lrange = true,
-  lreplace = true,
-  string = true,
-  regexp = true,
-  regsub = true,
-  split = true,
-  join = true,
-  array = true,
-  dict = true,
-  incr = true,
-  append = true,
-  open = true,
-  close = true,
-  read = true,
-  gets = true,
-  eof = true,
-  file = true,
-  glob = true,
-  cd = true,
-  pwd = true,
-  package = true,
-  namespace = true,
-  variable = true,
-  global = true,
-  upvar = true,
-  info = true,
-  rename = true,
-  interp = true,
-  source = true,
-  after = true,
-  update = true,
-  vwait = true,
-}
+local builtins = require("tcl-lsp.data.builtins")
 
 -- Max recursion depth to prevent infinite loops
 local MAX_DEPTH = 50
@@ -127,7 +70,7 @@ local function visit_node(node, refs, filepath, current_namespace, depth)
 
   if node.type == "command" then
     local cmd_name = node.name
-    if cmd_name and type(cmd_name) == "string" and not BUILTINS[cmd_name] then
+    if cmd_name and type(cmd_name) == "string" and not builtins.is_builtin[cmd_name] then
       -- Safely build args text (only use string args, limit count)
       local args_text = ""
       if node.args and type(node.args) == "table" then
@@ -156,7 +99,7 @@ local function visit_node(node, refs, filepath, current_namespace, depth)
     local cmd = node.command
     if type(cmd) == "table" then
       local cmd_name = cmd[1]
-      if cmd_name and type(cmd_name) == "string" and not BUILTINS[cmd_name] then
+      if cmd_name and type(cmd_name) == "string" and not builtins.is_builtin[cmd_name] then
         -- Safely build args (only use string values, limit count)
         local args = {}
         for i = 2, math.min(#cmd, 6) do
