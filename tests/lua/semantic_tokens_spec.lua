@@ -172,6 +172,35 @@ puts $name]]
     end)
   end)
 
+  describe("Depth Guard", function()
+    it("should not crash on deeply nested AST", function()
+      -- Build an AST nested 100 levels deep (exceeds MAX_DEPTH=50)
+      local node = { type = "root", children = {} }
+      local current = node
+      for i = 1, 100 do
+        local child = {
+          type = "proc",
+          name = "fn" .. i,
+          params = {},
+          body = { children = {} },
+          range = { start = { line = i, column = 1 }, end_pos = { line = i, column = 10 } },
+        }
+        table.insert(current.children or current.body.children, child)
+        current = child
+      end
+
+      -- Should not error or hang
+      local tokens = semantic_tokens.extract_tokens(node)
+      assert.is_table(tokens)
+      -- Should have some but not all 100 proc tokens (stops at depth 50)
+      local func_tokens = vim.tbl_filter(function(t)
+        return t.type == semantic_tokens.token_types.function_
+      end, tokens)
+      assert.is_true(#func_tokens < 100)
+      assert.is_true(#func_tokens > 0)
+    end)
+  end)
+
   describe("LSP Encoding", function()
     it("should encode tokens to LSP format (relative positions)", function()
       local tokens = {

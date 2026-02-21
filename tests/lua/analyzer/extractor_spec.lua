@@ -184,5 +184,28 @@ describe("Symbol Extractor", function()
       assert.equals("y", symbols[1].params[2].name)
       assert.equals("z", symbols[1].params[3].name)
     end)
+
+    it("should not crash on deeply nested AST (depth guard)", function()
+      -- Build an AST nested 100 levels deep (exceeds MAX_DEPTH=50)
+      local node = { type = "root", children = {} }
+      local current = node
+      for i = 1, 100 do
+        local child = {
+          type = "namespace_eval",
+          name = "ns" .. i,
+          body = { children = {} },
+          range = { start = { line = i, col = 1 }, end_pos = { line = i, col = 10 } },
+        }
+        table.insert(current.children or current.body.children, child)
+        current = child
+      end
+
+      -- Should not error or hang — depth guard stops recursion
+      local symbols = extractor.extract_symbols(node, "/deep.tcl")
+      assert.is_table(symbols)
+      -- Should have some but not all 100 namespaces (stops at depth 50)
+      assert.is_true(#symbols < 100)
+      assert.is_true(#symbols > 0)
+    end)
   end)
 end)

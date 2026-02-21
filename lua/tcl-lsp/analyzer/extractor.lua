@@ -5,8 +5,15 @@ local M = {}
 
 local variable = require("tcl-lsp.utils.variable")
 
-local function visit_node(node, symbols, filepath, current_namespace)
+local MAX_DEPTH = 50
+
+local function visit_node(node, symbols, filepath, current_namespace, depth)
   if not node then
+    return
+  end
+
+  depth = depth or 0
+  if depth > MAX_DEPTH then
     return
   end
 
@@ -28,7 +35,7 @@ local function visit_node(node, symbols, filepath, current_namespace)
     -- Recurse with new namespace context
     if node.body and node.body.children then
       for _, child in ipairs(node.body.children) do
-        visit_node(child, symbols, filepath, new_namespace)
+        visit_node(child, symbols, filepath, new_namespace, depth + 1)
       end
     end
     return -- Don't process body again below
@@ -100,14 +107,14 @@ local function visit_node(node, symbols, filepath, current_namespace)
   -- Recurse into children
   if node.children then
     for _, child in ipairs(node.children) do
-      visit_node(child, symbols, filepath, current_namespace)
+      visit_node(child, symbols, filepath, current_namespace, depth + 1)
     end
   end
 
   -- Recurse into body (for procs)
   if node.body and node.body.children then
     for _, child in ipairs(node.body.children) do
-      visit_node(child, symbols, filepath, current_namespace)
+      visit_node(child, symbols, filepath, current_namespace, depth + 1)
     end
   end
 end

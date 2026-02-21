@@ -137,12 +137,19 @@ function M.combine_modifiers(modifier_names)
   return result
 end
 
+local MAX_DEPTH = 50
+
 -- Extract semantic tokens from AST
 function M.extract_tokens(ast)
   local tokens = {}
 
-  local function visit(node)
+  local function visit(node, depth)
     if not node then
+      return
+    end
+
+    depth = depth or 0
+    if depth > MAX_DEPTH then
       return
     end
 
@@ -237,30 +244,30 @@ function M.extract_tokens(ast)
     -- Recurse into children
     if node.children then
       for _, child in ipairs(node.children) do
-        visit(child)
+        visit(child, depth + 1)
       end
     end
     if node.body and node.body.children then
       for _, child in ipairs(node.body.children) do
-        visit(child)
+        visit(child, depth + 1)
       end
     end
     -- Handle if statement bodies (then_body, else_body, elseif)
     if node.then_body and node.then_body.children then
       for _, child in ipairs(node.then_body.children) do
-        visit(child)
+        visit(child, depth + 1)
       end
     end
     if node.else_body and node.else_body.children then
       for _, child in ipairs(node.else_body.children) do
-        visit(child)
+        visit(child, depth + 1)
       end
     end
     if node["elseif"] then
       for _, branch in ipairs(node["elseif"]) do
         if branch.body and branch.body.children then
           for _, child in ipairs(branch.body.children) do
-            visit(child)
+            visit(child, depth + 1)
           end
         end
       end
@@ -270,7 +277,7 @@ function M.extract_tokens(ast)
       for _, case in ipairs(node.cases) do
         if case.body and case.body.children then
           for _, child in ipairs(case.body.children) do
-            visit(child)
+            visit(child, depth + 1)
           end
         end
       end
