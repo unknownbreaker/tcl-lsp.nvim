@@ -4,6 +4,7 @@
 local M = {}
 
 local parser = require "tcl-lsp.parser"
+local buffer = require("tcl-lsp.utils.buffer")
 
 --- Calculate brace depth for each line
 --- Uses brace counting which is more reliable for formatting than AST line numbers
@@ -225,7 +226,7 @@ end
 function M.format_buffer(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-  if not vim.api.nvim_buf_is_valid(bufnr) then
+  if not buffer.is_valid(bufnr) then
     return false
   end
 

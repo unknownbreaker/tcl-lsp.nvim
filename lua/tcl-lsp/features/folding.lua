@@ -4,6 +4,8 @@
 
 local M = {}
 
+local buffer = require("tcl-lsp.utils.buffer")
+
 --- Foldable node types (mirrors TCL ::ast::folding::is_foldable)
 local FOLDABLE_TYPES = {
   proc = true,
@@ -24,7 +26,7 @@ local FOLDABLE_TYPES = {
 ---@param filepath string|nil Optional filepath
 ---@return table[] Array of FoldingRange objects
 function M.get_folding_ranges(bufnr, filepath)
-  if not bufnr then
+  if not buffer.is_valid(bufnr) then
     return {}
   end
 

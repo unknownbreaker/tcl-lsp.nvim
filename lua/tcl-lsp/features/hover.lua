@@ -6,6 +6,8 @@ local M = {}
 local definitions = require("tcl-lsp.analyzer.definitions")
 local docs = require("tcl-lsp.analyzer.docs")
 local variable = require("tcl-lsp.utils.variable")
+local buffer = require("tcl-lsp.utils.buffer")
+local notify = require("tcl-lsp.utils.notify")
 
 --- Format parameters for display in proc signature
 ---@param params table|nil Array of parameter names or {name, default} pairs
@@ -121,7 +123,7 @@ end
 ---@return string|nil Markdown content for hover, or nil if nothing found
 function M.handle_hover(bufnr, line, col)
   -- Validate buffer
-  if not vim.api.nvim_buf_is_valid(bufnr) then
+  if not buffer.is_valid(bufnr) then
     return nil
   end
 
@@ -220,7 +222,7 @@ function M.setup()
         max_height = 20,
       })
     else
-      vim.notify("No hover information", vim.log.levels.INFO)
+      notify.notify("No hover information")
     end
   end, { desc = "Show TCL hover information" })
 

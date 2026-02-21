@@ -5,6 +5,7 @@ local M = {}
 
 local definitions = require("tcl-lsp.analyzer.definitions")
 local references = require("tcl-lsp.analyzer.references")
+local notify = require("tcl-lsp.utils.notify")
 
 --- Type label mapping for display
 local TYPE_LABELS = {
@@ -151,7 +152,7 @@ end
 ---@param word string The symbol being looked up
 local function show_references(refs, word)
   if #refs == 0 then
-    vim.notify("No references found for: " .. word, vim.log.levels.INFO)
+    notify.notify("No references found for: " .. word)
     return
   end
 
@@ -218,7 +219,7 @@ function M.setup()
     if refs then
       show_references(refs, word)
     else
-      vim.notify("No references found", vim.log.levels.INFO)
+      notify.notify("No references found")
     end
   end, { desc = "Find TCL references" })
 

@@ -12,6 +12,7 @@ local highlights = require "tcl-lsp.features.highlights"
 local folding = require "tcl-lsp.features.folding"
 local formatting = require "tcl-lsp.features.formatting"
 local completion = require "tcl-lsp.features.completion"
+local notify = require("tcl-lsp.utils.notify")
 
 local M = {}
 
@@ -113,18 +114,18 @@ function M.setup(user_config)
 
   vim.api.nvim_create_user_command("TclLspStatus", function()
     local status = server.get_status()
-    vim.notify("TCL LSP Status: " .. vim.inspect(status), vim.log.levels.INFO)
+    notify.notify("TCL LSP Status: " .. vim.inspect(status))
   end, { desc = "Show TCL LSP server status" })
 
   vim.api.nvim_create_user_command("TclIndexStatus", function()
     local indexer = require("tcl-lsp.analyzer.indexer")
     local status = indexer.get_status()
-    vim.notify(string.format(
+    notify.notify(string.format(
       "Index status: %s (%d/%d files)",
       status.status,
       status.indexed,
       status.total
-    ), vim.log.levels.INFO)
+    ))
   end, { desc = "Show TCL index status" })
 
   -- Set up go-to-definition feature
