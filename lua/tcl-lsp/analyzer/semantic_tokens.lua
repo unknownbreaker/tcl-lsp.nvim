@@ -3,6 +3,8 @@
 
 local M = {}
 
+local variable = require("tcl-lsp.utils.variable")
+
 -- LSP standard token types (indices match LSP spec)
 -- https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#semanticTokenTypes
 M.token_types_legend = {
@@ -188,14 +190,15 @@ function M.extract_tokens(ast)
     -- Note: Position calculation assumes "set varname" format with single space.
     -- TODO: Use var_range from AST if available for accurate positioning.
     if node.type == "set" then
-      if node.var_name and node.range then
+      local var_name = variable.safe_var_name(node.var_name)
+      if var_name and node.range then
         table.insert(tokens, {
           line = node.range.start.line,
           start_char = node.range.start.column + SET_KEYWORD_LENGTH,
-          length = #node.var_name,
+          length = #var_name,
           type = M.token_types.variable,
           modifiers = M.token_modifiers.modification,
-          text = node.var_name,
+          text = var_name,
         })
       end
     end

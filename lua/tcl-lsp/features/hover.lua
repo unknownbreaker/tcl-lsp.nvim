@@ -5,6 +5,7 @@ local M = {}
 
 local definitions = require("tcl-lsp.analyzer.definitions")
 local docs = require("tcl-lsp.analyzer.docs")
+local variable = require("tcl-lsp.utils.variable")
 
 --- Format parameters for display in proc signature
 ---@param params table|nil Array of parameter names or {name, default} pairs
@@ -113,33 +114,6 @@ function M.get_scope_type(var_name, context)
   return "namespace variable"
 end
 
---- Extract variable name from TCL variable syntax
---- Handles: $var, ${var}, $arr(key), $::ns::var
----@param word string Raw word that may contain variable syntax
----@return string Extracted variable name
-local function extract_variable_name(word)
-  if word:sub(1, 1) ~= "$" then
-    return word
-  end
-
-  word = word:sub(2)
-
-  if word:sub(1, 1) == "{" then
-    local closing = word:find("}")
-    if closing then
-      return word:sub(2, closing - 1)
-    end
-    return word:sub(2)
-  end
-
-  local paren = word:find("%(")
-  if paren then
-    return word:sub(1, paren - 1)
-  end
-
-  return word
-end
-
 --- Handle hover request - main entry point
 ---@param bufnr number Buffer number
 ---@param line number Line number (0-indexed)
@@ -158,7 +132,7 @@ function M.handle_hover(bufnr, line, col)
   end
 
   -- Extract variable name from TCL syntax
-  word = extract_variable_name(word)
+  word = variable.extract_variable_name(word)
 
   -- Parse buffer (cached by changedtick)
   local cache = require("tcl-lsp.utils.cache")

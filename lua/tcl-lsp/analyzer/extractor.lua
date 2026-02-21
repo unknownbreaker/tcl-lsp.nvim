@@ -3,6 +3,8 @@
 
 local M = {}
 
+local variable = require("tcl-lsp.utils.variable")
+
 local function visit_node(node, symbols, filepath, current_namespace)
   if not node then
     return
@@ -56,16 +58,7 @@ local function visit_node(node, symbols, filepath, current_namespace)
   end
 
   if node.type == "set" then
-    local var_name = node.var_name
-    -- Skip if var_name is not a string (e.g., complex array access)
-    if type(var_name) ~= "string" then
-      -- Try to extract base name if it's a table with a name field
-      if type(var_name) == "table" and var_name.name then
-        var_name = var_name.name
-      else
-        var_name = nil
-      end
-    end
+    local var_name = variable.safe_var_name(node.var_name)
 
     if var_name then
       local qualified = current_namespace .. "::" .. var_name
@@ -85,15 +78,7 @@ local function visit_node(node, symbols, filepath, current_namespace)
   end
 
   if node.type == "variable" then
-    local var_name = node.name
-    -- Skip if var_name is not a string
-    if type(var_name) ~= "string" then
-      if type(var_name) == "table" and var_name.name then
-        var_name = var_name.name
-      else
-        var_name = nil
-      end
-    end
+    local var_name = variable.safe_var_name(node.name)
 
     if var_name then
       local qualified = current_namespace .. "::" .. var_name

@@ -4,37 +4,7 @@
 local M = {}
 
 local index = require("tcl-lsp.analyzer.index")
-
---- Extract variable name from TCL variable syntax
---- Handles: $var, ${var}, $arr(key), $::ns::var, ${ns::var}
----@param word string Raw word that may contain variable syntax
----@return string Extracted variable name
-local function extract_variable_name(word)
-  if word:sub(1, 1) ~= "$" then
-    return word
-  end
-
-  -- Remove leading $
-  word = word:sub(2)
-
-  -- Handle braced: ${varname} or ${ns::var}
-  if word:sub(1, 1) == "{" then
-    local closing = word:find("}")
-    if closing then
-      return word:sub(2, closing - 1)
-    end
-    return word:sub(2) -- Unclosed brace, best effort
-  end
-
-  -- Handle array: $arr(key) - extract just the array name
-  local paren = word:find("%(")
-  if paren then
-    return word:sub(1, paren - 1)
-  end
-
-  -- Simple or qualified: $var or $::ns::var
-  return word
-end
+local variable = require("tcl-lsp.utils.variable")
 
 --- Helper to convert symbol range to LSP range format
 --- Handles both 'col' and 'column' field names from parser
@@ -157,7 +127,7 @@ function M.find_definition(bufnr, line, col)
   end
 
   -- Extract variable name from TCL syntax ($var, ${var}, $arr(key), etc.)
-  word = extract_variable_name(word)
+  word = variable.extract_variable_name(word)
 
   -- Parse buffer (cached by changedtick)
   local cache = require("tcl-lsp.utils.cache")
