@@ -241,5 +241,33 @@ describe("Docs Analyzer", function()
 
       assert.is_nil(result)
     end)
+
+    it("should handle table var_name in set nodes (array access)", function()
+      local ast = {
+        type = "script",
+        children = {
+          {
+            type = "set",
+            var_name = { name = "arr", index = "$key" },
+            value = "hello",
+            range = { start = { line = 1, col = 1 }, end_pos = { line = 1, col = 20 } },
+          },
+          {
+            type = "set",
+            var_name = "normal_var",
+            value = "world",
+            range = { start = { line = 2, col = 1 }, end_pos = { line = 2, col = 20 } },
+          },
+        },
+      }
+
+      -- Should not crash when var_name is a table
+      local result = docs.get_initial_value(ast, "arr")
+      assert.equals("hello", result)
+
+      -- Normal string var_name should still work
+      local result2 = docs.get_initial_value(ast, "normal_var")
+      assert.equals("world", result2)
+    end)
   end)
 end)

@@ -6,6 +6,7 @@ local parser = require("tcl-lsp.parser")
 local index = require("tcl-lsp.analyzer.index")
 local extractor = require("tcl-lsp.analyzer.extractor")
 local ref_extractor = require("tcl-lsp.analyzer.ref_extractor")
+local namespace_util = require("tcl-lsp.utils.namespace")
 
 local M = {}
 
@@ -146,17 +147,12 @@ function M.resolve_ref_target(ref)
   end
 
   -- Try namespace::name
-  local qualified
-  if namespace == "::" then
-    qualified = "::" .. name
-  else
-    qualified = namespace .. "::" .. name
-  end
+  local qualified = namespace_util.qualify(name, namespace)
   if index.find(qualified) then
     return qualified
   end
 
-  -- Try global ::name
+  -- Try global ::name (if namespace wasn't already global)
   qualified = "::" .. name
   if index.find(qualified) then
     return qualified

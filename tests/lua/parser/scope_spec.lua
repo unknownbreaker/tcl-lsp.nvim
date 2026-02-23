@@ -234,5 +234,36 @@ describe("Scope Context", function()
       assert.equals("::", ctx.namespace)
       assert.is_nil(ctx.proc)
     end)
+
+    it("should handle table var_name in set nodes (array access)", function()
+      local ast = {
+        type = "root",
+        children = {
+          {
+            type = "proc",
+            name = "test",
+            params = {},
+            range = { start = { line = 1, col = 1 }, end_pos = { line = 10, col = 1 } },
+            body = {
+              children = {
+                {
+                  type = "set",
+                  var_name = { name = "arr", index = "$key" },
+                  value = "hello",
+                  range = { start = { line = 2, col = 1 }, end_pos = { line = 2, col = 20 } },
+                },
+              },
+            },
+          },
+        },
+      }
+
+      local ctx = scope.get_context(ast, 5, 1)
+
+      -- Should extract the string name from the table, not insert the table
+      assert.equals(1, #ctx.locals)
+      assert.equals("string", type(ctx.locals[1]))
+      assert.equals("arr", ctx.locals[1])
+    end)
   end)
 end)

@@ -3,6 +3,8 @@
 
 local M = {}
 
+local variable = require("tcl-lsp.utils.variable")
+
 --- Extract comment block immediately above a target line
 --- Walks backwards collecting contiguous # comment lines
 ---@param lines table Array of source lines (1-indexed)
@@ -62,8 +64,11 @@ local function find_set_value(node, var_name, visited)
   visited[node] = true
 
   -- Check if this node is a set for our variable
-  if node.type == "set" and node.var_name == var_name then
-    return node.value
+  if node.type == "set" and node.var_name then
+    local node_var = variable.safe_var_name(node.var_name)
+    if node_var == var_name then
+      return node.value
+    end
   end
 
   -- Recurse into children

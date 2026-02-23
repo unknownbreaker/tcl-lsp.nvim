@@ -1,10 +1,11 @@
 -- lua/tcl-lsp/analyzer/visitor.lua
--- Shared AST walk for extractor and ref_extractor.
--- NOT for semantic_tokens (different recursion targets: then_body, else_body, elseif, cases).
+-- Shared AST walk for all analyzer modules.
+-- Traverses: children, body, then_body, else_body, elseif branches, switch cases.
 
 local M = {}
 
 local limits = require("tcl-lsp.utils.limits")
+local namespace_util = require("tcl-lsp.utils.namespace")
 
 --- Walk an AST tree, calling handlers for matching node types.
 ---
@@ -44,12 +45,7 @@ function M.walk(root, handlers, filepath, opts)
         return
       end
 
-      local new_namespace
-      if current_namespace == "::" then
-        new_namespace = "::" .. ns_name
-      else
-        new_namespace = current_namespace .. "::" .. ns_name
-      end
+      local new_namespace = namespace_util.qualify(ns_name, current_namespace)
 
       ctx.new_namespace = new_namespace
 
@@ -84,6 +80,36 @@ function M.walk(root, handlers, filepath, opts)
     if node.body and type(node.body) == "table" and node.body.children then
       for _, child in ipairs(node.body.children) do
         visit_node(child, current_namespace, depth + 1)
+      end
+    end
+
+    -- Recurse into control-flow bodies (if/else/elseif/switch)
+    if node.then_body and type(node.then_body) == "table" and node.then_body.children then
+      for _, child in ipairs(node.then_body.children) do
+        visit_node(child, current_namespace, depth + 1)
+      end
+    end
+    if node.else_body and type(node.else_body) == "table" and node.else_body.children then
+      for _, child in ipairs(node.else_body.children) do
+        visit_node(child, current_namespace, depth + 1)
+      end
+    end
+    if node["elseif"] and type(node["elseif"]) == "table" then
+      for _, branch in ipairs(node["elseif"]) do
+        if branch.body and type(branch.body) == "table" and branch.body.children then
+          for _, child in ipairs(branch.body.children) do
+            visit_node(child, current_namespace, depth + 1)
+          end
+        end
+      end
+    end
+    if node.cases and type(node.cases) == "table" then
+      for _, case in ipairs(node.cases) do
+        if case.body and type(case.body) == "table" and case.body.children then
+          for _, child in ipairs(case.body.children) do
+            visit_node(child, current_namespace, depth + 1)
+          end
+        end
       end
     end
   end

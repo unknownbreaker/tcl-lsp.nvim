@@ -3,6 +3,9 @@
 
 local M = {}
 
+local variable = require("tcl-lsp.utils.variable")
+local namespace_util = require("tcl-lsp.utils.namespace")
+
 --- Check if a position (line, col) is within a range
 ---@param line number Line number (1-indexed)
 ---@param col number Column number (1-indexed)
@@ -94,7 +97,10 @@ local function collect_proc_declarations(proc_node, context)
 
   for _, child in ipairs(proc_node.body.children) do
     if child.type == "set" and child.var_name then
-      table.insert(context.locals, child.var_name)
+      local var_name = variable.safe_var_name(child.var_name)
+      if var_name then
+        table.insert(context.locals, var_name)
+      end
     elseif child.type == "global" and child.vars then
       vim.list_extend(context.globals, child.vars)
     elseif child.type == "upvar" and child.local_var then
@@ -129,11 +135,7 @@ function M.get_context(ast, line, col)
   for _, node in ipairs(path) do
     if node.type == "namespace_eval" then
       -- Build namespace path
-      if context.namespace == "::" then
-        context.namespace = "::" .. node.name
-      else
-        context.namespace = context.namespace .. "::" .. node.name
-      end
+      context.namespace = namespace_util.qualify(node.name, context.namespace)
     elseif node.type == "proc" then
       context.proc = node.name
       -- Add params as locals
