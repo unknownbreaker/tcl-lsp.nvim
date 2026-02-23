@@ -235,6 +235,61 @@ local function validate_config(config)
     end
   end
 
+  -- Validate nested config sections
+  if config.schema_validation and type(config.schema_validation) == "table" then
+    local sv = config.schema_validation
+    if sv.mode ~= nil then
+      local valid_modes = { off = true, dev = true, always = true }
+      if type(sv.mode) ~= "string" or not valid_modes[sv.mode] then
+        table.insert(errors, "schema_validation.mode must be one of: off, dev, always")
+      end
+    end
+    if sv.enabled ~= nil and type(sv.enabled) ~= "boolean" then
+      table.insert(errors, "schema_validation.enabled must be boolean, got: " .. type(sv.enabled))
+    end
+  end
+
+  if config.semantic_tokens and type(config.semantic_tokens) == "table" then
+    local st = config.semantic_tokens
+    if st.debounce_ms ~= nil then
+      local valid, err = validate_numeric_field(st.debounce_ms, "semantic_tokens.debounce_ms", false)
+      if not valid then
+        table.insert(errors, err)
+      end
+    end
+    if st.large_file_threshold ~= nil then
+      local valid, err = validate_numeric_field(st.large_file_threshold, "semantic_tokens.large_file_threshold", false)
+      if not valid then
+        table.insert(errors, err)
+      end
+    end
+  end
+
+  if config.completion and type(config.completion) == "table" then
+    if config.completion.trigger_length ~= nil then
+      local valid, err = validate_numeric_field(config.completion.trigger_length, "completion.trigger_length", false)
+      if not valid then
+        table.insert(errors, err)
+      end
+    end
+  end
+
+  if config.formatting and type(config.formatting) == "table" then
+    local fmt = config.formatting
+    if fmt.indent_style ~= nil then
+      local valid_styles = { spaces = true, tabs = true }
+      if type(fmt.indent_style) ~= "string" or not valid_styles[fmt.indent_style] then
+        table.insert(errors, "formatting.indent_style must be one of: spaces, tabs")
+      end
+    end
+    if fmt.indent_size ~= nil then
+      local valid, err = validate_numeric_field(fmt.indent_size, "formatting.indent_size", false)
+      if not valid then
+        table.insert(errors, err)
+      end
+    end
+  end
+
   return #errors == 0, (#errors > 0 and errors or nil)
 end
 

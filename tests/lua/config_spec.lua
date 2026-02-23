@@ -561,6 +561,80 @@ describe("TCL LSP Configuration", function()
     end)
   end)
 
+  describe("Nested Configuration Validation", function()
+    it("should reject invalid schema_validation.mode", function()
+      local success, error_msg = pcall(config.setup, {
+        schema_validation = { mode = "banana" },
+      })
+      assert.is_false(success, "Should reject invalid schema_validation.mode")
+      assert.matches("schema_validation.mode", error_msg)
+    end)
+
+    it("should accept valid schema_validation.mode values", function()
+      for _, mode in ipairs({ "off", "dev", "always" }) do
+        config.reset()
+        local success = pcall(config.setup, { schema_validation = { mode = mode } })
+        assert.is_true(success, "Should accept schema_validation.mode = " .. mode)
+      end
+    end)
+
+    it("should reject non-boolean schema_validation.enabled", function()
+      local success, error_msg = pcall(config.setup, {
+        schema_validation = { enabled = "yes" },
+      })
+      assert.is_false(success, "Should reject non-boolean schema_validation.enabled")
+      assert.matches("schema_validation.enabled", error_msg)
+    end)
+
+    it("should reject non-positive semantic_tokens.debounce_ms", function()
+      local success, error_msg = pcall(config.setup, {
+        semantic_tokens = { debounce_ms = -10 },
+      })
+      assert.is_false(success, "Should reject negative debounce_ms")
+      assert.matches("debounce_ms", error_msg)
+    end)
+
+    it("should reject non-numeric semantic_tokens.debounce_ms", function()
+      local success, error_msg = pcall(config.setup, {
+        semantic_tokens = { debounce_ms = "fast" },
+      })
+      assert.is_false(success, "Should reject string debounce_ms")
+      assert.matches("debounce_ms", error_msg)
+    end)
+
+    it("should reject non-positive completion.trigger_length", function()
+      local success, error_msg = pcall(config.setup, {
+        completion = { trigger_length = 0 },
+      })
+      assert.is_false(success, "Should reject zero trigger_length")
+      assert.matches("trigger_length", error_msg)
+    end)
+
+    it("should reject invalid formatting.indent_style", function()
+      local success, error_msg = pcall(config.setup, {
+        formatting = { indent_style = "mixed" },
+      })
+      assert.is_false(success, "Should reject invalid indent_style")
+      assert.matches("indent_style", error_msg)
+    end)
+
+    it("should accept valid formatting.indent_style values", function()
+      for _, style in ipairs({ "spaces", "tabs" }) do
+        config.reset()
+        local success = pcall(config.setup, { formatting = { indent_style = style } })
+        assert.is_true(success, "Should accept formatting.indent_style = " .. style)
+      end
+    end)
+
+    it("should reject non-positive formatting.indent_size", function()
+      local success, error_msg = pcall(config.setup, {
+        formatting = { indent_size = 0 },
+      })
+      assert.is_false(success, "Should reject zero indent_size")
+      assert.matches("indent_size", error_msg)
+    end)
+  end)
+
   describe("completion config", function()
     before_each(function()
       package.loaded["tcl-lsp.config"] = nil

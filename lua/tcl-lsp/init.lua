@@ -95,10 +95,21 @@ function M.setup(user_config)
       end,
     })
 
+    -- Set up features (creates FileType autocmds with buffer-local keymaps)
+    definition.setup()
+    references.setup()
+    hover.setup()
+    diagnostics.setup()
+    rename.setup()
+    highlights.setup()
+    folding.setup()
+    formatting.setup()
+    completion.setup()
+
     plugin_state.autocommands_created = true
   end
 
-  -- Create user commands
+  -- Create user commands (safe to re-create — Neovim replaces existing ones)
   vim.api.nvim_create_user_command("TclLspStart", function()
     local current_file = vim.api.nvim_buf_get_name(0)
     server.start(current_file)
@@ -128,32 +139,6 @@ function M.setup(user_config)
     ))
   end, { desc = "Show TCL index status" })
 
-  -- Set up go-to-definition feature
-  definition.setup()
-
-  -- Set up find-references feature
-  references.setup()
-
-  -- Set up hover feature
-  hover.setup()
-
-  -- Set up diagnostics feature
-  diagnostics.setup()
-
-  -- Set up rename feature
-  rename.setup()
-
-  -- Set up semantic highlighting feature
-  highlights.setup()
-
-  -- Set up folding feature
-  folding.setup()
-
-  -- Set up formatting feature
-  formatting.setup()
-
-  -- Set up completion feature
-  completion.setup()
 end
 
 -- Manual server start (for testing and API)

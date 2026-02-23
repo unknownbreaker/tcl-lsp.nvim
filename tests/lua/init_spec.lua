@@ -448,6 +448,65 @@ proc generate_output {} {
     end)
   end)
 
+  describe("Shutdown Order", function()
+    it("should stop indexer before parser on VimLeavePre", function()
+      tcl_lsp.setup()
+
+      -- Record cleanup call order via monkey-patching
+      local call_order = {}
+      local indexer = require("tcl-lsp.analyzer.indexer")
+      local parser = require("tcl-lsp.parser")
+
+      local orig_indexer_cleanup = indexer.cleanup
+      local orig_parser_cleanup = parser.cleanup
+
+      indexer.cleanup = function()
+        table.insert(call_order, "indexer")
+        if orig_indexer_cleanup then
+          orig_indexer_cleanup()
+        end
+      end
+
+      parser.cleanup = function()
+        table.insert(call_order, "parser")
+        if orig_parser_cleanup then
+          orig_parser_cleanup()
+        end
+      end
+
+      -- Trigger VimLeavePre autocmds in the TclLsp group
+      local autocmds = vim.api.nvim_get_autocmds({ group = "TclLsp", event = "VimLeavePre" })
+      assert.is_true(#autocmds > 0, "Should have VimLeavePre autocmd")
+
+      -- Execute the callback directly
+      for _, ac in ipairs(autocmds) do
+        if ac.callback then
+          ac.callback()
+        end
+      end
+
+      -- Restore originals
+      indexer.cleanup = orig_indexer_cleanup
+      parser.cleanup = orig_parser_cleanup
+
+      -- Verify: indexer must stop before parser
+      local indexer_idx = nil
+      local parser_idx = nil
+      for i, name in ipairs(call_order) do
+        if name == "indexer" and not indexer_idx then
+          indexer_idx = i
+        end
+        if name == "parser" and not parser_idx then
+          parser_idx = i
+        end
+      end
+
+      assert.is_not_nil(indexer_idx, "Indexer cleanup should be called")
+      assert.is_not_nil(parser_idx, "Parser cleanup should be called")
+      assert.is_true(indexer_idx < parser_idx, "Indexer must stop BEFORE parser (invariant #1)")
+    end)
+  end)
+
   describe("Plugin State Management", function()
     it("should maintain consistent internal state", function()
       -- Setup plugin
