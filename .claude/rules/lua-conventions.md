@@ -69,36 +69,35 @@ end
 
 ## AST Traversal Pattern
 
-Analyzer modules use a recursive `visit_node` pattern with namespace tracking:
+Use `visitor.walk()` for AST traversal. It handles depth guards, namespace tracking, and
+recursion into all body types (children, body, then_body, else_body, elseif, cases):
 
 ```lua
-local function visit_node(node, results, filepath, current_namespace, depth)
-  if not node then return end
-  depth = depth or 0
-  if depth > MAX_DEPTH then return end  -- REQUIRED: prevent infinite recursion
+local visitor = require("tcl-lsp.analyzer.visitor")
+local variable = require("tcl-lsp.utils.variable")
 
-  -- Type-check var_name before using as string (can be table)
-  if type(node.var_name) ~= "string" then
-    if type(node.var_name) == "table" and node.var_name.name then
-      var_name = node.var_name.name
-    else
-      return
-    end
-  end
+local results = {}
+visitor.walk(ast, {
+  set = function(node, ctx)
+    -- Always type-check var_name (can be string or table)
+    local var_name = variable.safe_var_name(node.var_name)
+    if not var_name then return end
 
-  -- Recurse into children AND body (procs have body.children)
-  if node.children then
-    for _, child in ipairs(node.children) do
-      visit_node(child, results, filepath, current_namespace, depth + 1)
-    end
-  end
-  if node.body and node.body.children then
-    for _, child in ipairs(node.body.children) do
-      visit_node(child, results, filepath, current_namespace, depth + 1)
-    end
-  end
-end
+    table.insert(results, {
+      name = var_name,
+      namespace = ctx.namespace,  -- tracked automatically
+      filepath = ctx.filepath,
+    })
+  end,
+  proc = function(node, ctx)
+    -- ctx.namespace is the enclosing namespace
+    -- ctx.visit(sub_node) recurses into sub-nodes
+  end,
+}, filepath)
 ```
+
+Only `semantic_tokens.lua` and `folding.lua` use custom traversal (they classify tokens
+inline per-node-type rather than just collecting matches).
 
 ## Indexer Lifecycle
 

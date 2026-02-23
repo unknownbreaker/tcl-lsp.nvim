@@ -128,12 +128,16 @@ These are load-bearing. Violating any one breaks the system.
 6. **Same-file fallback**: Cross-file ref resolution can fail. Always fall back to same-file search.
 7. **TCL load order**: `parser_utils.tcl` loads LAST in builder.tcl (references other parser functions).
 8. **Indexer off by default**: Background indexing causes UI lag. Must explicitly enable via `config.indexer.enabled`.
+9. **json.tcl `list_fields` whitelist**: When adding a new AST field that holds a list, add its name to `::ast::json::list_fields` in `json.tcl`. Without this, single-element lists serialize as strings and empty lists serialize as `""` instead of `[]`.
+10. **Namespace qualification**: Always use `namespace_util.qualify()` from `utils/namespace.lua`. Never inline the `"::" .. name` pattern — it diverges silently.
+11. **Coordinates are 1-indexed**: AST ranges use `{line, column}` starting at 1, matching Neovim's buffer API. Both TCL and Lua sides follow this convention. Never convert to 0-indexed internally.
+12. **Roundtrip contract tests**: `tests/lua/parser/roundtrip_spec.lua` validates that TCL parser output passes Lua schema validation. Add a test case for every new node type.
 
 ## Key Patterns
 
 **Feature module** (`features/*.lua`): `M.setup()` creates user command + FileType autocmd with buffer-local keymap. `M.handle_<action>(bufnr, line, col)` delegates to analyzer. Features are client-side (user commands operating on the AST directly), not LSP server request handlers. Pattern: setup → autocmd → keymap → handle → analyzer → cache → parser.
 
-**AST traversal** (`analyzer/*.lua`): Recursive `visit_node(node, results, filepath, namespace, depth)` with depth guard. MUST recurse into BOTH `node.children` AND `node.body.children` (procs store body separately).
+**AST traversal** (`analyzer/*.lua`): Use `visitor.walk(ast, handlers, filepath)` — it recurses into `children`, `body`, `then_body`, `else_body`, `elseif` branches, and `switch cases` with depth guard and namespace tracking. Handlers receive `ctx` with `filepath`, `namespace`, `depth`, and `visit()` for sub-node recursion. Only `semantic_tokens.lua` and `folding.lua` use custom traversal because they classify tokens per-node-type inline rather than just collecting matches.
 
 **TCL module** (`tcl/core/ast/*.tcl`): Namespaces `::ast::`, `::ast::parsers::`, `::ast::json::`, `::ast::utils::`. Each self-contained, <200 lines, self-tests via `if {[info script] eq $argv0}`.
 
