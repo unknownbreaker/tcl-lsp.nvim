@@ -1,46 +1,41 @@
 # Contributing to tcl-lsp.nvim
 
-Thank you for your interest in contributing! This document provides guidelines for contributing to the project.
+## For AI Agents
 
-## Development Setup
+Read these files in order:
 
-1. Clone the repository
-2. Run `make install` to install dependencies
-3. Run `make test` to ensure everything works
+1. **`CLAUDE.md`** — Architecture, module map, invariants, AST contract, commands
+2. **`DEVELOPMENT.md`** — Workflow, task decision tree, checklists, error handling policy
+3. **`.claude/rules/lua-conventions.md`** — Lua patterns (module, feature, visitor, lazy loading)
+4. **`.claude/rules/tcl-conventions.md`** — TCL patterns (namespace, module, JSON serialization)
 
-## Code Style
+## Quick Start
 
-- Follow the existing code style
-- Use `make format` to format your code
-- Run `make lint` to check for issues
-- Ensure all tests pass with `make test`
+```bash
+make test            # All tests (Lua + TCL)
+make lint            # All linting
+make format-lua      # Format Lua with stylua
+```
 
-## Testing
+## Development Workflow
 
-- Write tests for all new features
-- Maintain >90% code coverage
-- Include integration tests for LSP features
-- Performance tests should maintain <300ms response times
+Schema-first, test-first, small-scope. See `DEVELOPMENT.md` for full details.
 
-## Pull Request Process
+1. Write failing test
+2. Implement minimal code to pass
+3. Run `make test` to verify
+4. Commit with conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`)
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for your changes
-5. Run `make check` to verify everything works
-6. Submit a pull request
+## Key Invariants
 
-## Commit Messages
+These break the system if violated. See `CLAUDE.md` for full list.
 
-Use conventional commit format:
-
-- `feat: add new feature`
-- `fix: resolve bug`
-- `docs: update documentation`
-- `test: add tests`
-- `refactor: code improvements`
+- **Shutdown order**: Stop indexer before parser on VimLeavePre (Neovim hangs otherwise)
+- **AST depth limit**: Every recursive visit must guard `depth > MAX_DEPTH`
+- **Parser purity**: `parser/ast.lua` takes code strings, never buffers
+- **var_name type**: Always use `variable.safe_var_name()` (can be string or table)
+- **TCL load order**: `parser_utils.tcl` loads last in `builder.tcl`
 
 ## Reporting Issues
 
-Please use the GitHub issue templates when reporting bugs or requesting features.
+Use GitHub issues. Include TCL code that reproduces the problem and the expected vs actual behavior.

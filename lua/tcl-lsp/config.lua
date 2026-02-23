@@ -6,6 +6,9 @@ local M = {}
 
 -- Default configuration - these values work out of the box
 local defaults = {
+  -- Auto-start LSP for TCL/RVT files (default: true; set false to require manual :TclLspStart)
+  auto_start = true,
+
   -- Server command (nil = auto-detect tclsh + parser.tcl)
   cmd = nil,
 

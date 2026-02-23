@@ -39,9 +39,8 @@ function M.setup(user_config)
       group = tcl_group,
       pattern = { "*.tcl", "*.rvt" },
       callback = function(args)
-        -- FIXED: Renamed from user_config to current_config to avoid shadowing
         local current_config = config.get()
-        if current_config.auto_start ~= false then -- Default to true
+        if current_config.auto_start then
           vim.defer_fn(function()
             server.start(args.file)
           end, 100) -- Small delay to ensure buffer is fully loaded

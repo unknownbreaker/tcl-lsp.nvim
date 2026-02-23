@@ -1,6 +1,9 @@
 -- lua/tcl-lsp/parser/ast.lua
 -- AST Parser Implementation
 -- Delegates to TCL's built-in parser via tclsh
+--
+-- INVARIANT: Parser purity — this module operates on code strings, never buffers.
+-- Buffer-aware parsing belongs in utils/cache.lua. Do not import vim.api.nvim_buf_*.
 
 local M = {}
 
