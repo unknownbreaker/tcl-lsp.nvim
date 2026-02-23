@@ -80,8 +80,15 @@ local function validate_if_enabled(ast)
   end
 end
 
--- Get path to TCL parser script
+-- Cached parser script path (resolved once, reused for all subsequent parses)
+local cached_parser_path = nil
+local parser_path_resolved = false
+
+-- Get path to TCL parser script (cached after first successful resolution)
 local function get_parser_script_path()
+  if parser_path_resolved then
+    return cached_parser_path
+  end
   debug_print("[DEBUG] Starting parser path resolution...")
 
   -- Try multiple strategies to find the parser
@@ -143,12 +150,16 @@ local function get_parser_script_path()
     local path = strategy()
     if path and vim.fn.filereadable(path) == 1 then
       debug_print(string.format("[DEBUG] ✓ Found parser at: %s", path))
+      cached_parser_path = path
+      parser_path_resolved = true
       return path
     end
   end
 
-  -- If all fail, return nil and let the error handler deal with it
+  -- If all fail, cache the nil result so we don't retry
   debug_print("[DEBUG] ✗ ERROR: No parser found by any strategy!")
+  parser_path_resolved = true
+  cached_parser_path = nil
   return nil
 end
 

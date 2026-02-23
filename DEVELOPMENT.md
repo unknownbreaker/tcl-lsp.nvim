@@ -21,7 +21,7 @@ Schema-first, test-first, small-scope.
 | Task | Files to Create/Modify |
 |------|----------------------|
 | **Add LSP feature** | `features/<name>.lua` (copy `_template.lua`), `tests/lua/features/<name>_spec.lua`, `init.lua` (require + setup) |
-| **Add analyzer module** | `analyzer/<name>.lua`, `tests/lua/analyzer/<name>_spec.lua`. Use `visitor.walk()` unless you need control-flow body traversal (then_body, else_body, etc.) — see `semantic_tokens.lua` for that pattern. |
+| **Add analyzer module** | `analyzer/<name>.lua`, `tests/lua/analyzer/<name>_spec.lua`. Use `visitor.walk()` — it handles all body types including control-flow (then_body, else_body, elseif, cases). |
 | **Add TCL parser command** | See checklist below — 6 files across 2 languages. |
 | **Add AST node type** | `parser/schema.lua` (define node), TCL parser (emit node), `json.tcl` `list_fields` (if node has list fields), Lua extractor/ref_extractor (add handler), roundtrip test (add case). |
 | **Add config option** | `config.lua` (add to defaults), validate if non-trivial type. |
@@ -52,6 +52,14 @@ All 6 steps are required. Missing any one causes silent failures.
 - Clean up temp files/dirs in `after_each`: `vim.fn.delete(temp_dir, "rf")`
 - Use `tests/spec/path_helpers.lua` for path comparisons (macOS symlink handling)
 - Crash reproducers (`test_*.lua`) are standalone scripts, not plenary specs
+
+### Error handling policy:
+
+- **Parser boundary** (`parser/ast.lua`): Always wrap `vim.json.decode` in `pcall`. Return `nil, error_string` on failure. Never let a parser crash propagate to the editor.
+- **Feature handlers** (`features/*.lua`): Wrap the entire `handle_*` body so a single feature failure doesn't break Neovim. Use `utils/notify.lua` for user-facing errors.
+- **Analyzer modules** (`analyzer/*.lua`): Guard against nil nodes and missing fields. Return empty results rather than crashing. Type-check `var_name` with `variable.safe_var_name()`.
+- **TCL side** (`tcl/core/`): Use `catch` around parsing operations. Set `had_error 1` and populate `errors[]` in the AST root. Never exit non-zero for parse errors — only for infrastructure failures (missing files, load errors).
+- **When to use pcall**: At module boundaries (parser, external I/O), config loading, and lazy requires. Don't use pcall for internal logic errors — let those crash early so tests catch them.
 
 ## Session Close Protocol
 
