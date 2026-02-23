@@ -303,13 +303,18 @@ local function execute_tcl_parser(code, filepath)
 
   debug_print("✓ JSON parsed successfully")
   debug_print("Result type:", type(result))
-  if type(result) == "table" then
-    local keys = {}
-    for k, _ in pairs(result) do
-      table.insert(keys, k)
-    end
-    debug_print("Result keys:", table.concat(keys, ", "))
+
+  -- Verify decoded result is a table (not a scalar JSON value)
+  if type(result) ~= "table" then
+    debug_print("✗ ERROR: JSON decoded to non-table: " .. type(result))
+    return nil, "Parser returned non-table JSON: " .. type(result)
   end
+
+  local keys = {}
+  for k, _ in pairs(result) do
+    table.insert(keys, k)
+  end
+  debug_print("Result keys:", table.concat(keys, ", "))
 
   debug_print("========================================")
   debug_print("DEBUG COMPLETE - Parser Success!")
@@ -501,6 +506,8 @@ local function execute_tcl_parser_async(code, filepath, callback)
   local stderr_chunks = {}
 
   local job_id
+  local timed_out = false
+
   job_id = vim.fn.jobstart(cmd, {
     stdout_buffered = true,
     stderr_buffered = true,
@@ -529,6 +536,11 @@ local function execute_tcl_parser_async(code, filepath, callback)
       -- Clean up temp file
       vim.fn.delete(temp_file)
 
+      -- Ignore callback if we already timed out
+      if timed_out then
+        return
+      end
+
       local output = table.concat(output_chunks, "\n")
       local stderr_output = table.concat(stderr_chunks, "\n")
 
@@ -545,6 +557,12 @@ local function execute_tcl_parser_async(code, filepath, callback)
         return
       end
 
+      -- Verify decoded result is a table (not a scalar JSON value)
+      if type(result) ~= "table" then
+        callback(nil, "Parser returned non-table JSON: " .. type(result))
+        return
+      end
+
       callback(result, nil)
     end,
   })
@@ -557,6 +575,17 @@ local function execute_tcl_parser_async(code, filepath, callback)
   else
     -- Track active job
     active_jobs[job_id] = temp_file
+
+    -- Timeout: kill the job if it runs too long (parity with sync path)
+    vim.defer_fn(function()
+      if active_jobs[job_id] then
+        timed_out = true
+        pcall(vim.fn.jobstop, job_id)
+        pcall(vim.fn.delete, temp_file)
+        active_jobs[job_id] = nil
+        callback(nil, "Parser timeout: execution exceeded " .. (PARSER_TIMEOUT_MS / 1000) .. " seconds")
+      end
+    end, PARSER_TIMEOUT_MS)
   end
 end
 

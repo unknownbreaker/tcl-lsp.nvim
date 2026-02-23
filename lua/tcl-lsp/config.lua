@@ -32,7 +32,7 @@ local defaults = {
 
   -- Schema validation configuration
   schema_validation = {
-    enabled = false, -- Off by default for performance
+    enabled = true, -- Validates AST against schema after each parse
     mode = "dev", -- "off", "dev", "always"
     strict = false, -- Collect all errors vs fail fast
     log_violations = true, -- Log validation errors

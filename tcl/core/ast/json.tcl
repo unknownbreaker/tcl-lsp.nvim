@@ -15,7 +15,7 @@ namespace eval ::ast::json {}
 
 # List of known fields that should always be lists
 # ✅ FIX: Added test field names (items, single, nums, mixed) to ensure proper serialization
-set ::ast::json::list_fields {children params vars patterns imports exports cases elseif_branches items single nums mixed}
+set ::ast::json::list_fields {children params vars patterns imports exports cases elseif items single nums mixed}
 
 # List of known fields that should be booleans
 set ::ast::json::boolean_fields {had_error}

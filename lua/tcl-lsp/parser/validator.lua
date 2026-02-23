@@ -206,12 +206,12 @@ local function validate_ast_recursive(node, path, errors, options)
     end
   end
 
-  -- Validate elseif_branches if present
-  if node.elseif_branches and type(node.elseif_branches) == "table" then
-    for i, branch in ipairs(node.elseif_branches) do
+  -- Validate elseif branches if present (parser emits field as "elseif")
+  if node["elseif"] and type(node["elseif"]) == "table" then
+    for i, branch in ipairs(node["elseif"]) do
       if branch.body and type(branch.body) == "table" and branch.body.children then
         for j, child in ipairs(branch.body.children) do
-          local child_path = path .. ".elseif_branches[" .. i .. "].body.children[" .. j .. "]"
+          local child_path = path .. ".elseif[" .. i .. "].body.children[" .. j .. "]"
           local continue = validate_ast_recursive(child, child_path, errors, options)
           if not continue and not options.strict then
             return false

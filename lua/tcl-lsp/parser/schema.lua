@@ -37,6 +37,12 @@ M.types = {
     return true
   end,
 
+  -- TCL values that may arrive as string or number from JSON
+  -- (e.g., version "8.6" → 8.6, upvar level "1" → 1)
+  string_or_number = function(v)
+    return type(v) == "string" or type(v) == "number"
+  end,
+
   -- TCL-compatible boolean (accepts 0/1 as well as true/false)
   tcl_boolean = function(v)
     if type(v) == "boolean" then
@@ -168,7 +174,7 @@ M.nodes = {
   upvar = {
     fields = {
       type = common.type_field,
-      level = { required = true, type = "string" },
+      level = { required = true, type = "string_or_number" },
       other_var = { required = true, type = "string" },
       local_var = { required = false, type = "string" },
       range = common.range_field,
@@ -195,7 +201,7 @@ M.nodes = {
       condition = { required = true, type = "string" },
       then_body = common.body_field,
       else_body = { required = false, type = "object", fields = M.body },
-      elseif_branches = { required = false, type = "array" },
+      ["elseif"] = { required = false, type = "array" },
       range = common.range_field,
       depth = common.depth_field,
     },
@@ -295,7 +301,7 @@ M.nodes = {
     fields = {
       type = common.type_field,
       package_name = { required = false, type = "string" },
-      version = { required = false, type = "string" },
+      version = { required = false, type = "string_or_number" },
       range = common.range_field,
       depth = common.depth_field,
     },
@@ -306,7 +312,7 @@ M.nodes = {
     fields = {
       type = common.type_field,
       package_name = { required = true, type = "string" },
-      version = { required = false, type = "string" },
+      version = { required = false, type = "string_or_number" },
       range = common.range_field,
       depth = common.depth_field,
     },
@@ -317,7 +323,7 @@ M.nodes = {
     fields = {
       type = common.type_field,
       package_name = { required = true, type = "string" },
-      version = { required = false, type = "string" },
+      version = { required = false, type = "string_or_number" },
       range = common.range_field,
       depth = common.depth_field,
     },

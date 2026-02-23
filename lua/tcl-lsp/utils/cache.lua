@@ -60,13 +60,12 @@ function M.parse(bufnr, filepath)
 
   if entry.errors and #entry.errors > 0 then
     -- Has errors: mimic parser.parse() behavior (return nil, error_msg)
-    if not entry.ast then
-      local msgs = {}
-      for _, e in ipairs(entry.errors) do
-        table.insert(msgs, e.message or "Unknown error")
-      end
-      return nil, table.concat(msgs, "; ")
+    -- Even if a partial AST exists, parser.parse() would return nil for had_error=1
+    local msgs = {}
+    for _, e in ipairs(entry.errors) do
+      table.insert(msgs, e.message or "Unknown error")
     end
+    return nil, table.concat(msgs, "; ")
   end
 
   return entry.ast, nil
