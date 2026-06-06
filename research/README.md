@@ -31,7 +31,12 @@ a research-first approach.)
 | 03 | [Proc / command definition & call-site resolution](03-proc-resolution.md) | ✅ verified on 8.6 + 9.0 |
 | 04 | [`source` / `package` / multi-file resolution](04-source-multifile.md) | ✅ verified on 8.6 + 9.0 |
 | 05 | [RVT (Rivet template) scope implications](05-rvt-scope.md) | ✅ scope sim-verified + Rivet specifics resolved from docs (only FlightAware-local items pending) |
-| 06 | Synthesis → resolver model + v2 scope (bridge to planning) | ⏳ proposed |
+| 06 | [Synthesis → resolver model, architecture, v2 scope](06-synthesis.md) | ✅ complete (bridge to planning) |
+
+**Research status:** core mapping complete and empirically grounded. Remaining
+unknowns are FlightAware-local (Rivet version, a real `.rvt`, house conventions)
+and a few cheap language experiments deferred to the build. Ready for the plan
+phase (goto-definition + goto-reference).
 
 ## Why this order
 
