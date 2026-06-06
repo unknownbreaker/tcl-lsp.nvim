@@ -50,6 +50,8 @@ func (s *scanner) scan() []Token {
 			s.emit(KindSemicolon, s.pos, s.pos+1)
 			s.pos++
 			s.atCommandStart = true
+		case c == '#' && s.atCommandStart:
+			s.scanComment()
 		default:
 			s.scanWord()
 			s.atCommandStart = false
@@ -63,6 +65,20 @@ func (s *scanner) scanWord() {
 	start := s.pos
 	s.scanBare()
 	s.emit(KindWord, start, s.pos)
+}
+
+// scanComment advances over a comment from '#' to (but not including) newline.
+// A backslash-newline continues the comment onto the next physical line.
+func (s *scanner) scanComment() {
+	start := s.pos
+	for s.pos < len(s.src) && s.src[s.pos] != '\n' {
+		if s.src[s.pos] == '\\' && s.pos+1 < len(s.src) {
+			s.pos += 2
+			continue
+		}
+		s.pos++
+	}
+	s.emit(KindComment, start, s.pos)
 }
 
 // scanBare advances past a bareword, stopping at unescaped word terminators.

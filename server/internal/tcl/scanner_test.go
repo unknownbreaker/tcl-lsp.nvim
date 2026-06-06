@@ -67,3 +67,32 @@ func TestScanSeparators(t *testing.T) {
 		t.Fatalf(" got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestScanComment(t *testing.T) {
+	got := summarize(Scan("# hi there\nset x 1"))
+	want := []kt{
+		{KindComment, "# hi there"},
+		{KindNewline, "\n"},
+		{KindWord, "set"},
+		{KindWord, "x"},
+		{KindWord, "1"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestHashMidCommandIsNotComment(t *testing.T) {
+	// `#` is only a comment at command start; mid-command it is a literal word.
+	got := summarize(Scan("set x #y"))
+	want := []kt{
+		{KindWord, "set"},
+		{KindWord, "x"},
+		{KindWord, "#y"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}
