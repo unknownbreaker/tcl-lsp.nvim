@@ -37,7 +37,35 @@ func (s *scanner) emit(k Kind, start, end int) {
 }
 
 func (s *scanner) scan() []Token {
-	// Word/separator/comment branches are added in later tasks.
+	for s.pos < len(s.src) {
+		c := s.src[s.pos]
+		switch {
+		case c == ' ' || c == '\t':
+			s.pos++ // inter-word whitespace is not emitted
+		default:
+			s.scanWord()
+			s.atCommandStart = false
+		}
+	}
 	s.emit(KindEOF, s.pos, s.pos)
 	return s.toks
+}
+
+func (s *scanner) scanWord() {
+	start := s.pos
+	s.scanBare()
+	s.emit(KindWord, start, s.pos)
+}
+
+// scanBare advances past a bareword, stopping at unescaped word terminators.
+func (s *scanner) scanBare() {
+	for s.pos < len(s.src) {
+		c := s.src[s.pos]
+		switch c {
+		case ' ', '\t', '\n', ';':
+			return
+		default:
+			s.pos++
+		}
+	}
 }

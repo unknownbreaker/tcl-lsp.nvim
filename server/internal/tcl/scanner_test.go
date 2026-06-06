@@ -26,3 +26,28 @@ func TestScanEmpty(t *testing.T) {
 		t.Fatalf("Scan(\"\")\n got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestScanBarewords(t *testing.T) {
+	got := summarize(Scan("set x 1"))
+	want := []kt{
+		{KindWord, "set"},
+		{KindWord, "x"},
+		{KindWord, "1"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Scan(\"set x 1\")\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestScanLeadingAndTrailingSpaces(t *testing.T) {
+	got := summarize(Scan("  ab\tcd  "))
+	want := []kt{
+		{KindWord, "ab"},
+		{KindWord, "cd"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}
