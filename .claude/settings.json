@@ -7,7 +7,6 @@
       "Bash(make *)",
       "Bash(tclsh*)",
       "Bash(nvim *)",
-      "Bash(bd *)",
       "Bash(luacheck *)",
       "Bash(stylua *)",
       "Bash(nagelfar *)",
