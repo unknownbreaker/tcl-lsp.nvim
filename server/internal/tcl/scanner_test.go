@@ -51,3 +51,19 @@ func TestScanLeadingAndTrailingSpaces(t *testing.T) {
 		t.Fatalf(" got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestScanSeparators(t *testing.T) {
+	got := summarize(Scan("a b\nc;d"))
+	want := []kt{
+		{KindWord, "a"},
+		{KindWord, "b"},
+		{KindNewline, "\n"},
+		{KindWord, "c"},
+		{KindSemicolon, ";"},
+		{KindWord, "d"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}

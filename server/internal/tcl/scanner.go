@@ -41,7 +41,15 @@ func (s *scanner) scan() []Token {
 		c := s.src[s.pos]
 		switch {
 		case c == ' ' || c == '\t':
-			s.pos++ // inter-word whitespace is not emitted
+			s.pos++
+		case c == '\n':
+			s.emit(KindNewline, s.pos, s.pos+1)
+			s.pos++
+			s.atCommandStart = true
+		case c == ';':
+			s.emit(KindSemicolon, s.pos, s.pos+1)
+			s.pos++
+			s.atCommandStart = true
 		default:
 			s.scanWord()
 			s.atCommandStart = false
