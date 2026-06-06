@@ -30,7 +30,7 @@ a research-first approach.)
 | 02 | [Namespace name resolution (commands vs variables)](02-namespace-resolution.md) | ✅ verified on 8.6 + 9.0 |
 | 03 | [Proc / command definition & call-site resolution](03-proc-resolution.md) | ✅ verified on 8.6 + 9.0 |
 | 04 | [`source` / `package` / multi-file resolution](04-source-multifile.md) | ✅ verified on 8.6 + 9.0 |
-| 05 | [RVT (Rivet template) scope implications](05-rvt-scope.md) | 🟡 partially verified (Rivet not installed; see [CONFIRM] items) |
+| 05 | [RVT (Rivet template) scope implications](05-rvt-scope.md) | ✅ scope sim-verified + Rivet specifics resolved from docs (only FlightAware-local items pending) |
 | 06 | Synthesis → resolver model + v2 scope (bridge to planning) | ⏳ proposed |
 
 ## Why this order

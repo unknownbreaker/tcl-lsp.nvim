@@ -1,120 +1,125 @@
 # 05 — RVT (Rivet Template) Scope
 
-**Status: PARTIALLY VERIFIED.** Rivet is an Apache C module and is **not
-installed** in this environment, so real `.rvt` processing was not run. Instead a
-**faithful simulation of the documented Rivet transform**
-(`experiments/05_rvt/rivet_sim.tcl` + `sample.rvt`) was used to verify the
-**scope consequences** of that transform on TCL 8.6. Rivet-specific details are
-flagged **[CONFIRM]** and must be checked against the real Rivet/FlightAware
-setup before the design relies on them.
+**Status: scope consequences simulation-verified on 8.6; Rivet specifics now
+resolved from official Apache Rivet documentation (citations below).** Rivet is an
+Apache C module (`mod_rivet`) and is not installed here, so real request
+processing was not run. The transform's *scope consequences* were verified with a
+faithful simulator (`experiments/05_rvt/rivet_sim.tcl` + `sample.rvt`); the
+Rivet-specific behaviors were confirmed against the docs. Only FlightAware-local
+items remain pending (see end).
 
-## The Rivet processing model (background)
+> **CORRECTION vs the simulation:** the simulator ran the template in global `::`.
+> Per the docs, **real Rivet runs each template in a dedicated `::request`
+> namespace** (`namespace eval ::request $script`). The *structural* findings
+> (one concatenated script, blocks span, position mapping) hold; the *namespace*
+> of template-top-level symbols is `::request`, not `::`. Corrected below.
+
+## The Rivet processing model (now documented)
 
 A `.rvt` file is HTML/text with embedded TCL:
 - `<? code ?>` — TCL code, inline and verbatim.
-- `<?= expr ?>` — outputs the value of `expr` (sugar for `puts`).
-- everything else — literal output.
+- `<?= expr ?>` — shorthand to output a single string (since Rivet 2.0.5);
+  equivalent to a `puts` of the value. [B]
+- everything else — literal output: "everything outside the `<? ?>` tags becomes
+  a large puts statement." [B]
 
-Rivet compiles the whole file into **one TCL script** (literals become output
-calls; code blocks are concatenated in order) and evaluates it per request.
+Rivet compiles the whole file into **one TCL script** and evaluates it per request
+with **`namespace eval ::request $script`**. The `::request` namespace is
+**deleted and recreated at every request**; unless names are fully qualified,
+"every variable and procedure created in .rvt files is by default placed in it"
+and deleted before the next request. [A]
 
-## What the simulation VERIFIED (scope consequences)
+## Verified scope consequences (simulator) + documented corrections
 
-The generated script for `sample.rvt` (abridged):
-```
-emit $::L(0)
-set title "Pets"
-...
-foreach it $items {
-emit $::L(4)
-emit [subst {$it}]      ;# the literal <li> HTML, now INSIDE the loop
-emit $::L(5)
-}
-...
-proc render_footer {} { return "footer defined in [namespace current]" }
-emit [subst {[namespace current]}]
-```
-Verified outputs:
-```
-ns-at-template-top = ::                        # template top level runs in ::
-later-block-sees-title = Pets                  # var set in block 1 visible in a later block
-render_footer -> footer defined in ::          # proc defined in template lives in ::
-info procs ::render_footer -> ::render_footer
-title leaked to global frame? 1 (Pets)         # top-level set => global/:: variable
-```
+### V1 — One concatenated script; control structures span `<? ?>` blocks
+Verified: `<? foreach { ?> ...html... <? } ?>` puts the literal HTML *inside* the
+loop in the generated script.
+**Parser implication (critical, unchanged):** stitch all TCL regions of a `.rvt`
+into one logical script and parse them together — never per-block.
 
-### V1 — The whole template is ONE concatenated script (blocks are not independent)
-A control structure can **span** `<? ?>` blocks; the literal HTML between them
-becomes output statements **inside** that structure
-(`<? foreach { ?> ...html... <? } ?>`).
-**Resolver/parser implication (critical):** the parser must **stitch all TCL
-regions of a `.rvt` into one logical script** and parse them together. It must
-**not** parse each `<? ?>` block in isolation — braces, scopes, and variable
-bindings carry across blocks.
-
-### V2 — Variables and procs at template top level behave like `::`-level TCL
-`namespace current` is `::`; a top-level `set` creates a global; a `proc` is
-created in `::`. (Modulo the request-namespace question in [CONFIRM-A].)
-**Resolver implication:** treat a `.rvt`'s template-top-level code exactly like a
-`.tcl` file's top-level code for scope/definition purposes — same rules as
-docs 01–04. Procs/vars defined in templates are indexable definitions.
+### V2 — Template top level runs in `::request` (CORRECTED)
+Unqualified vars/procs defined at template top level are created in **`::request`**
+(not `::`). [A] Within the template they behave like namespace-top-level code
+(01/04: unqualified var = the namespace's own variable).
+**Resolver implication:** a bare `proc foo {}` in a template defines
+`::request::foo`; a bare `set x` defines `::request::x`. Application code that
+wants shared/persistent symbols must use explicit namespaces or the global `::`
+(the docs note globals are used for things like DB connections/IO channels). [A]
 
 ### V3 — `<?= expr ?>` regions contain real references
-`<?= $title ?>` is a variable reference; `<?= [foo] ?>` is a command reference.
-**Resolver implication:** echo regions must be parsed as TCL expressions and their
-symbols resolved/indexed like any other reference (so goto-definition works from
-inside `<?= ... ?>`).
+`<?= $title ?>` outputs a variable; the region is real TCL and its symbols must be
+parsed/indexed for goto-definition. [B]
 
-### V4 — Source-position mapping back to the `.rvt`
-The stitched script is a transformation of the original bytes.
-**Resolver implication:** every token in the stitched script must carry its
-**original `.rvt` byte offset / line:col**, so goto-definition and
-goto-reference point to the correct place in the `.rvt` file, not into a
-generated artifact. This is a hard requirement on the parser's position tracking.
+### V4 — Source-position mapping back to the `.rvt` (unchanged)
+Every token in the stitched script must carry its original `.rvt` byte
+offset/line:col so goto-def/ref point into the `.rvt`, not a generated artifact.
 
-## Rivet specifics that NEED CONFIRMATION [CONFIRM]
+## Resolved Category-1 confirmations (from docs)
 
-These were **not** verifiable here and could change the model:
+- **[A] Request namespace — RESOLVED.** Templates evaluate via
+  `namespace eval ::request $script`; `::request` is recreated/destroyed per
+  request; template-level unqualified symbols default to `::request`.
+  Sources: processing manuals (3.0/3.2), request lifecycle manual (2.3).
+- **[B] `<?= ?>` semantics — RESOLVED.** Shorthand for outputting a single string
+  (since 2.0.5); text outside `<? ?>` becomes a large `puts`. Source: Templates
+  manual.
+- **[C] Template composition — RESOLVED.** `::rivet::parse FILE` "parses a Rivet
+  template file" and works **like Tcl's `source`** (evaluates in the current
+  context, with `<? ?>` processing) → analogous to `source` (topic 04).
+  `::rivet::include FILE` inserts a file **raw** (no parsing). Source: parse
+  manual + commands reference.
+- **[D] Rivet builtin command set — RESOLVED (catalog captured).** The `::rivet::`
+  command namespace includes (3.2): `abort_code`, `abort_page`, `apache_log_error`,
+  `apache_table`, `catch`, `clock_to_rfc850_gmt`, `cookie`, `debug`, `env`,
+  `escape_sgml_chars`, `escape_shell_command`, `escape_string`, `exit`, `headers`,
+  `html`, `http_accept`, `import_keyvalue_pairs`, `include`, `inspect`,
+  `lassign_array`, `lempty`, `lmatch`, `load_cookies`, `load_env`, `load_headers`,
+  `load_response`, `lremove`, `makeurl`, `no_body`, `parray`, `parse`, `raw_post`,
+  `redirect`, `read_file`, `thread_id`, `try`, `unescape_string`, `upload`,
+  `url_script`, `var`, `wrap`, `wrapline`, `xml`. Source: 3.2 commands reference.
+  **Resolver implication:** these are external (C/Tcl-provided) commands. For v2
+  they resolve to "no definition," but this list is a ready-made **stub/known-
+  commands table** so the LSP can recognize them (and avoid false "unknown
+  command" noise) without indexing Rivet's own sources.
 
-- **[CONFIRM-A] Request namespace.** Does Rivet evaluate request templates in the
-  true global `::`, or in a per-request namespace / child interpreter? If a
-  dedicated namespace, top-level template symbols live there, not `::`. (Affects
-  what FQ name template definitions get.)
-- **[CONFIRM-B] `<?= ?>` exact semantics** (modeled here as "output the value").
-  Confirm it is `puts`-equivalent and whether it adds newlines.
-- **[CONFIRM-C] Template composition:** Rivet's `parse`/`include` (and any
-  FlightAware include convention) pull other `.rvt`/`.tcl` into the stream —
-  analogous to `source` (topic 04). Likely **defer** for v2; workspace indexing
-  still covers naming.
-- **[CONFIRM-D] Rivet builtin commands** (`::rivet::*`, `headers`, `var`,
-  `makeurl`, `load_response`, `parray`, etc.) are **external** (C-implemented),
-  not in the workspace → resolve to "no definition" (like external packages,
-  04). Future: ship a known-commands stub list. Need the actual command set.
-- **[CONFIRM-E] Per-app bootstrap** (`global.tcl`, `request_init`, constructors)
-  and whether procs persist across requests (interp caching). Doesn't affect
-  static indexing (we index regardless), but informs diagnostics later.
-- **[CONFIRM-F] FlightAware conventions:** house rules for namespaces, file
-  layout, custom template directives. Ask for a representative `.rvt`.
+## Resolver implications summary (updated)
 
-## Resolver implications summary
+1. **Parser:** extract TCL from `<? ?>` / `<?= ?>`; literals are opaque output;
+   **stitch all TCL regions into one script per file**; preserve `.rvt` positions.
+2. **Scope:** template top level = **`::request`** namespace (apply 01/04 rules
+   within it). Symbols meant to be shared live in explicit namespaces or `::`.
+3. **Indexing:** index `.rvt` alongside `.tcl` in the workspace-wide FQ-keyed
+   table (topic 04). Note that bare template symbols are `::request::*` and are
+   effectively page-local (the namespace is per-request); reusable code is
+   normally in its own namespaces in `.tcl`/package files and indexes normally.
+4. **Composition:** `::rivet::parse` behaves like `source` (shared context) →
+   model like a `source` edge if/when we follow them; `include` is raw text.
+   Defer following these for v2; workspace indexing still covers naming.
+5. **External symbols:** ship the [D] command list as a known-commands table;
+   everything else external resolves to "no definition."
 
-1. **Parser:** extract TCL from `<? ?>` and `<?= ?>`; treat literals as opaque
-   output; **stitch all TCL regions into one script per file**; preserve original
-   `.rvt` positions for every token.
-2. **Scope:** template top level = `::`-level TCL (pending [CONFIRM-A]); apply the
-   exact rules from docs 01–04.
-3. **Indexing:** `.rvt` definitions enter the same workspace-wide, FQ-keyed symbol
-   table as `.tcl` (topic 04). Glob `*.rvt` alongside `*.tcl`.
-4. **External symbols:** Rivet builtins resolve to "no definition" for v2; consider
-   a stub list later.
-5. **Defer:** template composition (`parse`/`include`) for v2.
+## Still pending — FlightAware-local only
+
+- **[E] App bootstrap** (`global.tcl`, BeforeScript/AfterScript, request hooks):
+  affects what's predefined; informs diagnostics later, not core resolution.
+- **[F] House conventions + a representative real `.rvt` + the exact Rivet version
+  in production** (3.0/3.1/3.2 differ slightly; command set above is 3.2). Needed
+  to validate the model against real templates and pin the command set.
 
 ## Open questions
 
-- **OQ14:** Get a real `.rvt` sample + the installed Rivet version from FlightAware
-  to validate the transform, request namespace, and directive set.
-- **OQ15:** Is a static `<? ?>`/`<?= ?>` extraction sufficient, or are there other
-  Rivet tag forms in use? (Confirm with real templates.)
-- **OQ16 (carried, OQ8):** command-vs-variable position classification inside
-  stitched template code is the same parser problem as for `.tcl`; the `.rvt`
-  stitching must happen before that classification.
+- **OQ14 (narrowed):** confirm production Rivet version + grab one real `.rvt`.
+- **OQ17 (new):** decide how the resolver treats `::request` symbols — page-local
+  by default, with best-effort across `parse` chains? (Most reusable code lives in
+  explicit namespaces, so this mainly affects template-local procs/vars.)
+
+## Sources
+
+- Request processing / `::request` evaluation:
+  https://tcl.apache.org/rivet/manual3.2/processing.html ,
+  https://tcl.apache.org/rivet/manual3.0/processing.html ,
+  https://tcl.apache.org/rivet/manual2.3/request.html
+- Templates / `<? ?>` / `<?= ?>`: https://tcl.apache.org/rivet/html/templates.html ,
+  https://wiki.tcl-lang.org/page/Rivet
+- Commands reference + `parse`: https://tcl.apache.org/rivet/manual3.2/ ,
+  https://tcl.apache.org/rivet/manual3.2/parse.html
