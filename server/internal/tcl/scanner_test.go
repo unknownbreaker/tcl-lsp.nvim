@@ -96,3 +96,43 @@ func TestHashMidCommandIsNotComment(t *testing.T) {
 		t.Fatalf(" got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestScanBracedWord(t *testing.T) {
+	got := summarize(Scan("proc p {a b} {body here}"))
+	want := []kt{
+		{KindWord, "proc"},
+		{KindWord, "p"},
+		{KindWord, "{a b}"},
+		{KindWord, "{body here}"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestScanNestedBraces(t *testing.T) {
+	got := summarize(Scan("set x {a {b} c}"))
+	want := []kt{
+		{KindWord, "set"},
+		{KindWord, "x"},
+		{KindWord, "{a {b} c}"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestScanUnterminatedBrace(t *testing.T) {
+	got := summarize(Scan("set x {a b"))
+	want := []kt{
+		{KindWord, "set"},
+		{KindWord, "x"},
+		{KindWord, "{a b"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}

@@ -63,8 +63,36 @@ func (s *scanner) scan() []Token {
 
 func (s *scanner) scanWord() {
 	start := s.pos
-	s.scanBare()
+	switch s.src[s.pos] {
+	case '{':
+		s.scanBraced()
+	default:
+		s.scanBare()
+	}
 	s.emit(KindWord, start, s.pos)
+}
+
+// scanBraced advances over a {braced} word, honoring nesting. Backslash escapes
+// the next byte so \{ and \} do not change depth. Tolerant of unterminated input.
+func (s *scanner) scanBraced() {
+	depth := 0
+	for s.pos < len(s.src) {
+		c := s.src[s.pos]
+		switch {
+		case c == '\\' && s.pos+1 < len(s.src):
+			s.pos += 2
+			continue
+		case c == '{':
+			depth++
+		case c == '}':
+			depth--
+			if depth == 0 {
+				s.pos++ // consume closing brace
+				return
+			}
+		}
+		s.pos++
+	}
 }
 
 // scanComment advances over a comment from '#' to (but not including) newline.
