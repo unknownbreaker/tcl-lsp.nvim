@@ -42,6 +42,8 @@ func (s *scanner) scan() []Token {
 		switch {
 		case c == ' ' || c == '\t':
 			s.pos++
+		case c == '\\' && s.pos+1 < len(s.src) && s.src[s.pos+1] == '\n':
+			s.pos += 2 // line continuation acts as whitespace
 		case c == '\n':
 			s.emit(KindNewline, s.pos, s.pos+1)
 			s.pos++

@@ -187,3 +187,30 @@ func TestScanNestedBrackets(t *testing.T) {
 		t.Fatalf(" got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestScanEscapedSpaceInBareword(t *testing.T) {
+	got := summarize(Scan(`set x a\ b`))
+	want := []kt{
+		{KindWord, "set"},
+		{KindWord, "x"},
+		{KindWord, `a\ b`},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestScanLineContinuation(t *testing.T) {
+	// Backslash-newline is whitespace, not a command separator.
+	got := summarize(Scan("set x \\\n1"))
+	want := []kt{
+		{KindWord, "set"},
+		{KindWord, "x"},
+		{KindWord, "1"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}
