@@ -161,3 +161,29 @@ func TestScanQuotedWithEscapedQuote(t *testing.T) {
 		t.Fatalf(" got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestScanBracketInBareword(t *testing.T) {
+	got := summarize(Scan("set x [expr {1 + 2}]"))
+	want := []kt{
+		{KindWord, "set"},
+		{KindWord, "x"},
+		{KindWord, "[expr {1 + 2}]"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestScanNestedBrackets(t *testing.T) {
+	got := summarize(Scan("set x a[b [c d]]e"))
+	want := []kt{
+		{KindWord, "set"},
+		{KindWord, "x"},
+		{KindWord, "a[b [c d]]e"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}

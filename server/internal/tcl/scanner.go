@@ -133,11 +133,39 @@ func (s *scanner) scanComment() {
 func (s *scanner) scanBare() {
 	for s.pos < len(s.src) {
 		c := s.src[s.pos]
-		switch c {
-		case ' ', '\t', '\n', ';':
+		switch {
+		case c == '\\' && s.pos+1 < len(s.src):
+			s.pos += 2
+		case c == '[':
+			s.scanBracket()
+		case c == ' ' || c == '\t' || c == '\n' || c == ';':
 			return
 		default:
 			s.pos++
 		}
+	}
+}
+
+// scanBracket advances over a balanced [command substitution] span, backslash-
+// aware. Tolerant of unterminated input. (Pragmatic depth counting; a closing
+// bracket inside a nested brace is a rare edge case accepted as a known limit.)
+func (s *scanner) scanBracket() {
+	depth := 0
+	for s.pos < len(s.src) {
+		c := s.src[s.pos]
+		switch {
+		case c == '\\' && s.pos+1 < len(s.src):
+			s.pos += 2
+			continue
+		case c == '[':
+			depth++
+		case c == ']':
+			depth--
+			if depth == 0 {
+				s.pos++
+				return
+			}
+		}
+		s.pos++
 	}
 }
