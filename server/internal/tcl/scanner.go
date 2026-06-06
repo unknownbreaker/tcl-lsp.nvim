@@ -66,10 +66,30 @@ func (s *scanner) scanWord() {
 	switch s.src[s.pos] {
 	case '{':
 		s.scanBraced()
+	case '"':
+		s.scanQuoted()
 	default:
 		s.scanBare()
 	}
 	s.emit(KindWord, start, s.pos)
+}
+
+// scanQuoted advances over a "quoted" word to the next unescaped quote.
+// Tolerant of unterminated input.
+func (s *scanner) scanQuoted() {
+	s.pos++ // opening quote
+	for s.pos < len(s.src) {
+		c := s.src[s.pos]
+		switch {
+		case c == '\\' && s.pos+1 < len(s.src):
+			s.pos += 2
+			continue
+		case c == '"':
+			s.pos++ // closing quote
+			return
+		}
+		s.pos++
+	}
 }
 
 // scanBraced advances over a {braced} word, honoring nesting. Backslash escapes

@@ -136,3 +136,28 @@ func TestScanUnterminatedBrace(t *testing.T) {
 		t.Fatalf(" got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestScanQuotedWord(t *testing.T) {
+	got := summarize(Scan(`set x "a b;c"`))
+	want := []kt{
+		{KindWord, "set"},
+		{KindWord, "x"},
+		{KindWord, `"a b;c"`},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestScanQuotedWithEscapedQuote(t *testing.T) {
+	got := summarize(Scan(`puts "she said \"hi\""`))
+	want := []kt{
+		{KindWord, "puts"},
+		{KindWord, `"she said \"hi\""`},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}
