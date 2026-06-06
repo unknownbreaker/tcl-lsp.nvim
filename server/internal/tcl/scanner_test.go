@@ -214,3 +214,36 @@ func TestScanLineContinuation(t *testing.T) {
 		t.Fatalf(" got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestScanRealisticSnippet(t *testing.T) {
+	src := "namespace eval ::app {\n    variable v 1\n    proc f {x} { return [expr {$x + $v}] }\n}"
+	got := summarize(Scan(src))
+	want := []kt{
+		{KindWord, "namespace"},
+		{KindWord, "eval"},
+		{KindWord, "::app"},
+		{KindWord, "{\n    variable v 1\n    proc f {x} { return [expr {$x + $v}] }\n}"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestTokenByteOffsetsAreExact(t *testing.T) {
+	src := "set x 1"
+	toks := Scan(src)
+	// The word "x" sits at bytes [4,5).
+	var xtok Token
+	for _, tk := range toks {
+		if tk.Kind == KindWord && tk.Text == "x" {
+			xtok = tk
+		}
+	}
+	if xtok.Start != 4 || xtok.End != 5 {
+		t.Fatalf("x offsets: got [%d,%d), want [4,5)", xtok.Start, xtok.End)
+	}
+	if src[xtok.Start:xtok.End] != "x" {
+		t.Fatalf("offset slice mismatch: %q", src[xtok.Start:xtok.End])
+	}
+}
