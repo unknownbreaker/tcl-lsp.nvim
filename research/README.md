@@ -29,8 +29,8 @@ a research-first approach.)
 | 01 | [Variable scope & resolution](01-variable-scope.md) | ✅ verified on 8.6 + 9.0 |
 | 02 | [Namespace name resolution (commands vs variables)](02-namespace-resolution.md) | ✅ verified on 8.6 + 9.0 |
 | 03 | [Proc / command definition & call-site resolution](03-proc-resolution.md) | ✅ verified on 8.6 + 9.0 |
-| 04 | `source` / `package` / multi-file resolution | ⏳ next |
-| 05 | RVT (Rivet template) scope implications | ⏳ |
+| 04 | [`source` / `package` / multi-file resolution](04-source-multifile.md) | ✅ verified on 8.6 + 9.0 |
+| 05 | RVT (Rivet template) scope implications | ⏳ next |
 
 ## Why this order
 
