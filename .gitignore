@@ -53,3 +53,6 @@ temp/
 
 # Git worktrees
 .worktrees/
+
+# beads (removed from this project; ignore any daemon-recreated state)
+.beads/

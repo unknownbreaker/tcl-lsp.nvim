@@ -32,7 +32,6 @@ diagnostics, rename, etc.) during this phase.
 
 - Research output lives in `research/` as Markdown (create it when starting).
 - Plans live in `docs/plans/` once research is mapped.
-- Track significant, multi-step work with beads (`bd create`/`bd update`/`bd close`).
 - Keep changes small and verified; resist re-expanding scope.
 
 ## Recovering v1
