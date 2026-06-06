@@ -13,21 +13,22 @@ a research-first approach.)
   static resolver (an LSP cannot `eval`; it must replicate TCL's resolution rules
   by static analysis).
 
-## Environment note
+## Environment / target version
 
-- Local `tclsh` is **9.0.3**. The project previously claimed "TCL 8.6+".
-- **Open question:** which TCL version(s) must the LSP target? Rivet/RVT
-  historically runs on 8.6. Most scope/namespace semantics are stable across
-  8.6 → 9.0, but this must be pinned down before the design phase, and any
-  version-sensitive behavior must be re-checked on the real target.
+- **Target: TCL 8.6** (the Rivet/RVT baseline). Run all experiments with:
+  `/opt/homebrew/opt/tcl-tk@8/bin/tclsh experiments/NN_name.tcl`
+  (installed via `brew install tcl-tk@8`, version 8.6.18, keg-only).
+- A 9.0.3 `tclsh` is also present (the default on PATH) and is used as a
+  cross-check. Topic 01 was verified **identical** on 8.6.18 and 9.0.3.
+- When a behavior differs between 8.6 and 9.0, the findings doc must call it out.
 
 ## Findings index
 
 | # | Topic | Status |
 |---|-------|--------|
-| 01 | [Variable scope & resolution](01-variable-scope.md) | ✅ drafted (verified) |
-| 02 | Namespace name resolution (commands vs variables) | ⏳ next |
-| 03 | Proc / command resolution at call sites | ⏳ |
+| 01 | [Variable scope & resolution](01-variable-scope.md) | ✅ verified on 8.6 + 9.0 |
+| 02 | [Namespace name resolution (commands vs variables)](02-namespace-resolution.md) | ✅ verified on 8.6 + 9.0 |
+| 03 | Proc / command resolution at call sites | ⏳ next |
 | 04 | `source` / `package` / multi-file resolution | ⏳ |
 | 05 | RVT (Rivet template) scope implications | ⏳ |
 
