@@ -1,0 +1,13 @@
+<html>
+<? set title "Pets" ?>
+<? set items {cat dog fish} ?>
+<h1><?= $title ?></h1>
+<ul>
+<? foreach it $items { ?>
+  <li><?= $it ?></li>
+<? } ?>
+</ul>
+<? proc render_footer {} { return "footer defined in [namespace current]" } ?>
+<p>ns-at-template-top = <?= [namespace current] ?></p>
+<p>later-block-sees-title = <?= $title ?></p>
+</html>
