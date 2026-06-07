@@ -64,3 +64,27 @@ func TestParseSkipsComments(t *testing.T) {
 		t.Fatalf("unexpected command heads: %#v", got)
 	}
 }
+
+func TestParseWordKinds(t *testing.T) {
+	got := Parse(`proc p {a b} "hello world"`)
+	if len(got) != 1 {
+		t.Fatalf("got %d commands, want 1: %#v", len(got), got)
+	}
+	words := got[0].Words
+	wantKinds := []WordKind{WordBare, WordBare, WordBraced, WordQuoted}
+	if len(words) != len(wantKinds) {
+		t.Fatalf("got %d words, want %d: %#v", len(words), len(wantKinds), words)
+	}
+	for i, w := range words {
+		if w.Kind != wantKinds[i] {
+			t.Fatalf("word %d (%q) kind = %d, want %d", i, w.Text, w.Kind, wantKinds[i])
+		}
+	}
+	// Braced/quoted word text includes its delimiters.
+	if words[2].Text != "{a b}" {
+		t.Fatalf("braced word text = %q, want %q", words[2].Text, "{a b}")
+	}
+	if words[3].Text != `"hello world"` {
+		t.Fatalf("quoted word text = %q, want %q", words[3].Text, `"hello world"`)
+	}
+}
