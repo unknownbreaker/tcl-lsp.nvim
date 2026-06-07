@@ -53,3 +53,14 @@ func TestParseMultipleCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSkipsComments(t *testing.T) {
+	src := "# a comment\nset x 1\n# another\nputs $x"
+	got := Parse(src)
+	if len(got) != 2 {
+		t.Fatalf("got %d commands, want 2 (comments skipped): %#v", len(got), got)
+	}
+	if got[0].Words[0].Text != "set" || got[1].Words[0].Text != "puts" {
+		t.Fatalf("unexpected command heads: %#v", got)
+	}
+}
