@@ -104,3 +104,20 @@ func TestWordVarRefsQuotedMultiple(t *testing.T) {
 		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestWordVarRefsAbsoluteOffsets(t *testing.T) {
+	src := "puts $count"
+	cmds := Parse(src)
+	if len(cmds) != 1 || len(cmds[0].Words) != 2 {
+		t.Fatalf("unexpected parse: %#v", cmds)
+	}
+	got := WordVarRefs(cmds[0].Words[1])
+	want := []VarRef{{Name: "count", Start: 5, End: 11}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
+	}
+	// The range slices back to the exact source text.
+	if src[got[0].Start:got[0].End] != "$count" {
+		t.Fatalf("offset slice = %q, want %q", src[got[0].Start:got[0].End], "$count")
+	}
+}
