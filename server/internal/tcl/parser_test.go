@@ -88,3 +88,29 @@ func TestParseWordKinds(t *testing.T) {
 		t.Fatalf("quoted word text = %q, want %q", words[3].Text, `"hello world"`)
 	}
 }
+
+func TestParseRealisticSnippet(t *testing.T) {
+	// A namespace command whose body is one (opaque) braced word at this layer.
+	src := "namespace eval ::app {\n    set v 1\n}"
+	got := Parse(src)
+	if len(got) != 1 {
+		t.Fatalf("got %d commands, want 1: %#v", len(got), got)
+	}
+	w := got[0].Words
+	if len(w) != 4 {
+		t.Fatalf("got %d words, want 4: %#v", len(w), w)
+	}
+	if w[0].Text != "namespace" || w[1].Text != "eval" || w[2].Text != "::app" {
+		t.Fatalf("unexpected heads: %q %q %q", w[0].Text, w[1].Text, w[2].Text)
+	}
+	if w[3].Kind != WordBraced {
+		t.Fatalf("body word kind = %d, want WordBraced", w[3].Kind)
+	}
+	// The body word's range slices back to its exact source text.
+	if src[w[3].Start:w[3].End] != w[3].Text {
+		t.Fatalf("body range mismatch: src[%d:%d]=%q text=%q", w[3].Start, w[3].End, src[w[3].Start:w[3].End], w[3].Text)
+	}
+	if w[3].Text != "{\n    set v 1\n}" {
+		t.Fatalf("body text = %q", w[3].Text)
+	}
+}
