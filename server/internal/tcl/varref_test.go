@@ -37,3 +37,21 @@ func TestWordVarRefsBracedName(t *testing.T) {
 		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestWordVarRefsNamespaceQualified(t *testing.T) {
+	w := Word{Kind: WordBare, Text: "$ns::name", Start: 0, End: 9}
+	got := WordVarRefs(w)
+	want := []VarRef{{Name: "ns::name", Start: 0, End: 9}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestWordVarRefsGlobalQualified(t *testing.T) {
+	w := Word{Kind: WordBare, Text: "$::g", Start: 0, End: 4}
+	got := WordVarRefs(w)
+	want := []VarRef{{Name: "::g", Start: 0, End: 4}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
+	}
+}

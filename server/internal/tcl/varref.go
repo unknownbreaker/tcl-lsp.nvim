@@ -51,14 +51,25 @@ func parseVarRef(text string, dollar, base int) (VarRef, int, bool) {
 		}
 		return VarRef{Name: text[i+1 : j], Start: base + dollar, End: base + j + 1}, j + 1, true
 	}
-	if !isNameByte(text[i]) {
+	// Bareword name: optional leading "::", then ::-joined [A-Za-z0-9_] segments.
+	nameStart := i
+	j := i
+	if j+1 < len(text) && text[j] == ':' && text[j+1] == ':' {
+		j += 2
+	}
+	if j >= len(text) || !isNameByte(text[j]) {
 		return VarRef{}, dollar + 1, false
 	}
-	j := i
 	for j < len(text) && isNameByte(text[j]) {
 		j++
 	}
-	return VarRef{Name: text[i:j], Start: base + dollar, End: base + j}, j, true
+	for j+1 < len(text) && text[j] == ':' && text[j+1] == ':' {
+		j += 2
+		for j < len(text) && isNameByte(text[j]) {
+			j++
+		}
+	}
+	return VarRef{Name: text[nameStart:j], Start: base + dollar, End: base + j}, j, true
 }
 
 func isNameByte(b byte) bool {
