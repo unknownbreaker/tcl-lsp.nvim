@@ -19,8 +19,8 @@ type Reference struct {
 // CommandRefs returns the references in a single command: the command-position
 // name (when the first word is a literal name) plus the variable references in
 // every word. Offsets are absolute when the command's word offsets are absolute
-// (as produced by Parse on source text). [command substitution] recursion is
-// added in a later task.
+// (as produced by Parse on source text). References nested inside
+// [command substitution] spans are included via substRefs.
 func CommandRefs(c Command) []Reference {
 	var refs []Reference
 	for idx, w := range c.Words {
@@ -47,8 +47,10 @@ func isLiteralName(w Word) bool {
 	return true
 }
 
-// wordRefs scans one word for variable references. Braced words undergo no
-// substitution and yield none. (Bracket recursion is added in a later task.)
+// wordRefs scans one word for variable references and command substitutions.
+// Braced words undergo no substitution and yield none. Bare and quoted words are
+// scanned for $var refs and [cmd] spans; bracket interiors are recursed into via
+// substRefs.
 func wordRefs(w Word) []Reference {
 	if w.Kind == WordBraced {
 		return nil
@@ -56,6 +58,9 @@ func wordRefs(w Word) []Reference {
 	return scanRefs(w.Text, w.Start)
 }
 
+// scanRefs differs from scanVarRefs (varref.go): it descends into [cmd] spans
+// (via substRefs) rather than skipping them, and also reports command-position
+// names found inside those spans.
 func scanRefs(text string, base int) []Reference {
 	var refs []Reference
 	i := 0
@@ -73,6 +78,8 @@ func scanRefs(text string, base int) []Reference {
 		case c == '[':
 			end := skipBracketSpan(text, i) // index just past the matching ']'
 			innerEnd := end
+			// Strip the closing ']' if present; on unterminated input
+			// skipBracketSpan returns len(text) and there is no ']' to remove.
 			if end > i+1 && text[end-1] == ']' {
 				innerEnd = end - 1
 			}

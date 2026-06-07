@@ -96,6 +96,16 @@ func TestCommandRefsAbsoluteOffsets(t *testing.T) {
 	}
 }
 
+func TestCommandRefsBracketEmpty(t *testing.T) {
+	// An empty/whitespace-only [ ] span yields no nested references.
+	cmds := Parse("set x [ ]")
+	got := CommandRefs(cmds[0])
+	want := []Reference{{Kind: RefCommand, Name: "set", Start: 0, End: 3}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestCommandRefsExprBracedLimitation(t *testing.T) {
 	// KNOWN LIMITATION: a variable inside a braced expr argument is not found
 	// (braces suppress substitution structurally; we do not model expr's
