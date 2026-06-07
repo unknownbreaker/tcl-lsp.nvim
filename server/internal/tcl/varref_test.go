@@ -121,3 +121,36 @@ func TestWordVarRefsAbsoluteOffsets(t *testing.T) {
 		t.Fatalf("offset slice = %q, want %q", src[got[0].Start:got[0].End], "$count")
 	}
 }
+
+func TestWordVarRefsEmptyBraced(t *testing.T) {
+	w := Word{Kind: WordBare, Text: "${}", Start: 0, End: 3}
+	if got := WordVarRefs(w); len(got) != 0 {
+		t.Fatalf("${} is not a valid ref, got %#v", got)
+	}
+}
+
+func TestWordVarRefsDollarBeforeBracket(t *testing.T) {
+	w := Word{Kind: WordBare, Text: "$[expr 1]", Start: 0, End: 9}
+	if got := WordVarRefs(w); len(got) != 0 {
+		t.Fatalf("$ before [ is not a ref, got %#v", got)
+	}
+}
+
+func TestWordVarRefsTrailingBackslash(t *testing.T) {
+	w := Word{Kind: WordBare, Text: `$x\`, Start: 0, End: 3}
+	got := WordVarRefs(w)
+	want := []VarRef{{Name: "x", Start: 0, End: 2}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestWordVarRefsTrailingNamespaceSep(t *testing.T) {
+	// "$ns::" with no trailing segment -> name is "ns" (trailing :: excluded).
+	w := Word{Kind: WordBare, Text: "$ns::", Start: 0, End: 5}
+	got := WordVarRefs(w)
+	want := []VarRef{{Name: "ns", Start: 0, End: 3}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
+	}
+}

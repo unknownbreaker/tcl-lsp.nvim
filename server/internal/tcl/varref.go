@@ -78,6 +78,9 @@ func parseVarRef(text string, dollar, base int) (VarRef, int, bool) {
 		if j >= len(text) {
 			return VarRef{}, len(text), false // unterminated ${ : tolerant
 		}
+		if j == i+1 {
+			return VarRef{}, j + 1, false // empty ${} is not a valid reference
+		}
 		return VarRef{Name: text[i+1 : j], Start: base + dollar, End: base + j + 1}, j + 1, true
 	}
 	// Bareword name: optional leading "::", then ::-joined [A-Za-z0-9_] segments.
@@ -93,10 +96,14 @@ func parseVarRef(text string, dollar, base int) (VarRef, int, bool) {
 		j++
 	}
 	for j+1 < len(text) && text[j] == ':' && text[j+1] == ':' {
-		j += 2
-		for j < len(text) && isNameByte(text[j]) {
-			j++
+		seg := j + 2
+		for seg < len(text) && isNameByte(text[seg]) {
+			seg++
 		}
+		if seg == j+2 {
+			break // trailing "::" with no following segment
+		}
+		j = seg
 	}
 	return VarRef{Name: text[nameStart:j], Start: base + dollar, End: base + j}, j, true
 }
