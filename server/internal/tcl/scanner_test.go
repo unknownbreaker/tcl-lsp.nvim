@@ -235,15 +235,35 @@ func TestTokenByteOffsetsAreExact(t *testing.T) {
 	toks := Scan(src)
 	// The word "x" sits at bytes [4,5).
 	var xtok Token
+	found := false
 	for _, tk := range toks {
 		if tk.Kind == KindWord && tk.Text == "x" {
 			xtok = tk
+			found = true
 		}
+	}
+	if !found {
+		t.Fatal("token \"x\" not found in scan output")
 	}
 	if xtok.Start != 4 || xtok.End != 5 {
 		t.Fatalf("x offsets: got [%d,%d), want [4,5)", xtok.Start, xtok.End)
 	}
 	if src[xtok.Start:xtok.End] != "x" {
 		t.Fatalf("offset slice mismatch: %q", src[xtok.Start:xtok.End])
+	}
+}
+
+func TestScanBracedBackslashEscapedBrace(t *testing.T) {
+	// In TCL a backslash-quoted brace is not counted toward depth, so the
+	// matching close brace is the final one. Verified on tclsh 8.6.
+	got := summarize(Scan("set a {\\}}"))
+	want := []kt{
+		{KindWord, "set"},
+		{KindWord, "a"},
+		{KindWord, "{\\}}"},
+		{KindEOF, ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(" got: %#v\nwant: %#v", got, want)
 	}
 }

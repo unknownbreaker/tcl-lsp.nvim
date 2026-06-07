@@ -101,6 +101,9 @@ func (s *scanner) scanBraced() {
 	for s.pos < len(s.src) {
 		c := s.src[s.pos]
 		switch {
+		// A backslash quotes the next byte, so \{ and \} are NOT counted toward
+		// brace depth (matches Tcl's rule for locating the matching close brace;
+		// verified on tclsh 8.6: `set a {\}}` -> value "\}", length 2).
 		case c == '\\' && s.pos+1 < len(s.src):
 			s.pos += 2
 			continue
