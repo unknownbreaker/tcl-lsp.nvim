@@ -70,8 +70,32 @@ func scanRefs(text string, base int) []Reference {
 				refs = append(refs, Reference{Kind: RefVariable, Name: ref.Name, Start: ref.Start, End: ref.End})
 			}
 			i = next
+		case c == '[':
+			end := skipBracketSpan(text, i) // index just past the matching ']'
+			innerEnd := end
+			if end > i+1 && text[end-1] == ']' {
+				innerEnd = end - 1
+			}
+			refs = append(refs, substRefs(text[i+1:innerEnd], base+i+1)...)
+			i = end
 		default:
 			i++
+		}
+	}
+	return refs
+}
+
+// substRefs extracts references from the interior of a [command substitution].
+// innerBase is the absolute offset of the interior's first byte. The interior is
+// itself a script, so it is parsed and each command recursed into; offsets are
+// shifted from interior-relative to absolute.
+func substRefs(inner string, innerBase int) []Reference {
+	var refs []Reference
+	for _, c := range Parse(inner) {
+		for _, r := range CommandRefs(c) {
+			r.Start += innerBase
+			r.End += innerBase
+			refs = append(refs, r)
 		}
 	}
 	return refs
