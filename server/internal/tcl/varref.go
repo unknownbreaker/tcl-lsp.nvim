@@ -23,17 +23,46 @@ func scanVarRefs(text string, base int) []VarRef {
 	var refs []VarRef
 	i := 0
 	for i < len(text) {
-		if text[i] == '$' {
+		c := text[i]
+		switch {
+		case c == '\\' && i+1 < len(text):
+			i += 2 // escaped char is literal
+		case c == '[':
+			i = skipBracketSpan(text, i) // command-substitution interior deferred
+		case c == '$':
 			ref, next, ok := parseVarRef(text, i, base)
 			if ok {
 				refs = append(refs, ref)
 			}
 			i = next
-		} else {
+		default:
 			i++
 		}
 	}
 	return refs
+}
+
+// skipBracketSpan returns the index just past a balanced [..] span starting at i.
+// Backslash-aware; tolerant of unterminated input (returns len(text)).
+func skipBracketSpan(text string, i int) int {
+	depth := 0
+	for i < len(text) {
+		c := text[i]
+		if c == '\\' && i+1 < len(text) {
+			i += 2
+			continue
+		}
+		if c == '[' {
+			depth++
+		} else if c == ']' {
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+		i++
+	}
+	return i
 }
 
 func parseVarRef(text string, dollar, base int) (VarRef, int, bool) {

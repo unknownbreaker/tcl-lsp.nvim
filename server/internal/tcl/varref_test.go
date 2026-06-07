@@ -77,3 +77,30 @@ func TestWordVarRefsArrayIndexVarAlsoFound(t *testing.T) {
 		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestWordVarRefsSkipsBracketSpan(t *testing.T) {
+	// Command-substitution interiors are deferred: no refs extracted from inside.
+	w := Word{Kind: WordBare, Text: "[expr {$x}]", Start: 0, End: 11}
+	if got := WordVarRefs(w); len(got) != 0 {
+		t.Fatalf("bracket interior should be skipped, got %#v", got)
+	}
+}
+
+func TestWordVarRefsEscapedDollar(t *testing.T) {
+	w := Word{Kind: WordBare, Text: `\$x`, Start: 0, End: 3}
+	if got := WordVarRefs(w); len(got) != 0 {
+		t.Fatalf("escaped dollar is literal, got %#v", got)
+	}
+}
+
+func TestWordVarRefsQuotedMultiple(t *testing.T) {
+	w := Word{Kind: WordQuoted, Text: `"$a and $b"`, Start: 0, End: 11}
+	got := WordVarRefs(w)
+	want := []VarRef{
+		{Name: "a", Start: 1, End: 3},
+		{Name: "b", Start: 8, End: 10},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
+	}
+}
