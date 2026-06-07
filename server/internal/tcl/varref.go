@@ -36,11 +36,22 @@ func scanVarRefs(text string, base int) []VarRef {
 	return refs
 }
 
-// parseVarRef parses a reference whose '$' is at index `dollar`. It returns the
-// ref, the index to resume scanning from, and whether a ref was found.
 func parseVarRef(text string, dollar, base int) (VarRef, int, bool) {
 	i := dollar + 1
-	if i >= len(text) || !isNameByte(text[i]) {
+	if i >= len(text) {
+		return VarRef{}, dollar + 1, false
+	}
+	if text[i] == '{' {
+		j := i + 1
+		for j < len(text) && text[j] != '}' {
+			j++
+		}
+		if j >= len(text) {
+			return VarRef{}, len(text), false // unterminated ${ : tolerant
+		}
+		return VarRef{Name: text[i+1 : j], Start: base + dollar, End: base + j + 1}, j + 1, true
+	}
+	if !isNameByte(text[i]) {
 		return VarRef{}, dollar + 1, false
 	}
 	j := i

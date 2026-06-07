@@ -27,3 +27,13 @@ func TestWordVarRefsLoneDollar(t *testing.T) {
 		t.Fatalf("lone $ is not a ref, got %#v", got)
 	}
 }
+
+func TestWordVarRefsBracedName(t *testing.T) {
+	// ${...} allows any characters (including spaces) in the name.
+	w := Word{Kind: WordBare, Text: "${my var}", Start: 0, End: 9}
+	got := WordVarRefs(w)
+	want := []VarRef{{Name: "my var", Start: 0, End: 9}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
+	}
+}
