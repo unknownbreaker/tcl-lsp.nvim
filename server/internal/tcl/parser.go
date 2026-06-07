@@ -48,6 +48,9 @@ func Parse(src string) []Command {
 	return cmds
 }
 
+// wordFromToken maps a scanner Token to a Word. Classifying by the first byte is
+// safe because Scan guarantees a KindWord token starts with its delimiter ('{'
+// or '"') for braced/quoted words, or a non-delimiter byte for bare words.
 func wordFromToken(tk Token) Word {
 	k := WordBare
 	if len(tk.Text) > 0 {

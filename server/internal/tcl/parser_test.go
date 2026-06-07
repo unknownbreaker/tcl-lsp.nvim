@@ -40,14 +40,12 @@ func TestParseMultipleCommands(t *testing.T) {
 	}
 	// Command word counts: [set x 1], [puts $x], [incr x]
 	wantCounts := []int{3, 2, 2}
+	// First word of each command.
+	wantHeads := []string{"set", "puts", "incr"}
 	for i, c := range got {
 		if len(c.Words) != wantCounts[i] {
 			t.Fatalf("command %d has %d words, want %d: %#v", i, len(c.Words), wantCounts[i], c)
 		}
-	}
-	// First word of each command.
-	wantHeads := []string{"set", "puts", "incr"}
-	for i, c := range got {
 		if c.Words[0].Text != wantHeads[i] {
 			t.Fatalf("command %d head = %q, want %q", i, c.Words[0].Text, wantHeads[i])
 		}
@@ -112,5 +110,30 @@ func TestParseRealisticSnippet(t *testing.T) {
 	}
 	if w[3].Text != "{\n    set v 1\n}" {
 		t.Fatalf("body text = %q", w[3].Text)
+	}
+}
+
+func TestParseInlineHashIsNotComment(t *testing.T) {
+	// `#` is only a comment at command start; mid-command it is a literal word.
+	got := Parse("set x 1 # noise")
+	if len(got) != 1 {
+		t.Fatalf("got %d commands, want 1: %#v", len(got), got)
+	}
+	if len(got[0].Words) != 5 {
+		t.Fatalf("got %d words, want 5: %#v", len(got[0].Words), got[0].Words)
+	}
+	if got[0].Words[3].Text != "#" || got[0].Words[4].Text != "noise" {
+		t.Fatalf("unexpected trailing words: %#v", got[0].Words)
+	}
+}
+
+func TestParseTrailingAndRepeatedSeparators(t *testing.T) {
+	// Trailing separators and blank lines must not create empty commands.
+	got := Parse("set x 1;\n\n\nputs y\n")
+	if len(got) != 2 {
+		t.Fatalf("got %d commands, want 2: %#v", len(got), got)
+	}
+	if got[0].Words[0].Text != "set" || got[1].Words[0].Text != "puts" {
+		t.Fatalf("unexpected heads: %#v", got)
 	}
 }
