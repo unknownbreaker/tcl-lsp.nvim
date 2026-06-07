@@ -76,3 +76,44 @@ func TestCommandRefsBracketHead(t *testing.T) {
 		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestCommandRefsAbsoluteOffsets(t *testing.T) {
+	src := "lappend ::items $x"
+	cmds := Parse(src)
+	got := CommandRefs(cmds[0])
+	want := []Reference{
+		{Kind: RefCommand, Name: "lappend", Start: 0, End: 7},
+		{Kind: RefVariable, Name: "x", Start: 16, End: 18},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
+	}
+	if src[got[0].Start:got[0].End] != "lappend" {
+		t.Fatalf("command offset slice = %q", src[got[0].Start:got[0].End])
+	}
+	if src[got[1].Start:got[1].End] != "$x" {
+		t.Fatalf("var offset slice = %q", src[got[1].Start:got[1].End])
+	}
+}
+
+func TestCommandRefsExprBracedLimitation(t *testing.T) {
+	// KNOWN LIMITATION: a variable inside a braced expr argument is not found
+	// (braces suppress substitution structurally; we do not model expr's
+	// re-evaluation of its argument). We still find `set` and `expr`.
+	cmds := Parse("set y [expr {$x + 1}]")
+	got := CommandRefs(cmds[0])
+	for _, r := range got {
+		if r.Kind == RefVariable && r.Name == "x" {
+			t.Fatalf("did not expect $x inside braced expr arg (known limitation): %#v", got)
+		}
+	}
+	foundExpr := false
+	for _, r := range got {
+		if r.Kind == RefCommand && r.Name == "expr" {
+			foundExpr = true
+		}
+	}
+	if !foundExpr {
+		t.Fatalf("expected expr command in: %#v", got)
+	}
+}
