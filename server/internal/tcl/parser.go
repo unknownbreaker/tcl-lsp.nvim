@@ -1,0 +1,62 @@
+package tcl
+
+// WordKind classifies a word by its delimiter.
+type WordKind int
+
+const (
+	WordBare   WordKind = iota // bareword (may contain $var and [cmd] spans)
+	WordBraced                 // {braced} word — opaque literal at this layer
+	WordQuoted                 // "quoted" word
+)
+
+// Word is one word of a command, with its raw text and byte range [Start,End).
+type Word struct {
+	Kind  WordKind
+	Text  string
+	Start int
+	End   int
+}
+
+// Command is a single TCL command: an ordered list of words.
+type Command struct {
+	Words []Word
+}
+
+// Parse tokenizes src and groups the tokens into commands. Comments are
+// discarded; newline and semicolon separate commands; empty commands (from
+// blank lines or runs of separators) are omitted.
+func Parse(src string) []Command {
+	toks := Scan(src)
+	var cmds []Command
+	var cur []Word
+	flush := func() {
+		if len(cur) > 0 {
+			cmds = append(cmds, Command{Words: cur})
+			cur = nil
+		}
+	}
+	for _, tk := range toks {
+		switch tk.Kind {
+		case KindWord:
+			cur = append(cur, wordFromToken(tk))
+		case KindNewline, KindSemicolon, KindEOF:
+			flush()
+		case KindComment:
+			// not part of any command
+		}
+	}
+	return cmds
+}
+
+func wordFromToken(tk Token) Word {
+	k := WordBare
+	if len(tk.Text) > 0 {
+		switch tk.Text[0] {
+		case '{':
+			k = WordBraced
+		case '"':
+			k = WordQuoted
+		}
+	}
+	return Word{Kind: k, Text: tk.Text, Start: tk.Start, End: tk.End}
+}
