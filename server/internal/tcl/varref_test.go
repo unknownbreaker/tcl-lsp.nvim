@@ -55,3 +55,25 @@ func TestWordVarRefsGlobalQualified(t *testing.T) {
 		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestWordVarRefsArrayName(t *testing.T) {
+	w := Word{Kind: WordBare, Text: "$arr(key)", Start: 0, End: 9}
+	got := WordVarRefs(w)
+	want := []VarRef{{Name: "arr", Start: 0, End: 4}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestWordVarRefsArrayIndexVarAlsoFound(t *testing.T) {
+	// The array name AND a variable used in the index are both references.
+	w := Word{Kind: WordBare, Text: "$arr($idx)", Start: 0, End: 10}
+	got := WordVarRefs(w)
+	want := []VarRef{
+		{Name: "arr", Start: 0, End: 4},
+		{Name: "idx", Start: 5, End: 9},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
+	}
+}
