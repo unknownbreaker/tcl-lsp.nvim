@@ -115,6 +115,20 @@ func TestDefinitionMultipleSites(t *testing.T) {
 	}
 }
 
+func TestDefinitionCommandPrecedenceShadow(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("app.tcl", "namespace eval ::app {\n  proc greet {} {}\n}") // ::app::greet
+	ix.IndexFile("global.tcl", "proc greet {} {}")                          // ::greet
+	r := New(ix)
+
+	mainSrc := "namespace eval ::app {\n  greet\n}"
+	off := strings.Index(mainSrc, "\n  greet") + 3
+	locs := r.Definition("main.tcl", mainSrc, off)
+	if len(locs) != 1 || locs[0].Name != "::app::greet" {
+		t.Fatalf("expected ::app::greet to shadow ::greet, got %#v", locs)
+	}
+}
+
 func TestDefinitionNestedCommandSubstitution(t *testing.T) {
 	// goto-definition on a command used inside a [command substitution].
 	ix := index.New()
