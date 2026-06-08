@@ -44,6 +44,8 @@ func walkScript(cmds []Command, base int, ns string, frame FrameKind, out *[]Con
 func recurseBodies(c Command, base int, ns string, out *[]ContextRef) {
 	w := c.Words
 	if isCmd(w, "namespace") && len(w) >= 4 && w[1].Text == "eval" && w[len(w)-1].Kind == WordBraced {
+		// Body is taken as the last word (Tcl's `namespace eval name script` form;
+		// for multi-arg scripts Tcl concatenates, and we recurse the final braced word).
 		child := qualifyNamespace(w[2].Text, ns)
 		inner, innerBase := bracedInner(w[len(w)-1], base)
 		walkScript(Parse(inner), innerBase, child, FrameNamespace, out)
@@ -52,12 +54,16 @@ func recurseBodies(c Command, base int, ns string, out *[]ContextRef) {
 		// The proc body runs in the namespace where the proc is defined. For a
 		// qualified proc name the body's namespace is that of the name; this is
 		// refined when definitions are added. For now, use the current namespace.
+		// TODO: for a qualified proc name (proc ::a::b {} {...}) the body runs in
+		// ::a, not the current namespace. Refined when definitions are added.
 		inner, innerBase := bracedInner(w[len(w)-1], base)
 		walkScript(Parse(inner), innerBase, ns, FrameProc, out)
 	}
 }
 
 // isCmd reports whether the command's literal head equals name.
+// Note: a user command whose literal first word is "proc"/"namespace" would be
+// treated as a scope-introducer (an accepted limitation of lightweight parsing).
 func isCmd(words []Word, name string) bool {
 	return len(words) > 0 && words[0].Kind == WordBare && words[0].Text == name
 }
@@ -81,5 +87,7 @@ func bracedInner(w Word, base int) (string, int) {
 	if len(t) >= 2 && t[0] == '{' && t[len(t)-1] == '}' {
 		return t[1 : len(t)-1], base + w.Start + 1
 	}
+	// The scanner guarantees WordBraced words are "{...}", so callers that pass a
+	// braced word never reach this fallback; it is defensive only.
 	return "", base + w.Start
 }

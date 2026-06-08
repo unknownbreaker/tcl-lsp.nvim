@@ -110,4 +110,26 @@ func TestFileRefsCombinedAndOffsets(t *testing.T) {
 	if src[exprRef.Ref.Start:exprRef.Ref.End] != "expr" {
 		t.Fatalf("expr offset slice = %q", src[exprRef.Ref.Start:exprRef.Ref.End])
 	}
+
+	// Guard the expr-braced limitation: vars inside the braced expr arg are not found.
+	if findVar(got, "n") != nil || findVar(got, "base") != nil {
+		t.Fatalf("did not expect expr-braced vars n/base to be found: %#v", got)
+	}
+}
+
+func TestFileRefsNamespaceInsideProc(t *testing.T) {
+	// Inverse nesting: namespace eval inside a proc body must RESET to
+	// FrameNamespace (not inherit FrameProc) and use the inner namespace.
+	src := "proc p {} { namespace eval ::sub { set x $y } }"
+	got := FileRefs(src)
+	vy := findVar(got, "y")
+	if vy == nil {
+		t.Fatalf("did not find var y in %#v", got)
+	}
+	if vy.Namespace != "::sub" {
+		t.Fatalf("namespace = %q, want ::sub", vy.Namespace)
+	}
+	if vy.Frame != FrameNamespace {
+		t.Fatalf("frame = %d, want FrameNamespace", vy.Frame)
+	}
 }
