@@ -101,6 +101,22 @@ func TestIndexFilesAndSource(t *testing.T) {
 	}
 }
 
+func TestIndexDirMissing(t *testing.T) {
+	ix := New()
+	if err := ix.IndexDir("/nonexistent/path/for/test"); err == nil {
+		t.Fatal("expected error for missing dir, got nil")
+	}
+}
+
+func TestIndexParseGapStillIndexes(t *testing.T) {
+	// A later parse gap must not prevent indexing the earlier, valid proc.
+	ix := New()
+	ix.IndexFile("a.tcl", "proc ok {} {}\nproc bad {oops")
+	if locs := ix.Lookup("::ok"); len(locs) != 1 {
+		t.Fatalf("expected ::ok indexed despite later parse gap: %#v", locs)
+	}
+}
+
 func writeFile(t *testing.T, dir, rel, content string) {
 	t.Helper()
 	p := filepath.Join(dir, rel)

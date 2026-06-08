@@ -3,6 +3,7 @@
 package index
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -23,6 +24,9 @@ type Location struct {
 
 // Index holds workspace-visible definitions (procs and namespace variables)
 // keyed by fully-qualified name, plus each file's source for later analysis.
+// Index is not safe for concurrent use; the LSP server (protocol layer, a later
+// plan) must serialize access (e.g. an RWMutex: shared for Lookup/Files/Source,
+// exclusive for IndexFile/RemoveFile).
 type Index struct {
 	defsByName map[string][]Location // FQ name -> all definition sites
 	fileDefs   map[string][]string   // file -> FQ names it defines (for removal)
@@ -38,13 +42,13 @@ func New() *Index {
 	}
 }
 
-// IndexFile records the workspace-visible definitions in src under path. Locals
+// IndexFile records the workspace-visible definitions in content under path. Locals
 // and global links are skipped (resolved frame-locally, not via the workspace
 // table).
-func (ix *Index) IndexFile(path, src string) {
+func (ix *Index) IndexFile(path, content string) {
 	ix.RemoveFile(path)
-	ix.src[path] = src
-	for _, d := range tcl.FileDefs(src) {
+	ix.src[path] = content
+	for _, d := range tcl.FileDefs(content) {
 		if d.Kind != tcl.DefProc && d.Kind != tcl.DefNamespaceVar {
 			continue
 		}
@@ -59,6 +63,8 @@ func (ix *Index) IndexFile(path, src string) {
 func (ix *Index) RemoveFile(path string) {
 	for _, name := range ix.fileDefs[path] {
 		locs := ix.defsByName[name]
+		// kept reuses locs' backing array; this is safe because Lookup returns
+		// copies, so no external caller aliases this slice.
 		kept := locs[:0]
 		for _, l := range locs {
 			if l.File != path {
@@ -76,8 +82,15 @@ func (ix *Index) RemoveFile(path string) {
 }
 
 // Lookup returns all definition sites for a fully-qualified name (nil if none).
+// The returned slice is a copy; callers may retain it across Index mutations.
 func (ix *Index) Lookup(name string) []Location {
-	return ix.defsByName[name]
+	locs := ix.defsByName[name]
+	if len(locs) == 0 {
+		return nil
+	}
+	out := make([]Location, len(locs))
+	copy(out, locs)
+	return out
 }
 
 // Files returns the indexed file paths, sorted for deterministic iteration.
@@ -107,7 +120,7 @@ func (ix *Index) IndexDir(root string) error {
 		}
 		b, err := os.ReadFile(p)
 		if err != nil {
-			return err
+			return fmt.Errorf("indexing %s: %w", p, err)
 		}
 		ix.IndexFile(p, string(b))
 		return nil
