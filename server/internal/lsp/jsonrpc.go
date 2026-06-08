@@ -12,6 +12,11 @@ import (
 	"sync"
 )
 
+// maxMessageSize bounds a single message body to guard against a corrupted or
+// malicious Content-Length causing a huge allocation. 32 MB is far above any
+// realistic LSP message.
+const maxMessageSize = 32 << 20
+
 // Message is a JSON-RPC 2.0 message (request, notification, or response). Unused
 // fields are omitted on the wire.
 type Message struct {
@@ -42,6 +47,7 @@ func NewConn(r io.Reader, w io.Writer) *Conn {
 }
 
 // Read reads one framed message. Returns io.EOF when the stream ends cleanly.
+// Read must be called from a single goroutine; concurrent reads are not safe.
 func (c *Conn) Read() (*Message, error) {
 	contentLen := -1
 	for {
@@ -65,6 +71,12 @@ func (c *Conn) Read() (*Message, error) {
 	if contentLen < 0 {
 		return nil, fmt.Errorf("message missing Content-Length header")
 	}
+	if contentLen == 0 {
+		return nil, fmt.Errorf("invalid Content-Length: 0")
+	}
+	if contentLen > maxMessageSize {
+		return nil, fmt.Errorf("Content-Length %d exceeds limit %d", contentLen, maxMessageSize)
+	}
 	body := make([]byte, contentLen)
 	if _, err := io.ReadFull(c.r, body); err != nil {
 		return nil, err
@@ -77,6 +89,7 @@ func (c *Conn) Read() (*Message, error) {
 }
 
 // Write frames and writes one message. Safe for concurrent use.
+// Write sets the JSONRPC field on m as a side effect.
 func (c *Conn) Write(m *Message) error {
 	m.JSONRPC = "2.0"
 	body, err := json.Marshal(m)

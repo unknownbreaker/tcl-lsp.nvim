@@ -26,6 +26,7 @@ func ByteOffset(src string, line, character int) int {
 
 // LSPPosition converts a byte offset in src to an LSP (line, character) position,
 // where character counts UTF-16 code units. Offsets past len(src) clamp to it.
+// A mid-rune offset is treated as pointing just past that rune; pass only rune-boundary offsets.
 func LSPPosition(src string, offset int) (line, character int) {
 	if offset > len(src) {
 		offset = len(src)

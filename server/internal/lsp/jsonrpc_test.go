@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +53,34 @@ func TestConnReadEOF(t *testing.T) {
 	r := NewConn(bytes.NewReader(nil), io.Discard)
 	if _, err := r.Read(); err != io.EOF {
 		t.Fatalf("expected io.EOF on empty input, got %v", err)
+	}
+}
+
+func TestConnContentLengthZero(t *testing.T) {
+	r := NewConn(strings.NewReader("Content-Length: 0\r\n\r\n"), io.Discard)
+	if _, err := r.Read(); err == nil {
+		t.Fatal("expected error for Content-Length: 0")
+	}
+}
+
+func TestConnMalformedContentLength(t *testing.T) {
+	r := NewConn(strings.NewReader("Content-Length: abc\r\n\r\n"), io.Discard)
+	if _, err := r.Read(); err == nil {
+		t.Fatal("expected error for non-integer Content-Length")
+	}
+}
+
+func TestConnContentLengthTooLarge(t *testing.T) {
+	r := NewConn(strings.NewReader("Content-Length: 999999999999\r\n\r\n"), io.Discard)
+	if _, err := r.Read(); err == nil {
+		t.Fatal("expected error for oversized Content-Length (must not allocate)")
+	}
+}
+
+func TestConnMidBodyEOF(t *testing.T) {
+	// Declares 50 bytes but provides only 2 -> io.ReadFull errors.
+	r := NewConn(strings.NewReader("Content-Length: 50\r\n\r\n{}"), io.Discard)
+	if _, err := r.Read(); err == nil {
+		t.Fatal("expected error for truncated body")
 	}
 }
