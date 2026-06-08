@@ -105,6 +105,40 @@ func TestFileDefsUpvarAlias(t *testing.T) {
 	}
 }
 
+func TestFileDefsUpvarMultiPair(t *testing.T) {
+	src := "proc f {} {\n  upvar 1 $a x $b y\n}"
+	got := FileDefs(src)
+	for _, n := range []string{"x", "y"} {
+		d := findDef(got, n)
+		if d == nil || d.Kind != DefLocal {
+			t.Fatalf("expected local %q from multi-pair upvar, got %#v", n, got)
+		}
+	}
+}
+
+func TestFileDefsGlobalAtNamespaceTopNotEmitted(t *testing.T) {
+	src := "namespace eval ::app {\n  global cfg\n}"
+	got := FileDefs(src)
+	if d := findDef(got, "cfg"); d != nil {
+		t.Fatalf("did not expect global cfg def at namespace top: %#v", got)
+	}
+}
+
+func TestFileDefsParamWithDefault(t *testing.T) {
+	src := "proc f {{x {a b}} y} {}"
+	got := FileDefs(src)
+	for _, n := range []string{"x", "y"} {
+		d := findDef(got, n)
+		if d == nil || d.Kind != DefLocal {
+			t.Fatalf("expected local param %q, got %#v", n, got)
+		}
+	}
+	dx := findDef(got, "x")
+	if src[dx.NameStart:dx.NameEnd] != "x" {
+		t.Fatalf("param x name slice = %q", src[dx.NameStart:dx.NameEnd])
+	}
+}
+
 func TestFileDefsCombined(t *testing.T) {
 	src := "namespace eval ::math {\n  variable e 2.7\n  proc square {x} {\n    set r [expr {$x * $x}]\n  }\n}"
 	got := FileDefs(src)

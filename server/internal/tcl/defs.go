@@ -1,5 +1,7 @@
 package tcl
 
+import "strings"
+
 // DefKind classifies a definition.
 type DefKind int
 
@@ -72,7 +74,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition
 			NameStart: base + w[1].Start, NameEnd: base + w[1].End,
 		})
 	}
-	if isCmd(w, "global") {
+	if isCmd(w, "global") && frame == FrameProc {
 		for _, gw := range w[1:] {
 			if isPlainName(gw) {
 				*out = append(*out, Definition{
@@ -82,20 +84,29 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition
 			}
 		}
 	}
-	if isCmd(w, "upvar") && len(w) >= 2 {
-		// The alias is the last word; intermediate words are level + target name
-		// pairs whose targets are often dynamic. Record the final alias as a local.
-		alias := w[len(w)-1]
-		if isPlainName(alias) {
-			*out = append(*out, Definition{
-				Kind: DefLocal, Name: alias.Text, Namespace: ns,
-				NameStart: base + alias.Start, NameEnd: base + alias.End,
-			})
+	if isCmd(w, "upvar") && frame == FrameProc && len(w) >= 3 {
+		args := w[1:]
+		// Optional leading level (e.g. 1 or #0); the rest are (otherVar, alias)
+		// pairs. The alias names are static locals; the otherVar targets are often
+		// dynamic and not recorded here.
+		if len(args) > 0 && isUpvarLevel(args[0]) {
+			args = args[1:]
+		}
+		for i := 1; i < len(args); i += 2 {
+			alias := args[i]
+			if isPlainName(alias) {
+				*out = append(*out, Definition{
+					Kind: DefLocal, Name: alias.Text, Namespace: ns,
+					NameStart: base + alias.Start, NameEnd: base + alias.End,
+				})
+			}
 		}
 	}
 }
 
 func recurseDefBodies(c Command, base int, ns string, out *[]Definition) {
+	// NOTE: the namespace-eval/proc body detection mirrors recurseBodies in
+	// context.go; if a third walk appears, extract a shared forEachBody helper.
 	w := c.Words
 	if isCmd(w, "namespace") && len(w) >= 4 && w[1].Text == "eval" && w[len(w)-1].Kind == WordBraced {
 		child := qualifyNamespace(w[2].Text, ns)
@@ -103,20 +114,40 @@ func recurseDefBodies(c Command, base int, ns string, out *[]Definition) {
 		walkDefs(Parse(inner), innerBase, child, FrameNamespace, out)
 	}
 	if isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced {
-		emitProcParams(w[2], base, out)
+		emitProcParams(w[2], base, ns, out)
 		inner, innerBase := bracedInner(w[len(w)-1], base)
 		walkDefs(Parse(inner), innerBase, ns, FrameProc, out)
 	}
 }
 
+// isPlainName is currently equivalent to isLiteralName; kept as a distinct
+// entry point in case definition-target rules diverge from command-name rules.
+//
 // isPlainName reports whether a word is a bareword usable as a declared name
 // (no substitution). Used for proc/variable/set targets.
 func isPlainName(w Word) bool {
 	return isLiteralName(w)
 }
 
+// isUpvarLevel reports whether a word is an upvar level argument (a number like
+// "1" or a #-prefixed absolute level like "#0"), as opposed to a variable name.
+func isUpvarLevel(w Word) bool {
+	if w.Kind != WordBare || w.Text == "" {
+		return false
+	}
+	if w.Text[0] == '#' {
+		return true
+	}
+	for i := 0; i < len(w.Text); i++ {
+		if w.Text[i] < '0' || w.Text[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // emitProcParams emits a DefLocal for each parameter name in a proc args word.
-func emitProcParams(argsWord Word, base int, out *[]Definition) {
+func emitProcParams(argsWord Word, base int, ns string, out *[]Definition) {
 	inner, innerBase := argsWord, base
 	text := inner.Text
 	start := innerBase + inner.Start
@@ -126,7 +157,7 @@ func emitProcParams(argsWord Word, base int, out *[]Definition) {
 	}
 	for _, p := range scanParams(text, start) {
 		*out = append(*out, Definition{
-			Kind: DefLocal, Name: p.Name, Namespace: "",
+			Kind: DefLocal, Name: p.Name, Namespace: ns,
 			NameStart: p.Start, NameEnd: p.End,
 		})
 	}
@@ -175,7 +206,7 @@ func paramFromWord(w Word, base int) (string, int, int) {
 // qualifyName resolves a command/variable name against the current namespace:
 // a leading "::" is absolute, otherwise it is qualified into current.
 func qualifyName(name, current string) string {
-	if len(name) >= 2 && name[0] == ':' && name[1] == ':' {
+	if strings.HasPrefix(name, "::") {
 		return name
 	}
 	if current == "::" {
