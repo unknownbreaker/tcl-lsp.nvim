@@ -95,3 +95,36 @@ func TestDefinitionProcLocalDeferred(t *testing.T) {
 		t.Fatalf("bare proc-local should be unresolved (deferred), got %#v", locs)
 	}
 }
+
+func TestDefinitionMultipleSites(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("a.tcl", "proc dup {} {}")
+	ix.IndexFile("b.tcl", "proc dup {} {}")
+	r := New(ix)
+
+	locs := r.Definition("main.tcl", "dup", 0)
+	if len(locs) != 2 {
+		t.Fatalf("expected 2 def sites for ::dup, got %#v", locs)
+	}
+	files := map[string]bool{}
+	for _, l := range locs {
+		files[l.File] = true
+	}
+	if !files["a.tcl"] || !files["b.tcl"] {
+		t.Fatalf("expected both a.tcl and b.tcl: %#v", locs)
+	}
+}
+
+func TestDefinitionNestedCommandSubstitution(t *testing.T) {
+	// goto-definition on a command used inside a [command substitution].
+	ix := index.New()
+	ix.IndexFile("lib.tcl", "proc helper {} {}")
+	r := New(ix)
+
+	mainSrc := "set x [helper]"
+	off := strings.Index(mainSrc, "helper")
+	locs := r.Definition("main.tcl", mainSrc, off)
+	if len(locs) != 1 || locs[0].Name != "::helper" {
+		t.Fatalf("definition = %#v", locs)
+	}
+}
