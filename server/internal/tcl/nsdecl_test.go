@@ -79,6 +79,23 @@ func TestFileNamespacesPathLastWins(t *testing.T) {
 	}
 }
 
+func TestFileNamespacesPathEmpty(t *testing.T) {
+	// `namespace path {}` clears any previous path (last-wins with empty).
+	src := "namespace eval ::a {\n  namespace path ::x\n  namespace path {}\n}"
+	m := FileNamespaces(src)
+	info := m["::a"]
+	if info == nil || len(info.Path) != 0 {
+		t.Fatalf("empty path should clear previous: %#v", m["::a"])
+	}
+}
+
+func TestFileNamespacesExportNoclashFlagSkipped(t *testing.T) {
+	m := FileNamespaces("namespace export -noclash foo bar*")
+	if !reflect.DeepEqual(m["::"].Exports, []string{"foo", "bar*"}) {
+		t.Fatalf("export flag skipping: %#v", m["::"])
+	}
+}
+
 func TestFileNamespacesCombinedNested(t *testing.T) {
 	src := "namespace eval ::a {\n" +
 		"  namespace export api*\n" +

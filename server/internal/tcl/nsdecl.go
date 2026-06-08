@@ -45,9 +45,10 @@ func recordNSDecl(c Command, ns string, m map[string]*NamespaceInfo) {
 	case "export":
 		info := ensureNS(m, ns)
 		for _, pw := range w[2:] {
-			if pw.Text != "" && pw.Text[0] != '-' {
-				info.Exports = append(info.Exports, unbrace(pw.Text))
+			if pw.Text == "" || pw.Text[0] == '-' {
+				continue // skip flags like -noclash and empty words
 			}
+			info.Exports = append(info.Exports, unbrace(pw.Text))
 		}
 	case "import":
 		info := ensureNS(m, ns)
@@ -84,6 +85,9 @@ func parsePathList(w Word, ns string) []string {
 	var out []string
 	for _, c := range Parse(unbrace(w.Text)) {
 		for _, word := range c.Words {
+			// Outer unbrace (on w.Text) stripped the list braces; this inner
+			// unbrace handles a list element that is itself braced, e.g.
+			// `namespace path {{::a} ::b}`.
 			name := unbrace(word.Text)
 			if name != "" {
 				out = append(out, qualifyNamespace(name, ns))
