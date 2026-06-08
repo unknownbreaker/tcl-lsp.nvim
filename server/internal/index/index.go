@@ -29,9 +29,10 @@ type Location struct {
 // plan) must serialize access (e.g. an RWMutex: shared for Lookup/Files/Source,
 // exclusive for IndexFile/RemoveFile).
 type Index struct {
-	defsByName map[string][]Location // FQ name -> all definition sites
-	fileDefs   map[string][]string   // file -> FQ names it defines (for removal)
-	src        map[string]string     // file -> source text
+	defsByName map[string][]Location              // FQ name -> all definition sites
+	fileDefs   map[string][]string                // file -> FQ names it defines (for removal)
+	src        map[string]string                  // file -> source text
+	fileNS     map[string]map[string]*tcl.NamespaceInfo // file -> (ns name -> decls)
 }
 
 // New returns an empty Index.
@@ -40,6 +41,7 @@ func New() *Index {
 		defsByName: map[string][]Location{},
 		fileDefs:   map[string][]string{},
 		src:        map[string]string{},
+		fileNS:     map[string]map[string]*tcl.NamespaceInfo{},
 	}
 }
 
@@ -49,6 +51,7 @@ func New() *Index {
 func (ix *Index) IndexFile(path, content string) {
 	ix.RemoveFile(path)
 	ix.src[path] = content
+	ix.fileNS[path] = tcl.FileNamespaces(content)
 	for _, d := range tcl.FileDefs(content) {
 		if d.Kind != tcl.DefProc && d.Kind != tcl.DefNamespaceVar {
 			continue
@@ -80,6 +83,7 @@ func (ix *Index) RemoveFile(path string) {
 	}
 	delete(ix.fileDefs, path)
 	delete(ix.src, path)
+	delete(ix.fileNS, path)
 }
 
 // Lookup returns all definition sites for a fully-qualified name (nil if none).
@@ -107,6 +111,39 @@ func (ix *Index) Files() []string {
 // Source returns the stored source for a file ("" if not indexed).
 func (ix *Index) Source(path string) string {
 	return ix.src[path]
+}
+
+// Namespace returns the merged command-search path and import source patterns
+// declared for ns across the workspace, deduplicated and ordered by file then
+// declaration order. Used for command resolution (namespace path / import).
+// Variables are unaffected by these declarations.
+func (ix *Index) Namespace(ns string) (path []string, imports []string) {
+	files := make([]string, 0, len(ix.fileNS))
+	for f := range ix.fileNS {
+		files = append(files, f)
+	}
+	sort.Strings(files)
+
+	seenP, seenI := map[string]bool{}, map[string]bool{}
+	for _, f := range files {
+		info := ix.fileNS[f][ns]
+		if info == nil {
+			continue
+		}
+		for _, p := range info.Path {
+			if !seenP[p] {
+				seenP[p] = true
+				path = append(path, p)
+			}
+		}
+		for _, im := range info.Imports {
+			if !seenI[im] {
+				seenI[im] = true
+				imports = append(imports, im)
+			}
+		}
+	}
+	return path, imports
 }
 
 // IndexDir walks root and indexes every *.tcl file found (recursively). A

@@ -189,3 +189,34 @@ func TestIndexDirSkipsGit(t *testing.T) {
 		t.Fatalf("files under .git must be skipped, got %#v", locs)
 	}
 }
+
+func TestIndexNamespacePathAndImports(t *testing.T) {
+	ix := New()
+	ix.IndexFile("a.tcl", "namespace eval ::app {\n  namespace path ::lib\n  namespace import ::p::pub\n}")
+	path, imports := ix.Namespace("::app")
+	if !reflect.DeepEqual(path, []string{"::lib"}) {
+		t.Fatalf("path = %#v, want [::lib]", path)
+	}
+	if !reflect.DeepEqual(imports, []string{"::p::pub"}) {
+		t.Fatalf("imports = %#v, want [::p::pub]", imports)
+	}
+}
+
+func TestIndexNamespaceMergedAcrossFiles(t *testing.T) {
+	ix := New()
+	ix.IndexFile("a.tcl", "namespace eval ::app { namespace import ::p::a }")
+	ix.IndexFile("b.tcl", "namespace eval ::app { namespace import ::q::b }")
+	_, imports := ix.Namespace("::app")
+	if !reflect.DeepEqual(imports, []string{"::p::a", "::q::b"}) {
+		t.Fatalf("imports = %#v, want union sorted by file", imports)
+	}
+}
+
+func TestIndexNamespaceClearedWithFile(t *testing.T) {
+	ix := New()
+	ix.IndexFile("a.tcl", "namespace eval ::app { namespace path ::lib }")
+	ix.RemoveFile("a.tcl")
+	if path, _ := ix.Namespace("::app"); path != nil {
+		t.Fatalf("namespace info should be gone after RemoveFile: %#v", path)
+	}
+}
