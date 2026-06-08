@@ -40,3 +40,40 @@ func TestIndexLookupMissing(t *testing.T) {
 		t.Fatalf("missing lookup should be nil, got %#v", locs)
 	}
 }
+
+func TestIndexMultipleFilesSameName(t *testing.T) {
+	ix := New()
+	ix.IndexFile("a.tcl", "proc dup {} {}")
+	ix.IndexFile("b.tcl", "proc dup {} {}")
+	if locs := ix.Lookup("::dup"); len(locs) != 2 {
+		t.Fatalf("expected 2 def sites for ::dup, got %#v", locs)
+	}
+}
+
+func TestIndexReindexReplaces(t *testing.T) {
+	ix := New()
+	ix.IndexFile("a.tcl", "proc old {} {}")
+	ix.IndexFile("a.tcl", "proc new {} {}") // re-index the same path
+	if locs := ix.Lookup("::old"); len(locs) != 0 {
+		t.Fatalf("old def should be gone after re-index: %#v", locs)
+	}
+	if locs := ix.Lookup("::new"); len(locs) != 1 {
+		t.Fatalf("new def should be present: %#v", locs)
+	}
+}
+
+func TestIndexRemoveFile(t *testing.T) {
+	ix := New()
+	ix.IndexFile("a.tcl", "proc dup {} {}")
+	ix.IndexFile("b.tcl", "proc dup {} {}")
+	ix.RemoveFile("a.tcl")
+	locs := ix.Lookup("::dup")
+	if len(locs) != 1 || locs[0].File != "b.tcl" {
+		t.Fatalf("after removing a.tcl, expected only b.tcl: %#v", locs)
+	}
+	// fully removing the last definer deletes the key
+	ix.RemoveFile("b.tcl")
+	if locs := ix.Lookup("::dup"); locs != nil {
+		t.Fatalf("expected nil after all definers removed, got %#v", locs)
+	}
+}

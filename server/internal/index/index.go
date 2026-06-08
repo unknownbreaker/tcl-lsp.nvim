@@ -34,6 +34,7 @@ func New() *Index {
 // and global links are skipped (resolved frame-locally, not via the workspace
 // table).
 func (ix *Index) IndexFile(path, src string) {
+	ix.RemoveFile(path)
 	ix.src[path] = src
 	for _, d := range tcl.FileDefs(src) {
 		if d.Kind != tcl.DefProc && d.Kind != tcl.DefNamespaceVar {
@@ -44,6 +45,26 @@ func (ix *Index) IndexFile(path, src string) {
 		})
 		ix.fileDefs[path] = append(ix.fileDefs[path], d.Name)
 	}
+}
+
+// RemoveFile drops all definitions and stored source contributed by path.
+func (ix *Index) RemoveFile(path string) {
+	for _, name := range ix.fileDefs[path] {
+		locs := ix.defsByName[name]
+		kept := locs[:0]
+		for _, l := range locs {
+			if l.File != path {
+				kept = append(kept, l)
+			}
+		}
+		if len(kept) == 0 {
+			delete(ix.defsByName, name)
+		} else {
+			ix.defsByName[name] = kept
+		}
+	}
+	delete(ix.fileDefs, path)
+	delete(ix.src, path)
 }
 
 // Lookup returns all definition sites for a fully-qualified name (nil if none).
