@@ -59,6 +59,19 @@ type TextDocumentPositionParams struct {
 	Position     Position               `json:"position"`
 }
 
+// ReferenceContext carries the references request's options.
+type ReferenceContext struct {
+	// IncludeDeclaration asks the server to include the symbol's declaration
+	// site(s) alongside its usages. Clients (Neovim included) send true by default.
+	IncludeDeclaration bool `json:"includeDeclaration"`
+}
+
+// ReferenceParams is a references request: a position plus its context.
+type ReferenceParams struct {
+	TextDocumentPositionParams
+	Context ReferenceContext `json:"context"`
+}
+
 // InitializeParams is the subset of initialize we use.
 type InitializeParams struct {
 	RootURI  string `json:"rootUri"`

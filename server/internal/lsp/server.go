@@ -100,7 +100,7 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		_ = json.Unmarshal(m.Params, &p)
 		s.reply(m.ID, s.handleDefinition(p))
 	case "textDocument/references":
-		var p TextDocumentPositionParams
+		var p ReferenceParams
 		_ = json.Unmarshal(m.Params, &p)
 		s.reply(m.ID, s.handleReferences(p))
 	case "exit":
@@ -155,11 +155,42 @@ func (s *Server) handleDefinition(p TextDocumentPositionParams) []Location {
 	return s.toLocations(s.res.Definition(path, src, off))
 }
 
-func (s *Server) handleReferences(p TextDocumentPositionParams) []Location {
+func (s *Server) handleReferences(p ReferenceParams) []Location {
 	path := uriToPath(p.TextDocument.URI)
 	src := s.sourceOf(path)
 	off := ByteOffset(src, p.Position.Line, p.Position.Character)
-	return s.toLocations(s.res.References(path, src, off))
+	locs := s.res.References(path, src, off)
+	// includeDeclaration (true by default in most clients): prepend the symbol's
+	// declaration site(s), which are not themselves invocation references.
+	// Declarations (not Definition) resolves even when the cursor is on the
+	// definition, so `gr` on the proc name still lists it.
+	if p.Context.IncludeDeclaration {
+		locs = mergeLocations(s.res.Declarations(path, src, off), locs)
+	}
+	return s.toLocations(locs)
+}
+
+// mergeLocations concatenates two location lists, declarations first, dropping
+// any whose file and name-range already appear (a declaration is never also an
+// invocation site, but this keeps the result free of accidental duplicates).
+func mergeLocations(decls, refs []index.Location) []index.Location {
+	type key struct {
+		file       string
+		start, end int
+	}
+	seen := make(map[key]bool, len(decls)+len(refs))
+	out := make([]index.Location, 0, len(decls)+len(refs))
+	for _, group := range [][]index.Location{decls, refs} {
+		for _, l := range group {
+			k := key{l.File, l.NameStart, l.NameEnd}
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // toLocations converts resolver locations (byte ranges) to LSP locations.

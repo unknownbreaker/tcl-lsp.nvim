@@ -184,6 +184,19 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	return out
 }
 
+// Declarations returns the definition site(s) of the symbol at offset -- its
+// declaration(s), for find-references with includeDeclaration. Unlike Definition
+// it resolves from a usage OR from the definition itself (goto-definition is a
+// no-op when already at the definition), so `gr` with the cursor on the proc
+// name still yields the declaration. Returns nil for an undefined symbol.
+func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
+	target := r.targetFQ(file, src, offset)
+	if target == "" {
+		return nil
+	}
+	return r.ix.Lookup(target)
+}
+
 // targetFQ returns the fully-qualified name of the symbol at offset: a
 // definition name-range it falls within, else the reference there resolved to
 // its FQ name. Returns "" if there is no resolvable symbol.

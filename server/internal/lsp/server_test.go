@@ -146,6 +146,78 @@ func TestServerReferencesFlow(t *testing.T) {
 	}
 }
 
+func TestServerReferencesIncludesDeclaration(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///lib.tcl", Text: "proc greet {} {}"}}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///a.tcl", Text: "greet\ngreet"}}))
+	in.Write(frame(t, "textDocument/references", 3, ReferenceParams{
+		TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///a.tcl"},
+			Position:     Position{Line: 0, Character: 0}},
+		Context: ReferenceContext{IncludeDeclaration: true}}))
+	in.Write(frame(t, "exit", nil, nil))
+
+	resp := responseByID(runServer(t, in.Bytes()), "3")
+	if resp == nil {
+		t.Fatal("no references response")
+	}
+	var locs []Location
+	if err := json.Unmarshal(resp.Result, &locs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// 2 call sites in a.tcl + the declaration in lib.tcl.
+	if len(locs) != 3 {
+		t.Fatalf("expected 3 (2 calls + declaration), got %#v", locs)
+	}
+	var hasDecl bool
+	for _, l := range locs {
+		if l.URI == "file:///lib.tcl" {
+			hasDecl = true
+		}
+	}
+	if !hasDecl {
+		t.Fatalf("declaration in lib.tcl should be included: %#v", locs)
+	}
+}
+
+func TestServerReferencesFromDefinitionIncludesDeclaration(t *testing.T) {
+	// gr with the cursor on the proc's own definition must still include the
+	// declaration (goto-definition is a no-op there, so this exercises the
+	// Declarations path rather than Definition).
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///lib.tcl", Text: "proc greet {} {}"}}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///a.tcl", Text: "greet\ngreet"}}))
+	in.Write(frame(t, "textDocument/references", 3, ReferenceParams{
+		TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///lib.tcl"},
+			Position:     Position{Line: 0, Character: 5}}, // on "greet" in the proc def
+		Context: ReferenceContext{IncludeDeclaration: true}}))
+	in.Write(frame(t, "exit", nil, nil))
+
+	resp := responseByID(runServer(t, in.Bytes()), "3")
+	var locs []Location
+	_ = json.Unmarshal(resp.Result, &locs)
+	// declaration in lib.tcl + 2 call sites in a.tcl.
+	if len(locs) != 3 {
+		t.Fatalf("expected 3 (declaration + 2 calls), got %#v", locs)
+	}
+	var hasDecl bool
+	for _, l := range locs {
+		if l.URI == "file:///lib.tcl" {
+			hasDecl = true
+		}
+	}
+	if !hasDecl {
+		t.Fatalf("declaration in lib.tcl should be included when cursor is on it: %#v", locs)
+	}
+}
+
 func TestServerDidChangeUpdatesIndex(t *testing.T) {
 	var in bytes.Buffer
 	in.Write(frame(t, "initialize", 1, InitializeParams{}))
