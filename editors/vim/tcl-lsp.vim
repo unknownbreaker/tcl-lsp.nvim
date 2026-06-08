@@ -12,8 +12,7 @@ if executable('tcl-lsp')
       \ 'cmd': {server_info->['tcl-lsp']},
       \ 'allowlist': ['tcl', 'rvt'],
       \ })
+    " Recognize .rvt as tcl-family (vim already knows .tcl).
+    autocmd BufRead,BufNewFile *.rvt setfiletype rvt
   augroup END
 endif
-
-" Recognize .rvt as tcl-family (vim already knows .tcl).
-autocmd BufRead,BufNewFile *.rvt setfiletype rvt

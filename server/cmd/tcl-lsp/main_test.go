@@ -34,10 +34,11 @@ func TestBinaryEndToEnd(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
+	t.Cleanup(func() {
 		_ = stdin.Close()
+		_ = cmd.Process.Kill() // no-op if already exited; unblocks the reader goroutine
 		_ = cmd.Wait()
-	}()
+	})
 
 	w := lsp.NewConn(bytes.NewReader(nil), stdin)
 	r := lsp.NewConn(stdout, io.Discard)
@@ -65,6 +66,8 @@ func TestBinaryEndToEnd(t *testing.T) {
 	send("textDocument/definition", 2, lsp.TextDocumentPositionParams{
 		TextDocument: lsp.TextDocumentIdentifier{URI: "file:///main.tcl"},
 		Position:     lsp.Position{Line: 0, Character: 0}})
+	// All messages are written before reading; the server dispatches them in
+	// order and replies to `definition` before acting on `exit`.
 	send("exit", nil, nil)
 
 	// Read responses until we see id 2 (with a guard against hanging).
@@ -91,6 +94,7 @@ func TestBinaryEndToEnd(t *testing.T) {
 			t.Fatalf("definition over binary = %#v", locs)
 		}
 	case <-time.After(10 * time.Second):
+		_ = cmd.Process.Kill()
 		t.Fatal("timed out waiting for definition response")
 	}
 }

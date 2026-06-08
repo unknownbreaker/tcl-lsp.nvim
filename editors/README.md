@@ -28,8 +28,7 @@ cp server/tcl-lsp ~/.local/bin/tcl-lsp
 
 Copy `editors/nvim/tcl-lsp.lua` to `~/.config/nvim/lua/plugins/tcl-lsp.lua`
 and adjust `cmd` to your binary path. Restart Neovim, open a `.tcl` file, and
-use `gd` (goto-definition) / `grr` or `<leader>cR` (references) per your LazyVim
-keymaps.
+use `gd` (goto-definition) and your references keymap (LazyVim: `grr`; stock Neovim: `:lua vim.lsp.buf.references()`, or `gd` via `:lua vim.lsp.buf.definition()`).
 
 > The Lua snippet uses Neovim 0.11's native `vim.lsp.config`/`vim.lsp.enable`.
 > On older Neovim, register the server through `nvim-lspconfig` instead.
