@@ -104,3 +104,27 @@ func TestFileDefsUpvarAlias(t *testing.T) {
 		t.Fatalf("expected local alias c, got %#v", got)
 	}
 }
+
+func TestFileDefsCombined(t *testing.T) {
+	src := "namespace eval ::math {\n  variable e 2.7\n  proc square {x} {\n    set r [expr {$x * $x}]\n  }\n}"
+	got := FileDefs(src)
+
+	if d := findDef(got, "::math::e"); d == nil || d.Kind != DefNamespaceVar {
+		t.Fatalf("missing ::math::e namespace var: %#v", got)
+	}
+	if d := findDef(got, "::math::square"); d == nil || d.Kind != DefProc {
+		t.Fatalf("missing ::math::square proc: %#v", got)
+	}
+	// param x and local r are locals
+	if d := findDef(got, "x"); d == nil || d.Kind != DefLocal {
+		t.Fatalf("missing local x: %#v", got)
+	}
+	if d := findDef(got, "r"); d == nil || d.Kind != DefLocal {
+		t.Fatalf("missing local r: %#v", got)
+	}
+	// name ranges slice back to the source
+	sq := findDef(got, "::math::square")
+	if src[sq.NameStart:sq.NameEnd] != "square" {
+		t.Fatalf("square name slice = %q", src[sq.NameStart:sq.NameEnd])
+	}
+}
