@@ -90,3 +90,81 @@ func TestServerShutdownThenExit(t *testing.T) {
 		t.Fatalf("shutdown response = %#v", resp)
 	}
 }
+
+func TestServerDefinitionFlow(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///lib.tcl", Text: "proc greet {} {}"}}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///main.tcl", Text: "greet"}}))
+	in.Write(frame(t, "textDocument/definition", 2, TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///main.tcl"},
+		Position:     Position{Line: 0, Character: 0}}))
+	in.Write(frame(t, "exit", nil, nil))
+
+	resp := responseByID(runServer(t, in.Bytes()), "2")
+	if resp == nil {
+		t.Fatal("no definition response")
+	}
+	var locs []Location
+	if err := json.Unmarshal(resp.Result, &locs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(locs) != 1 || locs[0].URI != "file:///lib.tcl" {
+		t.Fatalf("definition = %#v", locs)
+	}
+	// The range points at the `greet` proc name: line 0, chars 5..10.
+	if locs[0].Range.Start != (Position{Line: 0, Character: 5}) ||
+		locs[0].Range.End != (Position{Line: 0, Character: 10}) {
+		t.Fatalf("range = %#v", locs[0].Range)
+	}
+}
+
+func TestServerReferencesFlow(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///lib.tcl", Text: "proc greet {} {}"}}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///a.tcl", Text: "greet\ngreet"}}))
+	in.Write(frame(t, "textDocument/references", 3, TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///a.tcl"},
+		Position:     Position{Line: 0, Character: 0}}))
+	in.Write(frame(t, "exit", nil, nil))
+
+	resp := responseByID(runServer(t, in.Bytes()), "3")
+	if resp == nil {
+		t.Fatal("no references response")
+	}
+	var locs []Location
+	if err := json.Unmarshal(resp.Result, &locs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(locs) != 2 {
+		t.Fatalf("expected 2 references, got %#v", locs)
+	}
+}
+
+func TestServerDidChangeUpdatesIndex(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///lib.tcl", Text: "proc old {} {}"}}))
+	in.Write(frame(t, "textDocument/didChange", nil, DidChangeParams{
+		TextDocument:   TextDocumentIdentifier{URI: "file:///lib.tcl"},
+		ContentChanges: []TextDocumentContentChangeEvent{{Text: "proc new {} {}"}}}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///main.tcl", Text: "new"}}))
+	in.Write(frame(t, "textDocument/definition", 4, TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///main.tcl"},
+		Position:     Position{Line: 0, Character: 0}}))
+	in.Write(frame(t, "exit", nil, nil))
+
+	resp := responseByID(runServer(t, in.Bytes()), "4")
+	var locs []Location
+	_ = json.Unmarshal(resp.Result, &locs)
+	if len(locs) != 1 || locs[0].URI != "file:///lib.tcl" {
+		t.Fatalf("after didChange, `new` should resolve to lib.tcl: %#v", locs)
+	}
+}

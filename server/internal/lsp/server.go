@@ -59,6 +59,28 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		// notification; no-op
 	case "shutdown":
 		s.reply(m.ID, nil)
+	case "textDocument/didOpen":
+		var p DidOpenParams
+		_ = json.Unmarshal(m.Params, &p)
+		s.setDoc(p.TextDocument.URI, p.TextDocument.Text)
+	case "textDocument/didChange":
+		var p DidChangeParams
+		_ = json.Unmarshal(m.Params, &p)
+		if n := len(p.ContentChanges); n > 0 {
+			s.setDoc(p.TextDocument.URI, p.ContentChanges[n-1].Text)
+		}
+	case "textDocument/didClose":
+		var p DidCloseParams
+		_ = json.Unmarshal(m.Params, &p)
+		delete(s.docs, p.TextDocument.URI)
+	case "textDocument/definition":
+		var p TextDocumentPositionParams
+		_ = json.Unmarshal(m.Params, &p)
+		s.reply(m.ID, s.handleDefinition(p))
+	case "textDocument/references":
+		var p TextDocumentPositionParams
+		_ = json.Unmarshal(m.Params, &p)
+		s.reply(m.ID, s.handleReferences(p))
 	case "exit":
 		return true
 	default:
@@ -84,4 +106,51 @@ func (s *Server) reply(id json.RawMessage, result interface{}) {
 		raw = b
 	}
 	_ = s.conn.Write(&Message{ID: id, Result: raw})
+}
+
+// setDoc stores a document's live text and re-indexes it.
+func (s *Server) setDoc(uri, text string) {
+	s.docs[uri] = text
+	s.ix.IndexFile(uriToPath(uri), text)
+}
+
+// sourceOf returns the best-available source for a path: the live document if
+// open, else the indexed copy.
+func (s *Server) sourceOf(path string) string {
+	if t, ok := s.docs[pathToURI(path)]; ok {
+		return t
+	}
+	return s.ix.Source(path)
+}
+
+func (s *Server) handleDefinition(p TextDocumentPositionParams) []Location {
+	path := uriToPath(p.TextDocument.URI)
+	src := s.sourceOf(path)
+	off := ByteOffset(src, p.Position.Line, p.Position.Character)
+	return s.toLocations(s.res.Definition(path, src, off))
+}
+
+func (s *Server) handleReferences(p TextDocumentPositionParams) []Location {
+	path := uriToPath(p.TextDocument.URI)
+	src := s.sourceOf(path)
+	off := ByteOffset(src, p.Position.Line, p.Position.Character)
+	return s.toLocations(s.res.References(path, src, off))
+}
+
+// toLocations converts resolver locations (byte ranges) to LSP locations.
+func (s *Server) toLocations(locs []index.Location) []Location {
+	var out []Location
+	for _, l := range locs {
+		src := s.sourceOf(l.File)
+		sl, sc := LSPPosition(src, l.NameStart)
+		el, ec := LSPPosition(src, l.NameEnd)
+		out = append(out, Location{
+			URI: pathToURI(l.File),
+			Range: Range{
+				Start: Position{Line: sl, Character: sc},
+				End:   Position{Line: el, Character: ec},
+			},
+		})
+	}
+	return out
 }
