@@ -234,3 +234,23 @@ func TestReferencesProcLocalDeferred(t *testing.T) {
 		t.Fatalf("proc-local references are deferred, got %#v", locs)
 	}
 }
+
+func TestReferencesUsesLiveSourceForCurrentFile(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("lib.tcl", "proc greet {} {}")
+	ix.IndexFile("a.tcl", "") // indexed as empty (stale)
+	r := New(ix)
+
+	// Unsaved edit to a.tcl adds two calls; References must use the live src,
+	// not the stale indexed copy.
+	liveSrc := "greet\ngreet"
+	locs := r.References("a.tcl", liveSrc, 0)
+	if len(locs) != 2 {
+		t.Fatalf("expected 2 refs from live src, got %#v", locs)
+	}
+	for _, l := range locs {
+		if l.File != "a.tcl" {
+			t.Fatalf("unexpected file in refs: %#v", locs)
+		}
+	}
+}
