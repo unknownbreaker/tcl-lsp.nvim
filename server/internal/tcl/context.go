@@ -1,5 +1,7 @@
 package tcl
 
+import "strings"
+
 // FrameKind is the kind of scope a reference appears in. Variable resolution
 // differs by frame: inside a proc body a bare variable is local-only, while at
 // namespace-eval top level it is the namespace's own variable.
@@ -34,5 +36,43 @@ func walkScript(cmds []Command, base int, ns string, frame FrameKind, out *[]Con
 			r.End += base
 			*out = append(*out, ContextRef{Ref: r, Namespace: ns, Frame: frame})
 		}
+		recurseBodies(c, base, ns, out)
 	}
+}
+
+// recurseBodies walks the braced body of a scope-introducing command.
+func recurseBodies(c Command, base int, ns string, out *[]ContextRef) {
+	w := c.Words
+	if isCmd(w, "namespace") && len(w) >= 4 && w[1].Text == "eval" && w[len(w)-1].Kind == WordBraced {
+		child := qualifyNamespace(w[2].Text, ns)
+		inner, innerBase := bracedInner(w[len(w)-1], base)
+		walkScript(Parse(inner), innerBase, child, FrameNamespace, out)
+	}
+}
+
+// isCmd reports whether the command's literal head equals name.
+func isCmd(words []Word, name string) bool {
+	return len(words) > 0 && words[0].Kind == WordBare && words[0].Text == name
+}
+
+// qualifyNamespace resolves a namespace name argument against the current
+// namespace: a leading "::" is absolute, otherwise it is relative to current.
+func qualifyNamespace(name, current string) string {
+	if strings.HasPrefix(name, "::") {
+		return name
+	}
+	if current == "::" {
+		return "::" + name
+	}
+	return current + "::" + name
+}
+
+// bracedInner returns the interior of a braced word and the absolute offset of
+// that interior's first byte (base + word.Start + 1).
+func bracedInner(w Word, base int) (string, int) {
+	t := w.Text
+	if len(t) >= 2 && t[0] == '{' && t[len(t)-1] == '}' {
+		return t[1 : len(t)-1], base + w.Start + 1
+	}
+	return "", base + w.Start
 }
