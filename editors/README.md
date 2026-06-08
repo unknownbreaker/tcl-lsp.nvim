@@ -26,12 +26,17 @@ cp server/tcl-lsp ~/.local/bin/tcl-lsp
 
 ### Neovim / LazyVim (0.11+)
 
-Copy `editors/nvim/tcl-lsp.lua` to `~/.config/nvim/lua/plugins/tcl-lsp.lua`
-and adjust `cmd` to your binary path. Restart Neovim, open a `.tcl` file, and
-use `gd` (goto-definition) and your references keymap (LazyVim: `grr`; stock Neovim: `:lua vim.lsp.buf.references()`, or `gd` via `:lua vim.lsp.buf.definition()`).
+Copy `editors/nvim/tcl-lsp.lua` to `~/.config/nvim/lua/plugins/tcl-lsp.lua`,
+set the `repo` path at the top to your clone (and `cmd` if the binary is not at
+`~/.local/bin/tcl-lsp`). Restart Neovim, open a `.tcl` file, and use `gd`
+(goto-definition) and your references keymap (LazyVim: `grr`; stock Neovim:
+`:lua vim.lsp.buf.references()`).
 
-> The Lua snippet uses Neovim 0.11's native `vim.lsp.config`/`vim.lsp.enable`.
-> On older Neovim, register the server through `nvim-lspconfig` instead.
+> The snippet is a self-contained local plugin spec using Neovim 0.11's native
+> `vim.lsp.config`/`vim.lsp.enable`. It deliberately does NOT merge into the
+> `nvim-lspconfig` spec (LazyVim owns that, and the merge does not reliably run
+> the setup — the server would never start). Confirm attachment with
+> `:checkhealth lsp` (look for `tcl_lsp`).
 
 ### Vim (vim-lsp)
 
