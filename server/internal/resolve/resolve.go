@@ -96,6 +96,77 @@ func variableCandidates(name, ns string, frame tcl.FrameKind) []string {
 	return nil // bare proc-local — deferred
 }
 
+// References returns all workspace references to the symbol at byte offset in
+// src. The current file is scanned with the live src; other files use the
+// indexed source. Only command and namespace/qualified-variable references are
+// matched; bare proc-locals and bareword variable-name arguments are not.
+func (r *Resolver) References(file, src string, offset int) []index.Location {
+	target := r.targetFQ(file, src, offset)
+	if target == "" {
+		return nil
+	}
+	var targetKind tcl.DefKind
+	if defs := r.ix.Lookup(target); len(defs) > 0 {
+		targetKind = defs[0].Kind
+	}
+
+	var out []index.Location
+	scan := func(f, s string) {
+		refs := tcl.FileRefs(s)
+		for i := range refs {
+			if r.refFQ(&refs[i]) == target {
+				out = append(out, index.Location{
+					File: f, Name: target, Kind: targetKind,
+					NameStart: refs[i].Ref.Start, NameEnd: refs[i].Ref.End,
+				})
+			}
+		}
+	}
+
+	scan(file, src) // current file: live source
+	for _, f := range r.ix.Files() {
+		if f == file {
+			continue
+		}
+		scan(f, r.ix.Source(f))
+	}
+	return out
+}
+
+// targetFQ returns the fully-qualified name of the symbol at offset: a
+// definition name-range it falls within, else the reference there resolved to
+// its FQ name. Returns "" if there is no resolvable symbol.
+func (r *Resolver) targetFQ(file, src string, offset int) string {
+	for _, d := range tcl.FileDefs(src) {
+		if (d.Kind == tcl.DefProc || d.Kind == tcl.DefNamespaceVar) &&
+			offset >= d.NameStart && offset < d.NameEnd {
+			return d.Name
+		}
+	}
+	if ref := refAt(src, offset); ref != nil {
+		return r.refFQ(ref)
+	}
+	return ""
+}
+
+// refFQ resolves a reference to the fully-qualified name it binds to, using the
+// same first-match precedence as goto-definition. If no candidate is defined in
+// the index, the primary (first) candidate is used so undefined references still
+// group together. Returns "" when there are no candidates (e.g. a bare
+// proc-local variable).
+func (r *Resolver) refFQ(ref *tcl.ContextRef) string {
+	cands := r.candidates(ref)
+	for _, name := range cands {
+		if len(r.ix.Lookup(name)) > 0 {
+			return name
+		}
+	}
+	if len(cands) > 0 {
+		return cands[0]
+	}
+	return ""
+}
+
 func isQualified(name string) bool { return strings.Contains(name, "::") }
 
 // qualify resolves name against ns: a leading "::" is absolute; otherwise the

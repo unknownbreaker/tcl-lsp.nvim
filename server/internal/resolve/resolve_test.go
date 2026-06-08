@@ -142,3 +142,39 @@ func TestDefinitionNestedCommandSubstitution(t *testing.T) {
 		t.Fatalf("definition = %#v", locs)
 	}
 }
+
+func TestReferencesCommandAcrossFiles(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("lib.tcl", "proc greet {} {}")
+	ix.IndexFile("a.tcl", "greet")
+	ix.IndexFile("b.tcl", "greet\ngreet")
+	r := New(ix)
+
+	// Cursor on the call in a.tcl. The proc-name token in lib.tcl is a
+	// definition, not a reference, so it is not counted.
+	locs := r.References("a.tcl", "greet", 0)
+	if len(locs) != 3 {
+		t.Fatalf("expected 3 reference uses, got %#v", locs)
+	}
+}
+
+func TestReferencesFromDefinition(t *testing.T) {
+	ix := index.New()
+	libSrc := "proc greet {} {}"
+	ix.IndexFile("lib.tcl", libSrc)
+	ix.IndexFile("a.tcl", "greet")
+	r := New(ix)
+
+	// Cursor on `greet` in the proc definition name (offset 5).
+	locs := r.References("lib.tcl", libSrc, 5)
+	if len(locs) != 1 || locs[0].File != "a.tcl" {
+		t.Fatalf("expected 1 ref in a.tcl, got %#v", locs)
+	}
+}
+
+func TestReferencesUnknownIsEmpty(t *testing.T) {
+	r := New(index.New())
+	if locs := r.References("a.tcl", "set x 1", 100); locs != nil {
+		t.Fatalf("no symbol at offset should be nil, got %#v", locs)
+	}
+}
