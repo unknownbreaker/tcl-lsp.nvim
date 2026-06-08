@@ -38,3 +38,42 @@ func TestFileDefsProcInNamespace(t *testing.T) {
 		t.Fatalf("name slice = %q, want f", src[d.NameStart:d.NameEnd])
 	}
 }
+
+func TestFileDefsVariable(t *testing.T) {
+	src := "namespace eval ::app {\n  variable count 0\n}"
+	got := FileDefs(src)
+	d := findDef(got, "::app::count")
+	if d == nil {
+		t.Fatalf("did not find ::app::count in %#v", got)
+	}
+	if d.Kind != DefNamespaceVar {
+		t.Fatalf("kind = %d, want DefNamespaceVar", d.Kind)
+	}
+	if src[d.NameStart:d.NameEnd] != "count" {
+		t.Fatalf("name slice = %q", src[d.NameStart:d.NameEnd])
+	}
+}
+
+func TestFileDefsNamespaceTopSet(t *testing.T) {
+	src := "namespace eval ::app {\n  set total 5\n}"
+	got := FileDefs(src)
+	d := findDef(got, "::app::total")
+	if d == nil {
+		t.Fatalf("did not find ::app::total in %#v", got)
+	}
+	if d.Kind != DefNamespaceVar {
+		t.Fatalf("kind = %d, want DefNamespaceVar", d.Kind)
+	}
+}
+
+func TestFileDefsGlobalTopSet(t *testing.T) {
+	// A bare `set` at global top level defines a global (::) variable.
+	got := FileDefs("set g 1")
+	d := findDef(got, "::g")
+	if d == nil {
+		t.Fatalf("did not find ::g in %#v", got)
+	}
+	if d.Kind != DefNamespaceVar {
+		t.Fatalf("kind = %d, want DefNamespaceVar", d.Kind)
+	}
+}

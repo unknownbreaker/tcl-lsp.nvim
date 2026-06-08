@@ -48,6 +48,24 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition
 			NameEnd:   base + w[1].End,
 		})
 	}
+	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) {
+		*out = append(*out, Definition{
+			Kind:      DefNamespaceVar,
+			Name:      qualifyName(w[1].Text, ns),
+			Namespace: ns,
+			NameStart: base + w[1].Start,
+			NameEnd:   base + w[1].End,
+		})
+	}
+	if isCmd(w, "set") && frame == FrameNamespace && len(w) >= 2 && isPlainName(w[1]) {
+		*out = append(*out, Definition{
+			Kind:      DefNamespaceVar,
+			Name:      qualifyName(w[1].Text, ns),
+			Namespace: ns,
+			NameStart: base + w[1].Start,
+			NameEnd:   base + w[1].End,
+		})
+	}
 }
 
 func recurseDefBodies(c Command, base int, ns string, out *[]Definition) {
