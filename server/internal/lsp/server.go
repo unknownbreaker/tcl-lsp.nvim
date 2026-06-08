@@ -3,6 +3,7 @@ package lsp
 import (
 	"encoding/json"
 	"io"
+	"log"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
 	"github.com/unknownbreaker/tcl-lsp/internal/resolve"
@@ -41,6 +42,14 @@ func (s *Server) Run() error {
 
 // dispatch handles one message; returns true to stop the server (exit).
 func (s *Server) dispatch(m *Message) (stop bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("panic in dispatch(%s): %v", m.Method, r)
+			if len(m.ID) > 0 {
+				s.reply(m.ID, nil) // avoid leaving a request unanswered
+			}
+		}
+	}()
 	switch m.Method {
 	case "initialize":
 		var p InitializeParams
@@ -61,17 +70,26 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		s.reply(m.ID, nil)
 	case "textDocument/didOpen":
 		var p DidOpenParams
-		_ = json.Unmarshal(m.Params, &p)
+		if err := json.Unmarshal(m.Params, &p); err != nil {
+			log.Printf("didOpen: bad params: %v", err)
+			break
+		}
 		s.setDoc(p.TextDocument.URI, p.TextDocument.Text)
 	case "textDocument/didChange":
 		var p DidChangeParams
-		_ = json.Unmarshal(m.Params, &p)
+		if err := json.Unmarshal(m.Params, &p); err != nil {
+			log.Printf("didChange: bad params: %v", err)
+			break
+		}
 		if n := len(p.ContentChanges); n > 0 {
 			s.setDoc(p.TextDocument.URI, p.ContentChanges[n-1].Text)
 		}
 	case "textDocument/didClose":
 		var p DidCloseParams
-		_ = json.Unmarshal(m.Params, &p)
+		if err := json.Unmarshal(m.Params, &p); err != nil {
+			log.Printf("didClose: bad params: %v", err)
+			break
+		}
 		delete(s.docs, p.TextDocument.URI)
 	case "textDocument/definition":
 		var p TextDocumentPositionParams
@@ -95,12 +113,15 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 }
 
 // reply writes a JSON-RPC response for the given id. A nil result is sent as
-// JSON null.
-func (s *Server) reply(id json.RawMessage, result interface{}) {
+// JSON null. A marshal failure is logged and reported as an internal error so
+// the client does not hang.
+func (s *Server) reply(id json.RawMessage, result any) {
 	raw := json.RawMessage("null")
 	if result != nil {
 		b, err := json.Marshal(result)
 		if err != nil {
+			log.Printf("reply: marshal error for id %s: %v", string(id), err)
+			_ = s.conn.Write(&Message{ID: id, Error: &ResponseError{Code: -32603, Message: "internal error"}})
 			return
 		}
 		raw = b

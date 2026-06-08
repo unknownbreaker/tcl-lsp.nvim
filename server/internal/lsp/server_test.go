@@ -162,9 +162,56 @@ func TestServerDidChangeUpdatesIndex(t *testing.T) {
 	in.Write(frame(t, "exit", nil, nil))
 
 	resp := responseByID(runServer(t, in.Bytes()), "4")
+	if resp == nil {
+		t.Fatal("no definition response")
+	}
 	var locs []Location
 	_ = json.Unmarshal(resp.Result, &locs)
 	if len(locs) != 1 || locs[0].URI != "file:///lib.tcl" {
 		t.Fatalf("after didChange, `new` should resolve to lib.tcl: %#v", locs)
+	}
+}
+
+func TestServerDidCloseThenDefinition(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///lib.tcl", Text: "proc greet {} {}"}}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///main.tcl", Text: "greet"}}))
+	in.Write(frame(t, "textDocument/didClose", nil, DidCloseParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///main.tcl"}}))
+	in.Write(frame(t, "textDocument/definition", 5, TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///main.tcl"},
+		Position:     Position{Line: 0, Character: 0}}))
+	in.Write(frame(t, "exit", nil, nil))
+
+	resp := responseByID(runServer(t, in.Bytes()), "5")
+	if resp == nil {
+		t.Fatal("no definition response")
+	}
+	var locs []Location
+	_ = json.Unmarshal(resp.Result, &locs)
+	// A closed doc is removed from the live map but remains indexed, so the
+	// definition still resolves via the indexed source.
+	if len(locs) != 1 || locs[0].URI != "file:///lib.tcl" {
+		t.Fatalf("after didClose, definition = %#v", locs)
+	}
+}
+
+func TestServerReferencesUnknownDoc(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/references", 6, TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///never-opened.tcl"},
+		Position:     Position{Line: 0, Character: 0}}))
+	in.Write(frame(t, "exit", nil, nil))
+
+	resp := responseByID(runServer(t, in.Bytes()), "6")
+	if resp == nil {
+		t.Fatal("no references response")
+	}
+	if string(resp.Result) != "null" {
+		t.Fatalf("references on unknown doc should be null, got %s", resp.Result)
 	}
 }
