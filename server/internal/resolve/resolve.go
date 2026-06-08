@@ -105,6 +105,9 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	if target == "" {
 		return nil
 	}
+	// targetKind carries the target's DEFINITION kind for the protocol layer's
+	// use; it is the zero value (DefProc) when the target has no definition in
+	// the index (an undefined symbol). A reference site itself has no def-kind.
 	var targetKind tcl.DefKind
 	if defs := r.ix.Lookup(target); len(defs) > 0 {
 		targetKind = defs[0].Kind
@@ -136,6 +139,7 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 // targetFQ returns the fully-qualified name of the symbol at offset: a
 // definition name-range it falls within, else the reference there resolved to
 // its FQ name. Returns "" if there is no resolvable symbol.
+// file is currently unused but reserved for frame-local resolution (a later phase).
 func (r *Resolver) targetFQ(file, src string, offset int) string {
 	for _, d := range tcl.FileDefs(src) {
 		if (d.Kind == tcl.DefProc || d.Kind == tcl.DefNamespaceVar) &&

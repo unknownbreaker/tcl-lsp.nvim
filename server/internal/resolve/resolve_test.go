@@ -235,6 +235,32 @@ func TestReferencesProcLocalDeferred(t *testing.T) {
 	}
 }
 
+func TestReferencesSameFileAsDefinition(t *testing.T) {
+	ix := index.New()
+	src := "proc greet {} {}\ngreet"
+	ix.IndexFile("lib.tcl", src)
+	r := New(ix)
+
+	// Cursor on the proc name; the call later in the SAME file is a reference.
+	locs := r.References("lib.tcl", src, 5)
+	if len(locs) != 1 || locs[0].File != "lib.tcl" {
+		t.Fatalf("expected 1 self-file ref in lib.tcl, got %#v", locs)
+	}
+}
+
+func TestReferencesInsideCommandSubstitution(t *testing.T) {
+	ix := index.New()
+	src := "proc helper {} {}\nset x [helper]"
+	ix.IndexFile("lib.tcl", src)
+	r := New(ix)
+
+	// Cursor on the helper definition name; the [helper] call is a reference.
+	locs := r.References("lib.tcl", src, 5)
+	if len(locs) != 1 {
+		t.Fatalf("expected 1 ref (the [helper] call), got %#v", locs)
+	}
+}
+
 func TestReferencesUsesLiveSourceForCurrentFile(t *testing.T) {
 	ix := index.New()
 	ix.IndexFile("lib.tcl", "proc greet {} {}")
