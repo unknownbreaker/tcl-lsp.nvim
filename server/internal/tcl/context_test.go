@@ -84,3 +84,30 @@ func TestFileRefsProcInNamespace(t *testing.T) {
 		t.Fatalf("namespace = %q, want ::app", vb.Namespace)
 	}
 }
+
+func TestFileRefsCombinedAndOffsets(t *testing.T) {
+	src := "namespace eval ::app {\n  variable base 10\n  proc scale {n} {\n    return [expr {$n * $base}]\n  }\n}"
+	got := FileRefs(src)
+
+	// $n is used inside proc scale's body, in namespace ::app, proc frame.
+	// (It appears outside the braced expr arg? No: it is inside {$n * $base},
+	// which is braced, so per the expr-braced limitation it is NOT found.)
+	// Instead, assert the command refs we DO expect, and offset fidelity for one.
+
+	// The `expr` command ref is inside proc scale's body (namespace ::app, proc frame).
+	var exprRef *ContextRef
+	for i := range got {
+		if got[i].Ref.Kind == RefCommand && got[i].Ref.Name == "expr" {
+			exprRef = &got[i]
+		}
+	}
+	if exprRef == nil {
+		t.Fatalf("did not find expr command in %#v", got)
+	}
+	if exprRef.Namespace != "::app" || exprRef.Frame != FrameProc {
+		t.Fatalf("expr context = (%q, %d), want (::app, FrameProc)", exprRef.Namespace, exprRef.Frame)
+	}
+	if src[exprRef.Ref.Start:exprRef.Ref.End] != "expr" {
+		t.Fatalf("expr offset slice = %q", src[exprRef.Ref.Start:exprRef.Ref.End])
+	}
+}
