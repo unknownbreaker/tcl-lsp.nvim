@@ -56,3 +56,7 @@ temp/
 
 # beads (removed from this project; ignore any daemon-recreated state)
 .beads/
+
+# Go server build outputs
+/server/tcl-lsp
+/server/dist/
