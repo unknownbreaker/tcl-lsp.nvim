@@ -117,6 +117,82 @@ func TestFileRefsCombinedAndOffsets(t *testing.T) {
 	}
 }
 
+func TestFileRefsControlFlowBodies(t *testing.T) {
+	// A proc called inside control-flow bodies must be found. These bodies run in
+	// the enclosing frame/namespace, not a new scope, so refs inside them count.
+	src := "proc helper {} {}\n" +
+		"foreach x {1 2} { helper }\n" +
+		"lmap y {1 2} { helper }\n" +
+		"dict for {k v} $d { helper }\n" +
+		"while {$go} { helper }\n" +
+		"if {$c} { helper } else { helper }\n" +
+		"for {set i 0} {$i < 3} {incr i} { helper }\n" +
+		"catch { helper }"
+	n := 0
+	for _, r := range FileRefs(src) {
+		if r.Ref.Kind == RefCommand && r.Ref.Name == "helper" {
+			n++
+		}
+	}
+	if n != 8 {
+		t.Fatalf("expected 8 helper call refs inside control-flow bodies, got %d", n)
+	}
+}
+
+func TestFileRefsScriptBlockArgument(t *testing.T) {
+	// A proc call inside a braced block passed as an argument to another
+	// (user-defined) command must be found -- custom control structures, test
+	// harnesses, DSLs all do this. The trailing braced arg is taken as a script.
+	src := "proc helper {} {}\n" +
+		"with_lock {\n" +
+		"    helper\n" +
+		"    helper\n" +
+		"}\n" +
+		"my_each x $items {\n" +
+		"    helper\n" +
+		"}"
+	n := 0
+	for _, r := range FileRefs(src) {
+		if r.Ref.Kind == RefCommand && r.Ref.Name == "helper" {
+			n++
+		}
+	}
+	if n != 3 {
+		t.Fatalf("expected 3 helper calls inside script-block arguments, got %d", n)
+	}
+}
+
+func TestFileRefsSwitchArms(t *testing.T) {
+	// switch's pattern/body block is handled transitively: the outer block
+	// recurses, then each arm body recurses as a trailing braced argument.
+	src := "proc helper {} {}\n" +
+		"switch $x {\n" +
+		"    a { helper }\n" +
+		"    b { helper }\n" +
+		"    default { helper }\n" +
+		"}"
+	n := 0
+	for _, r := range FileRefs(src) {
+		if r.Ref.Kind == RefCommand && r.Ref.Name == "helper" {
+			n++
+		}
+	}
+	if n != 3 {
+		t.Fatalf("expected 3 helper calls in switch arms, got %d", n)
+	}
+}
+
+func TestFileRefsExprBraceNotScript(t *testing.T) {
+	// Guard the heuristic's exclusion: expr's braced argument is an expression,
+	// not a script, so a name in it must not be reported as a command call.
+	src := "proc total {} {}\nset n [expr {total + 1}]"
+	for _, r := range FileRefs(src) {
+		if r.Ref.Kind == RefCommand && r.Ref.Name == "total" {
+			t.Fatalf("expr-braced name must not be a command ref: %#v", r)
+		}
+	}
+}
+
 func TestFileRefsNamespaceInsideProc(t *testing.T) {
 	// Inverse nesting: namespace eval inside a proc body must RESET to
 	// FrameNamespace (not inherit FrameProc) and use the inner namespace.
