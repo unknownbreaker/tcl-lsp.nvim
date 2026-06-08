@@ -57,6 +57,9 @@ func recordNSDecl(c Command, ns string, m map[string]*NamespaceInfo) {
 			}
 			info.Imports = append(info.Imports, qualifyNamespace(unbrace(pw.Text), ns))
 		}
+	case "path":
+		info := ensureNS(m, ns)
+		info.Path = parsePathList(w[2], ns) // `namespace path` sets (replaces) the path
 	}
 }
 
@@ -73,4 +76,19 @@ func unbrace(s string) string {
 		return s[1 : len(s)-1]
 	}
 	return s
+}
+
+// parsePathList resolves the entries of a `namespace path` list argument
+// (braced `{a b}` or a single name) into qualified namespace names.
+func parsePathList(w Word, ns string) []string {
+	var out []string
+	for _, c := range Parse(unbrace(w.Text)) {
+		for _, word := range c.Words {
+			name := unbrace(word.Text)
+			if name != "" {
+				out = append(out, qualifyNamespace(name, ns))
+			}
+		}
+	}
+	return out
 }

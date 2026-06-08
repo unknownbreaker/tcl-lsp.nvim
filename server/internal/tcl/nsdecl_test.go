@@ -51,3 +51,30 @@ func TestFileNamespacesImportRelativeQualified(t *testing.T) {
 		t.Fatalf("imports = %#v", m["::a"])
 	}
 }
+
+func TestFileNamespacesPathList(t *testing.T) {
+	src := "namespace eval ::u {\n  namespace path {::lib ::other}\n}"
+	m := FileNamespaces(src)
+	info := m["::u"]
+	if info == nil || !reflect.DeepEqual(info.Path, []string{"::lib", "::other"}) {
+		t.Fatalf("path = %#v", m["::u"])
+	}
+}
+
+func TestFileNamespacesPathSingleRelative(t *testing.T) {
+	src := "namespace eval ::a {\n  namespace path b\n}"
+	m := FileNamespaces(src)
+	info := m["::a"]
+	if info == nil || !reflect.DeepEqual(info.Path, []string{"::a::b"}) {
+		t.Fatalf("path = %#v", m["::a"])
+	}
+}
+
+func TestFileNamespacesPathLastWins(t *testing.T) {
+	src := "namespace eval ::a {\n  namespace path ::x\n  namespace path ::y\n}"
+	m := FileNamespaces(src)
+	info := m["::a"]
+	if info == nil || !reflect.DeepEqual(info.Path, []string{"::y"}) {
+		t.Fatalf("path (last wins) = %#v", m["::a"])
+	}
+}
