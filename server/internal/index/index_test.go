@@ -190,6 +190,22 @@ func TestIndexDirSkipsGit(t *testing.T) {
 	}
 }
 
+func TestIndexStoresFileRefs(t *testing.T) {
+	// References are precomputed at index time so a references request does not
+	// re-parse every workspace file. FileRefs returns the stored refs; RemoveFile
+	// clears them.
+	ix := New()
+	ix.IndexFile("a.tcl", "greet\ngreet")
+	refs := ix.FileRefs("a.tcl")
+	if len(refs) < 2 {
+		t.Fatalf("expected >=2 stored command refs for a.tcl, got %#v", refs)
+	}
+	ix.RemoveFile("a.tcl")
+	if refs := ix.FileRefs("a.tcl"); refs != nil {
+		t.Fatalf("expected nil refs after RemoveFile, got %#v", refs)
+	}
+}
+
 func TestIndexNamespacePathAndImports(t *testing.T) {
 	ix := New()
 	ix.IndexFile("a.tcl", "namespace eval ::app {\n  namespace path ::lib\n  namespace import ::p::pub\n}")
@@ -209,6 +225,26 @@ func TestIndexNamespaceMergedAcrossFiles(t *testing.T) {
 	_, imports := ix.Namespace("::app")
 	if !reflect.DeepEqual(imports, []string{"::p::a", "::q::b"}) {
 		t.Fatalf("imports = %#v, want union sorted by file", imports)
+	}
+}
+
+func TestIndexNamespaceCacheInvalidates(t *testing.T) {
+	// Namespace memoizes its merged result; a mutation must invalidate it so a
+	// later read reflects the change rather than a stale cached value.
+	ix := New()
+	ix.IndexFile("a.tcl", "namespace eval ::app { namespace import ::p::a }")
+	if _, imports := ix.Namespace("::app"); !reflect.DeepEqual(imports, []string{"::p::a"}) {
+		t.Fatalf("initial imports = %#v", imports) // primes the memo
+	}
+	// A second file adds another import to the same namespace.
+	ix.IndexFile("b.tcl", "namespace eval ::app { namespace import ::q::b }")
+	if _, imports := ix.Namespace("::app"); !reflect.DeepEqual(imports, []string{"::p::a", "::q::b"}) {
+		t.Fatalf("after add, imports = %#v, want merged set", imports)
+	}
+	// Removing a file must also refresh the cache.
+	ix.RemoveFile("b.tcl")
+	if _, imports := ix.Namespace("::app"); !reflect.DeepEqual(imports, []string{"::p::a"}) {
+		t.Fatalf("after remove, imports = %#v, want stale entry gone", imports)
 	}
 }
 

@@ -145,8 +145,9 @@ func variableCandidates(name, ns string, frame tcl.FrameKind) []string {
 }
 
 // References returns all workspace references to the symbol at byte offset in
-// src. The current file is scanned with the live src; other files use the
-// indexed source. Only command and namespace/qualified-variable references are
+// src. The current file is parsed from the live src; other files use the
+// reference sites precomputed at index time, so a request does not re-parse the
+// whole workspace. Only command and namespace/qualified-variable references are
 // matched; bare proc-locals and bareword variable-name arguments are not.
 func (r *Resolver) References(file, src string, offset int) []index.Location {
 	target := r.targetFQ(file, src, offset)
@@ -162,8 +163,7 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	}
 
 	var out []index.Location
-	scan := func(f, s string) {
-		refs := tcl.FileRefs(s)
+	scan := func(f string, refs []tcl.ContextRef) {
 		for i := range refs {
 			if r.refFQ(&refs[i]) == target {
 				out = append(out, index.Location{
@@ -174,12 +174,12 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 		}
 	}
 
-	scan(file, src) // current file: live source
+	scan(file, tcl.FileRefs(src)) // current file: parse the live source
 	for _, f := range r.ix.Files() {
 		if f == file {
 			continue
 		}
-		scan(f, r.ix.Source(f))
+		scan(f, r.ix.FileRefs(f)) // other files: precomputed at index time, no re-parse
 	}
 	return out
 }

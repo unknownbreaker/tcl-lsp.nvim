@@ -33,6 +33,16 @@ type Index struct {
 	fileDefs   map[string][]string                      // file -> FQ names it defines (for removal)
 	src        map[string]string                        // file -> source text
 	fileNS     map[string]map[string]*tcl.NamespaceInfo // file -> (ns name -> decls)
+	fileRefs   map[string][]tcl.ContextRef              // file -> precomputed reference sites
+	nsCache    map[string]nsMerged                      // memoized merged path/imports per ns
+}
+
+// nsMerged is the merged namespace-path and import set for one namespace, cached
+// so Namespace need not rescan every file on each call (it is queried once per
+// unqualified command reference during a references scan — O(refs) calls).
+type nsMerged struct {
+	path    []string
+	imports []string
 }
 
 // New returns an empty Index.
@@ -42,6 +52,8 @@ func New() *Index {
 		fileDefs:   map[string][]string{},
 		src:        map[string]string{},
 		fileNS:     map[string]map[string]*tcl.NamespaceInfo{},
+		fileRefs:   map[string][]tcl.ContextRef{},
+		nsCache:    map[string]nsMerged{},
 	}
 }
 
@@ -52,6 +64,13 @@ func (ix *Index) IndexFile(path, content string) {
 	ix.RemoveFile(path)
 	ix.src[path] = content
 	ix.fileNS[path] = tcl.FileNamespaces(content)
+	// Precompute reference sites once here so a references request iterates
+	// stored data instead of re-parsing every workspace file (the dominant cost
+	// on large repos). Resolution stays request-time (it depends on cross-file
+	// namespace state); only the parse is hoisted.
+	if refs := tcl.FileRefs(content); len(refs) > 0 {
+		ix.fileRefs[path] = refs
+	}
 	for _, d := range tcl.FileDefs(content) {
 		if d.Kind != tcl.DefProc && d.Kind != tcl.DefNamespaceVar {
 			continue
@@ -84,6 +103,19 @@ func (ix *Index) RemoveFile(path string) {
 	delete(ix.fileDefs, path)
 	delete(ix.src, path)
 	delete(ix.fileNS, path)
+	delete(ix.fileRefs, path)
+	// Namespace data spans files, so any file change can alter a merged result;
+	// drop the whole memo and let reads rebuild lazily. IndexFile calls RemoveFile
+	// first, so this covers re-index too. Reads never happen mid-mutation (the
+	// server serializes index access), so lazy rebuild is safe.
+	clear(ix.nsCache)
+}
+
+// FileRefs returns the precomputed reference sites for path (nil if the file is
+// not indexed or has no references). The returned slice is read-only; callers
+// must not mutate it.
+func (ix *Index) FileRefs(path string) []tcl.ContextRef {
+	return ix.fileRefs[path]
 }
 
 // Lookup returns all definition sites for a fully-qualified name (nil if none).
@@ -119,7 +151,15 @@ func (ix *Index) Source(path string) string {
 // Variables are unaffected by these declarations.
 // Note: this is a union approximation — in real TCL a later `namespace path`
 // call replaces the earlier one, but we merge across files for static analysis.
+// Namespace returns the merged namespace-path and import set declared for ns
+// across all files, sorted by file for determinism. The result is memoized and
+// invalidated on any index mutation; the returned slices are read-only and must
+// not be mutated by callers.
 func (ix *Index) Namespace(ns string) (path []string, imports []string) {
+	if m, ok := ix.nsCache[ns]; ok {
+		return m.path, m.imports
+	}
+
 	files := make([]string, 0, len(ix.fileNS))
 	for f := range ix.fileNS {
 		files = append(files, f)
@@ -145,6 +185,7 @@ func (ix *Index) Namespace(ns string) (path []string, imports []string) {
 			}
 		}
 	}
+	ix.nsCache[ns] = nsMerged{path: path, imports: imports}
 	return path, imports
 }
 
