@@ -118,7 +118,7 @@ func TestDefinitionMultipleSites(t *testing.T) {
 func TestDefinitionCommandPrecedenceShadow(t *testing.T) {
 	ix := index.New()
 	ix.IndexFile("app.tcl", "namespace eval ::app {\n  proc greet {} {}\n}") // ::app::greet
-	ix.IndexFile("global.tcl", "proc greet {} {}")                          // ::greet
+	ix.IndexFile("global.tcl", "proc greet {} {}")                           // ::greet
 	r := New(ix)
 
 	mainSrc := "namespace eval ::app {\n  greet\n}"
@@ -181,10 +181,10 @@ func TestReferencesUnknownIsEmpty(t *testing.T) {
 
 func TestReferencesRespectsPrecedence(t *testing.T) {
 	ix := index.New()
-	ix.IndexFile("g.tcl", "proc greet {} {}")                               // ::greet
+	ix.IndexFile("g.tcl", "proc greet {} {}")                                // ::greet
 	ix.IndexFile("app.tcl", "namespace eval ::app {\n  proc greet {} {}\n}") // ::app::greet
-	ix.IndexFile("useglobal.tcl", "greet")                                  // -> ::greet
-	ix.IndexFile("useapp.tcl", "namespace eval ::app {\n  greet\n}")        // -> ::app::greet
+	ix.IndexFile("useglobal.tcl", "greet")                                   // -> ::greet
+	ix.IndexFile("useapp.tcl", "namespace eval ::app {\n  greet\n}")         // -> ::app::greet
 	r := New(ix)
 
 	// Target ::greet (cursor on the global proc's name).
@@ -334,6 +334,41 @@ func TestDefinitionCurrentNamespaceBeatsPath(t *testing.T) {
 	locs := r.Definition("user.tcl", src, off)
 	if len(locs) != 1 || locs[0].Name != "::user::helper" {
 		t.Fatalf("current ns should beat path: %#v", locs)
+	}
+}
+
+func TestDefinitionImportSourceMissing(t *testing.T) {
+	ix := index.New()
+	src := "namespace eval ::consumer {\n  namespace import ::nonexistent::pub\n  pub\n}"
+	ix.IndexFile("c.tcl", src)
+	r := New(ix)
+	off := strings.Index(src, "\n  pub\n") + 3
+	if locs := r.Definition("c.tcl", src, off); locs != nil {
+		t.Fatalf("import of a non-existent source should not resolve, got %#v", locs)
+	}
+}
+
+func TestReferencesGlobImportDoesNotOverMatch(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("p.tcl", "namespace eval ::provider {\n  proc tool {} {}\n}")
+	// ::consumer glob-imports ::provider but calls `other`, which ::provider
+	// does NOT define; a global ::other exists instead.
+	ix.IndexFile("c.tcl", "namespace eval ::consumer {\n  namespace import ::provider::*\n  other\n}")
+	gsrc := "proc other {} {}"
+	ix.IndexFile("g.tcl", gsrc)
+	r := New(ix)
+	// References to ::other should include the call in c.tcl (it resolves to
+	// ::other, not the non-existent ::provider::other).
+	off := strings.Index(gsrc, "other")
+	locs := r.References("g.tcl", gsrc, off)
+	found := false
+	for _, l := range locs {
+		if l.File == "c.tcl" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("c.tcl `other` should resolve to ::other despite the glob import: %#v", locs)
 	}
 }
 

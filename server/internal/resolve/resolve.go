@@ -75,7 +75,11 @@ func (r *Resolver) commandCandidates(name, ns string) []string {
 	cands := []string{qualify(name, ns)} // current namespace
 
 	path, imports := r.ix.Namespace(ns)
-	// Imported commands behave like commands in the current namespace.
+	// Imported commands behave like commands in the current namespace. A glob
+	// import (last == "*") adds srcNs::name even when name is not actually
+	// exported by srcNs; Lookup filters non-existent names, so this only
+	// over-matches when srcNs::name happens to exist (export patterns are not
+	// yet modeled — research OQ6).
 	for _, imp := range imports {
 		if srcNs, last, ok := splitLastSegment(imp); ok && (last == name || last == "*") {
 			if srcNs == "::" {

@@ -29,9 +29,9 @@ type Location struct {
 // plan) must serialize access (e.g. an RWMutex: shared for Lookup/Files/Source,
 // exclusive for IndexFile/RemoveFile).
 type Index struct {
-	defsByName map[string][]Location              // FQ name -> all definition sites
-	fileDefs   map[string][]string                // file -> FQ names it defines (for removal)
-	src        map[string]string                  // file -> source text
+	defsByName map[string][]Location                    // FQ name -> all definition sites
+	fileDefs   map[string][]string                      // file -> FQ names it defines (for removal)
+	src        map[string]string                        // file -> source text
 	fileNS     map[string]map[string]*tcl.NamespaceInfo // file -> (ns name -> decls)
 }
 
@@ -117,6 +117,8 @@ func (ix *Index) Source(path string) string {
 // declared for ns across the workspace, deduplicated and ordered by file then
 // declaration order. Used for command resolution (namespace path / import).
 // Variables are unaffected by these declarations.
+// Note: this is a union approximation — in real TCL a later `namespace path`
+// call replaces the earlier one, but we merge across files for static analysis.
 func (ix *Index) Namespace(ns string) (path []string, imports []string) {
 	files := make([]string, 0, len(ix.fileNS))
 	for f := range ix.fileNS {
