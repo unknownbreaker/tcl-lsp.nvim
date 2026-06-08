@@ -3,6 +3,7 @@
 package index
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -108,21 +109,37 @@ func (ix *Index) Source(path string) string {
 	return ix.src[path]
 }
 
-// IndexDir walks root and indexes every *.tcl file found (recursively). It
-// returns the first error encountered while walking or reading.
+// IndexDir walks root and indexes every *.tcl file found (recursively). A
+// per-entry read error is recorded and the walk continues, so one unreadable
+// file or directory cannot truncate the whole workspace index. The `.git`
+// directory is skipped. The returned error aggregates any failures (nil if none).
 func (ix *Index) IndexDir(root string) error {
-	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	var errs []error
+	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			// Unreadable entry: record and keep walking the rest of the tree.
+			errs = append(errs, err)
+			return nil
 		}
-		if d.IsDir() || !strings.HasSuffix(p, ".tcl") {
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return fs.SkipDir // never contains .tcl; skip the noise
+			}
+			return nil
+		}
+		if !strings.HasSuffix(p, ".tcl") {
 			return nil
 		}
 		b, err := os.ReadFile(p)
 		if err != nil {
-			return fmt.Errorf("indexing %s: %w", p, err)
+			errs = append(errs, fmt.Errorf("indexing %s: %w", p, err))
+			return nil
 		}
 		ix.IndexFile(p, string(b))
 		return nil
 	})
+	if walkErr != nil {
+		errs = append(errs, walkErr)
+	}
+	return errors.Join(errs...)
 }

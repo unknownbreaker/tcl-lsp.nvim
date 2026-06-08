@@ -59,7 +59,11 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 			root = uriToPath(p.RootURI)
 		}
 		if root != "" {
-			_ = s.ix.IndexDir(root) // best-effort; missing/permission errors are non-fatal
+			// Best-effort: IndexDir continues past unreadable entries and returns
+			// an aggregated error, which we log (stderr) rather than fail on.
+			if err := s.ix.IndexDir(root); err != nil {
+				log.Printf("workspace index (%s): %v", root, err)
+			}
 		}
 		s.reply(m.ID, InitializeResult{Capabilities: ServerCapabilities{
 			TextDocumentSync: 1, DefinitionProvider: true, ReferencesProvider: true,

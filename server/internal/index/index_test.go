@@ -148,3 +148,44 @@ func TestIndexDir(t *testing.T) {
 		t.Fatalf("expected 2 .tcl files indexed (md skipped), got %#v", files)
 	}
 }
+
+func TestIndexDirContinuesPastUnreadableFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("chmod-based permission test is unreliable as root")
+	}
+	dir := t.TempDir()
+	writeFile(t, dir, "good.tcl", "proc good {} {}")
+	writeFile(t, dir, "bad.tcl", "proc bad {} {}")
+	bad := filepath.Join(dir, "bad.tcl")
+	if err := os.Chmod(bad, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(bad, 0o644) // restore so TempDir cleanup succeeds
+
+	ix := New()
+	err := ix.IndexDir(dir)
+	if err == nil {
+		t.Fatal("expected an aggregated error for the unreadable file")
+	}
+	// The readable file is still indexed despite the bad one (no abort).
+	if locs := ix.Lookup("::good"); len(locs) != 1 {
+		t.Fatalf("readable file should still be indexed, got %#v", locs)
+	}
+}
+
+func TestIndexDirSkipsGit(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "real.tcl", "proc real {} {}")
+	writeFile(t, dir, ".git/hooks/sneaky.tcl", "proc sneaky {} {}")
+
+	ix := New()
+	if err := ix.IndexDir(dir); err != nil {
+		t.Fatalf("IndexDir error: %v", err)
+	}
+	if locs := ix.Lookup("::real"); len(locs) != 1 {
+		t.Fatalf("::real should be indexed: %#v", locs)
+	}
+	if locs := ix.Lookup("::sneaky"); locs != nil {
+		t.Fatalf("files under .git must be skipped, got %#v", locs)
+	}
+}
