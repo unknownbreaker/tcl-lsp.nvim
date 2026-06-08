@@ -3,7 +3,11 @@
 package index
 
 import (
+	"io/fs"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
@@ -89,4 +93,23 @@ func (ix *Index) Files() []string {
 // Source returns the stored source for a file ("" if not indexed).
 func (ix *Index) Source(path string) string {
 	return ix.src[path]
+}
+
+// IndexDir walks root and indexes every *.tcl file found (recursively). It
+// returns the first error encountered while walking or reading.
+func (ix *Index) IndexDir(root string) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(p, ".tcl") {
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		ix.IndexFile(p, string(b))
+		return nil
+	})
 }

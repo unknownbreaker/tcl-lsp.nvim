@@ -1,6 +1,8 @@
 package index
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -96,5 +98,37 @@ func TestIndexFilesAndSource(t *testing.T) {
 	}
 	if files := ix.Files(); !reflect.DeepEqual(files, []string{"b.tcl"}) {
 		t.Fatalf("Files() after remove = %#v", files)
+	}
+}
+
+func writeFile(t *testing.T, dir, rel, content string) {
+	t.Helper()
+	p := filepath.Join(dir, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIndexDir(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "x.tcl", "proc x {} {}")
+	writeFile(t, dir, "sub/y.tcl", "namespace eval ::n { proc y {} {} }")
+	writeFile(t, dir, "readme.md", "not tcl")
+
+	ix := New()
+	if err := ix.IndexDir(dir); err != nil {
+		t.Fatalf("IndexDir error: %v", err)
+	}
+	if locs := ix.Lookup("::x"); len(locs) != 1 {
+		t.Fatalf("::x not indexed from dir: %#v", locs)
+	}
+	if locs := ix.Lookup("::n::y"); len(locs) != 1 {
+		t.Fatalf("::n::y not indexed from subdir: %#v", locs)
+	}
+	if files := ix.Files(); len(files) != 2 {
+		t.Fatalf("expected 2 .tcl files indexed (md skipped), got %#v", files)
 	}
 }
