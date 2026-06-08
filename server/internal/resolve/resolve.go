@@ -60,23 +60,67 @@ func (r *Resolver) candidates(ref *tcl.ContextRef) []string {
 	name := ref.Ref.Name
 	ns := ref.Namespace
 	if ref.Ref.Kind == tcl.RefCommand {
-		return commandCandidates(name, ns)
+		return r.commandCandidates(name, ns)
 	}
 	return variableCandidates(name, ns, ref.Frame)
 }
 
-// commandCandidates: a qualified name resolves directly; a bare name is searched
-// in the current namespace, then the global namespace.
-// TODO(namespace-path): insert each `namespace path` entry between current and
-// global once the parser surfaces path info (design §4); deferred for now.
-func commandCandidates(name, ns string) []string {
+// commandCandidates returns the FQ command names to try, in TCL precedence
+// order: current namespace, imported names, namespace-path entries, then global.
+// A qualified name resolves directly.
+func (r *Resolver) commandCandidates(name, ns string) []string {
 	if isQualified(name) {
 		return []string{qualify(name, ns)}
 	}
-	if ns == "::" {
-		return []string{"::" + name}
+	cands := []string{qualify(name, ns)} // current namespace
+
+	path, imports := r.ix.Namespace(ns)
+	// Imported commands behave like commands in the current namespace.
+	for _, imp := range imports {
+		if srcNs, last, ok := splitLastSegment(imp); ok && (last == name || last == "*") {
+			if srcNs == "::" {
+				cands = append(cands, "::"+name)
+			} else {
+				cands = append(cands, srcNs+"::"+name)
+			}
+		}
 	}
-	return []string{ns + "::" + name, "::" + name}
+	// namespace path entries (already fully qualified).
+	for _, p := range path {
+		cands = append(cands, p+"::"+name)
+	}
+	// global fallback.
+	if ns != "::" {
+		cands = append(cands, "::"+name)
+	}
+	return dedup(cands)
+}
+
+// splitLastSegment splits a qualified name into (namespace, lastSegment), e.g.
+// "::p::pub" -> ("::p", "pub") and "::pub" -> ("::", "pub"). Returns ok=false
+// when there is no "::" separator.
+func splitLastSegment(qname string) (nsPart, last string, ok bool) {
+	i := strings.LastIndex(qname, "::")
+	if i < 0 {
+		return "", "", false
+	}
+	nsPart = qname[:i]
+	if nsPart == "" {
+		nsPart = "::"
+	}
+	return nsPart, qname[i+2:], true
+}
+
+func dedup(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := in[:0]
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // variableCandidates: a qualified variable resolves directly; a bare variable at

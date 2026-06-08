@@ -280,3 +280,59 @@ func TestReferencesUsesLiveSourceForCurrentFile(t *testing.T) {
 		}
 	}
 }
+
+func TestDefinitionViaNamespacePath(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("lib.tcl", "namespace eval ::lib {\n  proc helper {} {}\n}")
+	src := "namespace eval ::user {\n  namespace path ::lib\n  helper\n}"
+	ix.IndexFile("user.tcl", src)
+	r := New(ix)
+
+	off := strings.Index(src, "\n  helper") + 3 // the `helper` call
+	locs := r.Definition("user.tcl", src, off)
+	if len(locs) != 1 || locs[0].Name != "::lib::helper" {
+		t.Fatalf("via namespace path = %#v", locs)
+	}
+}
+
+func TestDefinitionViaNamespaceImport(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("p.tcl", "namespace eval ::provider {\n  namespace export pub\n  proc pub {} {}\n}")
+	src := "namespace eval ::consumer {\n  namespace import ::provider::pub\n  pub\n}"
+	ix.IndexFile("c.tcl", src)
+	r := New(ix)
+
+	off := strings.Index(src, "\n  pub\n") + 3 // the bare `pub` call
+	locs := r.Definition("c.tcl", src, off)
+	if len(locs) != 1 || locs[0].Name != "::provider::pub" {
+		t.Fatalf("via namespace import = %#v", locs)
+	}
+}
+
+func TestDefinitionViaGlobImport(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("p.tcl", "namespace eval ::provider {\n  namespace export *\n  proc tool {} {}\n}")
+	src := "namespace eval ::consumer {\n  namespace import ::provider::*\n  tool\n}"
+	ix.IndexFile("c.tcl", src)
+	r := New(ix)
+
+	off := strings.Index(src, "\n  tool\n") + 3
+	locs := r.Definition("c.tcl", src, off)
+	if len(locs) != 1 || locs[0].Name != "::provider::tool" {
+		t.Fatalf("via glob import = %#v", locs)
+	}
+}
+
+func TestDefinitionCurrentNamespaceBeatsPath(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("lib.tcl", "namespace eval ::lib { proc helper {} {} }")
+	src := "namespace eval ::user {\n  namespace path ::lib\n  proc helper {} {}\n  helper\n}"
+	ix.IndexFile("user.tcl", src)
+	r := New(ix)
+
+	off := strings.LastIndex(src, "helper") // the call, after the local proc def
+	locs := r.Definition("user.tcl", src, off)
+	if len(locs) != 1 || locs[0].Name != "::user::helper" {
+		t.Fatalf("current ns should beat path: %#v", locs)
+	}
+}
