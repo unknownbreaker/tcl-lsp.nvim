@@ -178,3 +178,59 @@ func TestReferencesUnknownIsEmpty(t *testing.T) {
 		t.Fatalf("no symbol at offset should be nil, got %#v", locs)
 	}
 }
+
+func TestReferencesRespectsPrecedence(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("g.tcl", "proc greet {} {}")                               // ::greet
+	ix.IndexFile("app.tcl", "namespace eval ::app {\n  proc greet {} {}\n}") // ::app::greet
+	ix.IndexFile("useglobal.tcl", "greet")                                  // -> ::greet
+	ix.IndexFile("useapp.tcl", "namespace eval ::app {\n  greet\n}")        // -> ::app::greet
+	r := New(ix)
+
+	// Target ::greet (cursor on the global proc's name).
+	locs := r.References("g.tcl", "proc greet {} {}", 5)
+	for _, l := range locs {
+		if l.File == "useapp.tcl" {
+			t.Fatalf("a ::app::greet use must not match ::greet: %#v", locs)
+		}
+	}
+	found := false
+	for _, l := range locs {
+		if l.File == "useglobal.tcl" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected the global use in useglobal.tcl: %#v", locs)
+	}
+}
+
+func TestReferencesNamespaceVariable(t *testing.T) {
+	ix := index.New()
+	libSrc := "namespace eval ::app {\n  variable count 0\n}"
+	ix.IndexFile("lib.tcl", libSrc)
+	ix.IndexFile("use.tcl", "namespace eval ::app {\n  puts $count\n}")
+	r := New(ix)
+
+	// Cursor on `count` in the variable declaration.
+	off := strings.Index(libSrc, "count")
+	locs := r.References("lib.tcl", libSrc, off)
+	found := false
+	for _, l := range locs {
+		if l.File == "use.tcl" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected the $count use in use.tcl: %#v", locs)
+	}
+}
+
+func TestReferencesProcLocalDeferred(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {x} { puts $x }"
+	off := strings.Index(src, "$x") + 1
+	if locs := r.References("a.tcl", src, off); locs != nil {
+		t.Fatalf("proc-local references are deferred, got %#v", locs)
+	}
+}
