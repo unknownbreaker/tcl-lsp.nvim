@@ -77,3 +77,30 @@ func TestFileDefsGlobalTopSet(t *testing.T) {
 		t.Fatalf("kind = %d, want DefNamespaceVar", d.Kind)
 	}
 }
+
+func TestFileDefsProcParamsAndLocals(t *testing.T) {
+	src := "proc add {a b} {\n  set sum 0\n  global cfg\n}"
+	got := FileDefs(src)
+	// params a, b are locals
+	for _, n := range []string{"a", "b", "sum"} {
+		d := findDef(got, n)
+		if d == nil || d.Kind != DefLocal {
+			t.Fatalf("expected local %q, got %#v", n, got)
+		}
+	}
+	// global cfg is a link to ::cfg
+	g := findDef(got, "cfg")
+	if g == nil || g.Kind != DefGlobalLink {
+		t.Fatalf("expected DefGlobalLink cfg, got %#v", got)
+	}
+}
+
+func TestFileDefsUpvarAlias(t *testing.T) {
+	src := "proc bump {varname} {\n  upvar 1 $varname c\n}"
+	got := FileDefs(src)
+	// `c` is a local alias introduced by upvar
+	d := findDef(got, "c")
+	if d == nil || d.Kind != DefLocal {
+		t.Fatalf("expected local alias c, got %#v", got)
+	}
+}
