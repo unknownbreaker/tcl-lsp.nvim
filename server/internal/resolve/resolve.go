@@ -71,9 +71,21 @@ func commandCandidates(name, ns string) []string {
 	return []string{ns + "::" + name, "::" + name}
 }
 
-// variableCandidates is completed in the next task; commands work now.
+// variableCandidates: a qualified variable resolves directly; a bare variable at
+// namespace-eval top level is the current namespace's own variable. A bare
+// variable inside a proc body is local-only and not resolvable via the workspace
+// index (frame-local resolution is a later plan) — returns nil.
 func variableCandidates(name, ns string, frame tcl.FrameKind) []string {
-	return nil
+	if isQualified(name) {
+		return []string{qualify(name, ns)}
+	}
+	if frame == tcl.FrameNamespace {
+		if ns == "::" {
+			return []string{"::" + name}
+		}
+		return []string{ns + "::" + name}
+	}
+	return nil // bare proc-local — deferred
 }
 
 func isQualified(name string) bool { return strings.Contains(name, "::") }

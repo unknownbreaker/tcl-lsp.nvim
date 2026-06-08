@@ -58,3 +58,40 @@ func TestDefinitionNoSymbolAtOffset(t *testing.T) {
 		t.Fatalf("out-of-range offset should be nil, got %#v", locs)
 	}
 }
+
+func TestDefinitionNamespaceVariable(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("lib.tcl", "namespace eval ::app {\n  variable count 0\n}")
+	r := New(ix)
+
+	mainSrc := "namespace eval ::app {\n  puts $count\n}"
+	off := strings.Index(mainSrc, "$count") + 1 // on `count`
+	locs := r.Definition("main.tcl", mainSrc, off)
+	if len(locs) != 1 || locs[0].Name != "::app::count" {
+		t.Fatalf("definition = %#v", locs)
+	}
+}
+
+func TestDefinitionQualifiedVariable(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("lib.tcl", "namespace eval ::app {\n  variable count 0\n}")
+	r := New(ix)
+
+	mainSrc := "puts $::app::count"
+	off := strings.Index(mainSrc, "$::app::count") + 5
+	locs := r.Definition("main.tcl", mainSrc, off)
+	if len(locs) != 1 || locs[0].Name != "::app::count" {
+		t.Fatalf("definition = %#v", locs)
+	}
+}
+
+func TestDefinitionProcLocalDeferred(t *testing.T) {
+	// A bare variable inside a proc body is local-only; resolving it is deferred
+	// to the frame-local resolution plan. For now it returns nothing.
+	r := New(index.New())
+	src := "proc f {x} { puts $x }"
+	off := strings.Index(src, "$x") + 1
+	if locs := r.Definition("a.tcl", src, off); locs != nil {
+		t.Fatalf("bare proc-local should be unresolved (deferred), got %#v", locs)
+	}
+}
