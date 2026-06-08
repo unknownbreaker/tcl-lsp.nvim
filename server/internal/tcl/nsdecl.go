@@ -49,6 +49,14 @@ func recordNSDecl(c Command, ns string, m map[string]*NamespaceInfo) {
 				info.Exports = append(info.Exports, unbrace(pw.Text))
 			}
 		}
+	case "import":
+		info := ensureNS(m, ns)
+		for _, pw := range w[2:] {
+			if pw.Text == "" || pw.Text[0] == '-' {
+				continue // skip flags like -force
+			}
+			info.Imports = append(info.Imports, qualifyNamespace(unbrace(pw.Text), ns))
+		}
 	}
 }
 

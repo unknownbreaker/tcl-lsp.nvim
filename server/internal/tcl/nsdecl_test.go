@@ -24,3 +24,30 @@ func TestFileNamespacesExportGlobal(t *testing.T) {
 		t.Fatalf("global exports = %#v", m)
 	}
 }
+
+func TestFileNamespacesImport(t *testing.T) {
+	src := "namespace eval ::c {\n  namespace import ::p::pub\n}"
+	m := FileNamespaces(src)
+	info := m["::c"]
+	if info == nil || !reflect.DeepEqual(info.Imports, []string{"::p::pub"}) {
+		t.Fatalf("imports = %#v", m["::c"])
+	}
+}
+
+func TestFileNamespacesImportForceFlagSkipped(t *testing.T) {
+	src := "namespace eval ::c {\n  namespace import -force ::p::x ::p::y\n}"
+	m := FileNamespaces(src)
+	info := m["::c"]
+	if info == nil || !reflect.DeepEqual(info.Imports, []string{"::p::x", "::p::y"}) {
+		t.Fatalf("imports = %#v", m["::c"])
+	}
+}
+
+func TestFileNamespacesImportRelativeQualified(t *testing.T) {
+	src := "namespace eval ::a {\n  namespace import sub::x\n}"
+	m := FileNamespaces(src)
+	info := m["::a"]
+	if info == nil || !reflect.DeepEqual(info.Imports, []string{"::a::sub::x"}) {
+		t.Fatalf("imports = %#v", m["::a"])
+	}
+}
