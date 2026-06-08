@@ -23,12 +23,46 @@ type Reference struct {
 // [command substitution] spans are included via substRefs.
 func CommandRefs(c Command) []Reference {
 	var refs []Reference
+	isExpr := len(c.Words) > 0 && isLiteralName(c.Words[0]) && c.Words[0].Text == "expr"
 	for idx, w := range c.Words {
 		if idx == 0 && isLiteralName(w) {
 			refs = append(refs, Reference{Kind: RefCommand, Name: w.Text, Start: w.Start, End: w.End})
 			continue
 		}
+		if isExpr && w.Kind == WordBraced {
+			// expr evaluates [command substitutions] inside its braces even though
+			// braces otherwise suppress substitution. Scan only the bracket spans so
+			// embedded calls are found while bare operands stay non-references.
+			inner, innerBase := bracedInner(w, 0)
+			refs = append(refs, exprBracketRefs(inner, innerBase)...)
+			continue
+		}
 		refs = append(refs, wordRefs(w)...)
+	}
+	return refs
+}
+
+// exprBracketRefs scans an expr's braced argument for [command substitution]
+// spans only, recursing into each via substRefs. Unlike scanRefs it ignores
+// bare $vars and operands, which are not substituted inside an expr brace.
+func exprBracketRefs(text string, base int) []Reference {
+	var refs []Reference
+	i := 0
+	for i < len(text) {
+		switch c := text[i]; {
+		case c == '\\' && i+1 < len(text):
+			i += 2
+		case c == '[':
+			end := skipBracketSpan(text, i) // index just past the matching ']'
+			innerEnd := end
+			if end > i+1 && text[end-1] == ']' {
+				innerEnd = end - 1
+			}
+			refs = append(refs, substRefs(text[i+1:innerEnd], base+i+1)...)
+			i = end
+		default:
+			i++
+		}
 	}
 	return refs
 }

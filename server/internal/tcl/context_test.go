@@ -193,6 +193,23 @@ func TestFileRefsExprBraceNotScript(t *testing.T) {
 	}
 }
 
+func TestFileRefsCallInsideExprBraces(t *testing.T) {
+	// expr evaluates [command substitutions] inside its braces even though braces
+	// otherwise suppress substitution, so a proc called there must be found. A
+	// bare occurrence of the same name as an operand must NOT be a command ref --
+	// only the bracketed call counts.
+	src := "proc area {r} {}\nset s [expr {area + [area $r]}]"
+	n := 0
+	for _, r := range FileRefs(src) {
+		if r.Ref.Kind == RefCommand && r.Ref.Name == "area" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("expected exactly 1 area command ref (the bracketed call), got %d", n)
+	}
+}
+
 func TestFileRefsNamespaceInsideProc(t *testing.T) {
 	// Inverse nesting: namespace eval inside a proc body must RESET to
 	// FrameNamespace (not inherit FrameProc) and use the inner namespace.
