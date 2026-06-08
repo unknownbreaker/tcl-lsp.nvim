@@ -54,3 +54,33 @@ func TestFileRefsNestedNamespace(t *testing.T) {
 		t.Fatalf("namespace = %q, want ::a::b", vy.Namespace)
 	}
 }
+
+func TestFileRefsProcBody(t *testing.T) {
+	src := "proc p {} {\n    set a $b\n}"
+	got := FileRefs(src)
+	vb := findVar(got, "b")
+	if vb == nil {
+		t.Fatalf("did not find var b in %#v", got)
+	}
+	if vb.Frame != FrameProc {
+		t.Fatalf("frame = %d, want FrameProc", vb.Frame)
+	}
+	if vb.Namespace != "::" {
+		t.Fatalf("namespace = %q, want ::", vb.Namespace)
+	}
+}
+
+func TestFileRefsProcInNamespace(t *testing.T) {
+	src := "namespace eval ::app {\n  proc f {} { set a $b }\n}"
+	got := FileRefs(src)
+	vb := findVar(got, "b")
+	if vb == nil {
+		t.Fatalf("did not find var b in %#v", got)
+	}
+	if vb.Frame != FrameProc {
+		t.Fatalf("frame = %d, want FrameProc", vb.Frame)
+	}
+	if vb.Namespace != "::app" {
+		t.Fatalf("namespace = %q, want ::app", vb.Namespace)
+	}
+}

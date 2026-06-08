@@ -48,6 +48,13 @@ func recurseBodies(c Command, base int, ns string, out *[]ContextRef) {
 		inner, innerBase := bracedInner(w[len(w)-1], base)
 		walkScript(Parse(inner), innerBase, child, FrameNamespace, out)
 	}
+	if isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced {
+		// The proc body runs in the namespace where the proc is defined. For a
+		// qualified proc name the body's namespace is that of the name; this is
+		// refined when definitions are added. For now, use the current namespace.
+		inner, innerBase := bracedInner(w[len(w)-1], base)
+		walkScript(Parse(inner), innerBase, ns, FrameProc, out)
+	}
 }
 
 // isCmd reports whether the command's literal head equals name.
