@@ -78,3 +78,33 @@ func TestFileNamespacesPathLastWins(t *testing.T) {
 		t.Fatalf("path (last wins) = %#v", m["::a"])
 	}
 }
+
+func TestFileNamespacesCombinedNested(t *testing.T) {
+	src := "namespace eval ::a {\n" +
+		"  namespace export api*\n" +
+		"  namespace path {::lib}\n" +
+		"  namespace eval b {\n" +
+		"    namespace import ::p::tool\n" +
+		"  }\n" +
+		"}"
+	m := FileNamespaces(src)
+
+	a := m["::a"]
+	if a == nil {
+		t.Fatalf("no ::a in %#v", m)
+	}
+	if !reflect.DeepEqual(a.Exports, []string{"api*"}) {
+		t.Fatalf("::a exports = %#v", a.Exports)
+	}
+	if !reflect.DeepEqual(a.Path, []string{"::lib"}) {
+		t.Fatalf("::a path = %#v", a.Path)
+	}
+
+	b := m["::a::b"]
+	if b == nil {
+		t.Fatalf("no ::a::b in %#v", m)
+	}
+	if !reflect.DeepEqual(b.Imports, []string{"::p::tool"}) {
+		t.Fatalf("::a::b imports = %#v", b.Imports)
+	}
+}
