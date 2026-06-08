@@ -336,3 +336,25 @@ func TestDefinitionCurrentNamespaceBeatsPath(t *testing.T) {
 		t.Fatalf("current ns should beat path: %#v", locs)
 	}
 }
+
+func TestReferencesViaNamespaceImport(t *testing.T) {
+	ix := index.New()
+	pSrc := "namespace eval ::provider {\n  namespace export pub\n  proc pub {} {}\n}"
+	ix.IndexFile("p.tcl", pSrc)
+	ix.IndexFile("c.tcl", "namespace eval ::consumer {\n  namespace import ::provider::pub\n  pub\n}")
+	r := New(ix)
+
+	// From the definition of ::provider::pub, references should include the
+	// imported call in c.tcl (which resolves to ::provider::pub).
+	off := strings.Index(pSrc, "proc pub") + 5 // the `pub` proc name
+	locs := r.References("p.tcl", pSrc, off)
+	found := false
+	for _, l := range locs {
+		if l.File == "c.tcl" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected the imported call in c.tcl among references: %#v", locs)
+	}
+}
