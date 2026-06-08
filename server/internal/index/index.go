@@ -2,7 +2,11 @@
 // definitions across files, with incremental per-file updates.
 package index
 
-import "github.com/unknownbreaker/tcl-lsp/internal/tcl"
+import (
+	"sort"
+
+	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
+)
 
 // Location is a single definition site.
 type Location struct {
@@ -70,4 +74,19 @@ func (ix *Index) RemoveFile(path string) {
 // Lookup returns all definition sites for a fully-qualified name (nil if none).
 func (ix *Index) Lookup(name string) []Location {
 	return ix.defsByName[name]
+}
+
+// Files returns the indexed file paths, sorted for deterministic iteration.
+func (ix *Index) Files() []string {
+	out := make([]string, 0, len(ix.src))
+	for p := range ix.src {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Source returns the stored source for a file ("" if not indexed).
+func (ix *Index) Source(path string) string {
+	return ix.src[path]
 }

@@ -1,6 +1,7 @@
 package index
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
@@ -75,5 +76,25 @@ func TestIndexRemoveFile(t *testing.T) {
 	ix.RemoveFile("b.tcl")
 	if locs := ix.Lookup("::dup"); locs != nil {
 		t.Fatalf("expected nil after all definers removed, got %#v", locs)
+	}
+}
+
+func TestIndexFilesAndSource(t *testing.T) {
+	ix := New()
+	ix.IndexFile("b.tcl", "proc b {} {}")
+	ix.IndexFile("a.tcl", "proc a {} {}")
+
+	if files := ix.Files(); !reflect.DeepEqual(files, []string{"a.tcl", "b.tcl"}) {
+		t.Fatalf("Files() = %#v, want sorted [a.tcl b.tcl]", files)
+	}
+	if got := ix.Source("a.tcl"); got != "proc a {} {}" {
+		t.Fatalf("Source(a.tcl) = %q", got)
+	}
+	ix.RemoveFile("a.tcl")
+	if got := ix.Source("a.tcl"); got != "" {
+		t.Fatalf("Source after remove = %q, want empty", got)
+	}
+	if files := ix.Files(); !reflect.DeepEqual(files, []string{"b.tcl"}) {
+		t.Fatalf("Files() after remove = %#v", files)
 	}
 }
