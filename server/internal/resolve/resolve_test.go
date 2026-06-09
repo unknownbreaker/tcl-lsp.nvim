@@ -393,3 +393,32 @@ func TestReferencesViaNamespaceImport(t *testing.T) {
 		t.Fatalf("expected the imported call in c.tcl among references: %#v", locs)
 	}
 }
+
+func TestRVTToTCLCrossFile(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("lib.tcl", "namespace eval ::lib { proc helper {} {} }")
+	page := "<h1><?= [::lib::helper] ?></h1>"
+	ix.IndexFile("page.rvt", page)
+	r := New(ix)
+
+	// goto-definition from the .rvt call jumps into lib.tcl.
+	off := strings.Index(page, "helper")
+	locs := r.Definition("page.rvt", page, off)
+	if len(locs) != 1 || locs[0].File != "lib.tcl" || locs[0].Name != "::lib::helper" {
+		t.Fatalf("rvt->tcl goto-def = %#v", locs)
+	}
+
+	// find-references from the lib.tcl definition includes the .rvt call site.
+	libSrc := ix.Source("lib.tcl")
+	defOff := strings.Index(libSrc, "helper")
+	got := r.References("lib.tcl", libSrc, defOff)
+	var inRVT bool
+	for _, l := range got {
+		if l.File == "page.rvt" {
+			inRVT = true
+		}
+	}
+	if !inRVT {
+		t.Fatalf("expected page.rvt among references to ::lib::helper: %#v", got)
+	}
+}

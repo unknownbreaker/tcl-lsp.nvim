@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
+	"github.com/unknownbreaker/tcl-lsp/internal/source"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
 
@@ -26,7 +27,7 @@ func New(ix *index.Index) *Resolver {
 // TCL precedence order (current namespace, then global); the first candidate
 // that resolves wins (a bare name is NOT unioned across namespaces).
 func (r *Resolver) Definition(file, src string, offset int) []index.Location {
-	ref := refAt(src, offset)
+	ref := refAt(file, src, offset)
 	if ref == nil {
 		return nil
 	}
@@ -38,15 +39,15 @@ func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 	return nil
 }
 
-// refAt returns the innermost reference whose byte range contains offset.
-func refAt(src string, offset int) *tcl.ContextRef {
-	refs := tcl.FileRefs(src)
+// refAt returns the innermost reference whose byte range contains offset, parsing
+// src through the source seam so .rvt content is extracted to its stitched script
+// and reported in source coordinates.
+func refAt(file, src string, offset int) *tcl.ContextRef {
+	refs := source.Refs(file, src)
 	var best *tcl.ContextRef
 	for i := range refs {
 		rg := refs[i].Ref
 		if offset >= rg.Start && offset < rg.End {
-			// Innermost wins (smallest range). Ties on identical ranges — which the
-			// current parser does not produce — keep the first ref encountered.
 			if best == nil || (rg.End-rg.Start) < (best.Ref.End-best.Ref.Start) {
 				best = &refs[i]
 			}
@@ -165,7 +166,7 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	var out []index.Location
 	scan := func(f string, refs []tcl.ContextRef) {
 		for i := range refs {
-			if r.refFQ(&refs[i]) == target {
+			if r.refFQ(&refs[i], f) == target {
 				out = append(out, index.Location{
 					File: f, Name: target, Kind: targetKind,
 					NameStart: refs[i].Ref.Start, NameEnd: refs[i].Ref.End,
@@ -174,12 +175,12 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 		}
 	}
 
-	scan(file, tcl.FileRefs(src)) // current file: parse the live source
+	scan(file, source.Refs(file, src)) // current file: parse the live source via the seam
 	for _, f := range r.ix.Files() {
 		if f == file {
 			continue
 		}
-		scan(f, r.ix.FileRefs(f)) // other files: precomputed at index time, no re-parse
+		scan(f, r.ix.FileRefs(f))
 	}
 	return out
 }
@@ -197,29 +198,24 @@ func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
 	return r.ix.Lookup(target)
 }
 
-// targetFQ returns the fully-qualified name of the symbol at offset: a
-// definition name-range it falls within, else the reference there resolved to
-// its FQ name. Returns "" if there is no resolvable symbol.
-// file is currently unused but reserved for frame-local resolution (a later phase).
 func (r *Resolver) targetFQ(file, src string, offset int) string {
-	for _, d := range tcl.FileDefs(src) {
+	for _, d := range source.Defs(file, src) {
 		if (d.Kind == tcl.DefProc || d.Kind == tcl.DefNamespaceVar) &&
 			offset >= d.NameStart && offset < d.NameEnd {
 			return d.Name
 		}
 	}
-	if ref := refAt(src, offset); ref != nil {
-		return r.refFQ(ref)
+	if ref := refAt(file, src, offset); ref != nil {
+		return r.refFQ(ref, file)
 	}
 	return ""
 }
 
 // refFQ resolves a reference to the fully-qualified name it binds to, using the
-// same first-match precedence as goto-definition. If no candidate is defined in
-// the index, the primary (first) candidate is used so undefined references still
-// group together. Returns "" when there are no candidates (e.g. a bare
-// proc-local variable).
-func (r *Resolver) refFQ(ref *tcl.ContextRef) string {
+// same first-match precedence as goto-definition. file is the document the ref
+// lives in (used for page-local scoping in lookups). If no candidate is defined,
+// the primary candidate is used so undefined references still group together.
+func (r *Resolver) refFQ(ref *tcl.ContextRef, file string) string {
 	cands := r.candidates(ref)
 	for _, name := range cands {
 		if len(r.ix.Lookup(name)) > 0 {
