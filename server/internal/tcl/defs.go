@@ -34,7 +34,7 @@ func FileDefs(src string) []Definition {
 func walkDefs(cmds []Command, base int, ns string, frame FrameKind, out *[]Definition) {
 	for _, c := range cmds {
 		emitDefs(c, base, ns, frame, out)
-		recurseDefBodies(c, base, ns, out)
+		recurseDefBodies(c, base, ns, frame, out)
 	}
 }
 
@@ -104,19 +104,27 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition
 	}
 }
 
-func recurseDefBodies(c Command, base int, ns string, out *[]Definition) {
-	// NOTE: the namespace-eval/proc body detection mirrors recurseBodies in
-	// context.go; if a third walk appears, extract a shared forEachBody helper.
+func recurseDefBodies(c Command, base int, ns string, frame FrameKind, out *[]Definition) {
+	// Mirrors recurseBodies in context.go so definitions and references agree on
+	// which braced words are script bodies: `namespace eval` and `proc` introduce
+	// a new scope, while control-flow and custom-command bodies run in the
+	// enclosing namespace and frame -- so a proc/variable defined inside an
+	// if/catch/foreach/... (e.g. conditional `proc` definition) is declared there.
 	w := c.Words
-	if isCmd(w, "namespace") && len(w) >= 4 && w[1].Text == "eval" && w[len(w)-1].Kind == WordBraced {
+	switch {
+	case isCmd(w, "namespace") && len(w) >= 4 && w[1].Text == "eval" && w[len(w)-1].Kind == WordBraced:
 		child := qualifyNamespace(w[2].Text, ns)
 		inner, innerBase := bracedInner(w[len(w)-1], base)
 		walkDefs(Parse(inner), innerBase, child, FrameNamespace, out)
-	}
-	if isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced {
+	case isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced:
 		emitProcParams(w[2], base, ns, out)
 		inner, innerBase := bracedInner(w[len(w)-1], base)
 		walkDefs(Parse(inner), innerBase, ns, FrameProc, out)
+	default:
+		for _, body := range scriptBodies(w) {
+			inner, innerBase := bracedInner(body, base)
+			walkDefs(Parse(inner), innerBase, ns, frame, out)
+		}
 	}
 }
 

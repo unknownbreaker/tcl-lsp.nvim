@@ -95,6 +95,25 @@ func TestCorpusOutputShorthandVarRef(t *testing.T) {
 	}
 }
 
+// Conditional definition: a .rvt calls (via [ … ] substitution in a <? ?> block)
+// a proc defined inside an if-block in a .tcl file. Regression test for the
+// def-walker not recursing control-flow bodies.
+func TestCorpusConditionalProcDefResolves(t *testing.T) {
+	lib := corpusFile(t, "conditional_def.tcl")
+	page := corpusFile(t, "conditional_caller.rvt")
+
+	ix := index.New()
+	ix.IndexFile("conditional_def.tcl", lib)
+	ix.IndexFile("conditional_caller.rvt", page)
+	r := New(ix)
+
+	off := strings.Index(page, "page_header") // the call inside [ ... ]
+	locs := r.Definition("conditional_caller.rvt", page, off)
+	if len(locs) != 1 || locs[0].File != "conditional_def.tcl" || locs[0].Name != "::page_header" {
+		t.Fatalf("call to conditionally-defined proc = %#v", locs)
+	}
+}
+
 // Block-spanning: a call inside a <?= ?> that sits between <? foreach { ?> and
 // <? } ?> still resolves -- proof the regions stitched into one balanced script.
 func TestCorpusControlFlowSpanningResolves(t *testing.T) {

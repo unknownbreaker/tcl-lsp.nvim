@@ -139,6 +139,23 @@ func TestFileDefsParamWithDefault(t *testing.T) {
 	}
 }
 
+func TestFileDefsInControlFlowBodies(t *testing.T) {
+	// Procs defined inside control-flow / custom-command bodies must be indexed,
+	// just like procs called inside such bodies are found as references. A common
+	// idiom is conditional definition: `if {![llength [info commands x]]} { proc x ... }`.
+	src := "if {1} { proc cond {} {} }\n" +
+		"catch { proc caught {} {} }\n" +
+		"foreach v {a} { proc looped {} {} }\n" +
+		"namespace eval ::app {\n  if {1} { proc nested {} {} }\n}"
+	got := FileDefs(src)
+
+	for _, want := range []string{"::cond", "::caught", "::looped", "::app::nested"} {
+		if d := findDef(got, want); d == nil || d.Kind != DefProc {
+			t.Fatalf("missing proc def %s (proc inside a block); got %#v", want, got)
+		}
+	}
+}
+
 func TestFileDefsCombined(t *testing.T) {
 	src := "namespace eval ::math {\n  variable e 2.7\n  proc square {x} {\n    set r [expr {$x * $x}]\n  }\n}"
 	got := FileDefs(src)
