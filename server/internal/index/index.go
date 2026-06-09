@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/unknownbreaker/tcl-lsp/internal/source"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
 
@@ -63,15 +64,15 @@ func New() *Index {
 func (ix *Index) IndexFile(path, content string) {
 	ix.RemoveFile(path)
 	ix.src[path] = content
-	ix.fileNS[path] = tcl.FileNamespaces(content)
+	ix.fileNS[path] = source.Namespaces(path, content)
 	// Precompute reference sites once here so a references request iterates
 	// stored data instead of re-parsing every workspace file (the dominant cost
 	// on large repos). Resolution stays request-time (it depends on cross-file
 	// namespace state); only the parse is hoisted.
-	if refs := tcl.FileRefs(content); len(refs) > 0 {
+	if refs := source.Refs(path, content); len(refs) > 0 {
 		ix.fileRefs[path] = refs
 	}
-	for _, d := range tcl.FileDefs(content) {
+	for _, d := range source.Defs(path, content) {
 		if d.Kind != tcl.DefProc && d.Kind != tcl.DefNamespaceVar {
 			continue
 		}

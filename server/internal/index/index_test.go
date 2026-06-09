@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
@@ -254,5 +255,22 @@ func TestIndexNamespaceClearedWithFile(t *testing.T) {
 	ix.RemoveFile("a.tcl")
 	if path, _ := ix.Namespace("::app"); path != nil {
 		t.Fatalf("namespace info should be gone after RemoveFile: %#v", path)
+	}
+}
+
+func TestIndexFileRVTStoresRequestSymbol(t *testing.T) {
+	ix := New()
+	src := "<h1><? proc greet {} {} ?></h1>"
+	ix.IndexFile("page.rvt", src)
+
+	locs := ix.Lookup("::request::greet")
+	if len(locs) != 1 {
+		t.Fatalf("expected 1 def for ::request::greet, got %#v", locs)
+	}
+	if locs[0].File != "page.rvt" {
+		t.Fatalf("file = %q, want page.rvt", locs[0].File)
+	}
+	if want := strings.Index(src, "greet"); locs[0].NameStart != want {
+		t.Fatalf("NameStart = %d, want %d (.rvt coord)", locs[0].NameStart, want)
 	}
 }
