@@ -24,6 +24,9 @@ func TestDefsRVTTranslatesToSource(t *testing.T) {
 			if d.NameStart != want {
 				t.Fatalf("greet NameStart = %d, want %d (.rvt coord)", d.NameStart, want)
 			}
+			if d.NameEnd != want+len("greet") {
+				t.Fatalf("greet NameEnd = %d, want %d", d.NameEnd, want+len("greet"))
+			}
 		}
 	}
 	if !found {
@@ -45,11 +48,23 @@ func TestRefsRVTTranslatesAndDropsWrapper(t *testing.T) {
 			}
 		}
 		// The synthetic `namespace eval ::request {` wrapper must not leak through.
-		if r.Ref.Name == "namespace" {
+		if r.Ref.Name == "namespace" || r.Ref.Name == "eval" {
 			t.Fatalf("synthetic wrapper ref leaked: %#v", r)
 		}
 	}
 	if !found {
 		t.Fatalf("hello ref not found in %#v", refs)
+	}
+}
+
+func TestRefsTCLPassthrough(t *testing.T) {
+	var found bool
+	for _, r := range Refs("x.tcl", "proc greet {} { hello }") {
+		if r.Ref.Kind == tcl.RefCommand && r.Ref.Name == "hello" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("tcl Refs passthrough failed: expected `hello` command ref")
 	}
 }
