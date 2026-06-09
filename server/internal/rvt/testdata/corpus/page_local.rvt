@@ -1,0 +1,4 @@
+<?
+  proc greeting {who} { return "hi $who" }
+?>
+<p><?= [greeting "world"] ?></p>

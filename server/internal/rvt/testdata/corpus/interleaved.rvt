@@ -1,0 +1,6 @@
+<html>
+<? set title "Pets" ?>
+<h1><?= $title ?></h1>
+<? set count 3 ?>
+<p>count = <?= $count ?></p>
+</html>

@@ -1,0 +1,3 @@
+<? set name "Rex" ?>
+<p><?= $name ?></p>
+<p><?= [string toupper $name] ?></p>

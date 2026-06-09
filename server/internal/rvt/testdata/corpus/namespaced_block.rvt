@@ -1,0 +1,7 @@
+<?
+  namespace eval ::pets {
+    variable count 0
+    proc add {} { variable count; incr count }
+  }
+?>
+<p>pets</p>

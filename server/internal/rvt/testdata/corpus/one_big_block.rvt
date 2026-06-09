@@ -1,0 +1,8 @@
+<?
+  set title "Pets"
+  set items {cat dog fish}
+  proc render_item {name} { return "<li>$name</li>" }
+?>
+<html><body>
+<h1>pets</h1>
+</body></html>

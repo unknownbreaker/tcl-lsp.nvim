@@ -1,0 +1,2 @@
+<? set raw "rex" ?>
+<h1><?= [::petlib::format_name $raw] ?></h1>

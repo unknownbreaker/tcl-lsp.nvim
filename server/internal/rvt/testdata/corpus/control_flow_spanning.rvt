@@ -1,0 +1,8 @@
+<?
+  proc render_row {name} { return "<li>$name</li>" }
+?>
+<ul>
+<? foreach item {cat dog fish} { ?>
+  <li><?= [render_row $item] ?></li>
+<? } ?>
+</ul>
