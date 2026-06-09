@@ -271,6 +271,54 @@ func TestServerDidCloseThenDefinition(t *testing.T) {
 	}
 }
 
+func TestServerRVTToTCLDefinition(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///lib.tcl",
+			Text: "namespace eval ::lib { proc helper {} {} }"}}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///page.rvt",
+			Text: "<? ::lib::helper ?>"}}))
+	// cursor on the ::lib::helper call (char 3 = start of the qualified name).
+	in.Write(frame(t, "textDocument/definition", 2, TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///page.rvt"},
+		Position:     Position{Line: 0, Character: 3}}))
+	in.Write(frame(t, "exit", nil, nil))
+
+	resp := responseByID(runServer(t, in.Bytes()), "2")
+	if resp == nil {
+		t.Fatal("no definition response")
+	}
+	var locs []Location
+	if err := json.Unmarshal(resp.Result, &locs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(locs) != 1 || locs[0].URI != "file:///lib.tcl" {
+		t.Fatalf("rvt->tcl definition = %#v", locs)
+	}
+}
+
+func TestServerRVTPageLocalDefinition(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///page.rvt",
+			Text: "<? proc greet {} {} ?>\n<? greet ?>"}}))
+	// cursor on the greet call on line 1 (char 3).
+	in.Write(frame(t, "textDocument/definition", 2, TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///page.rvt"},
+		Position:     Position{Line: 1, Character: 3}}))
+	in.Write(frame(t, "exit", nil, nil))
+
+	resp := responseByID(runServer(t, in.Bytes()), "2")
+	var locs []Location
+	_ = json.Unmarshal(resp.Result, &locs)
+	if len(locs) != 1 || locs[0].URI != "file:///page.rvt" {
+		t.Fatalf("page-local definition = %#v", locs)
+	}
+}
+
 func TestServerReferencesUnknownDoc(t *testing.T) {
 	var in bytes.Buffer
 	in.Write(frame(t, "initialize", 1, InitializeParams{}))
