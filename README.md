@@ -2,10 +2,10 @@
 
 A Language Server Protocol implementation for TCL/RVT in Neovim.
 
-> **Status: rebuilding (v2).** This project was reset from a broad v1 prototype
-> to a tightly-scoped, research-first effort. The initial goal is two reliable
-> features — **goto-definition** and **goto-reference** — built on a rigorous
-> understanding of TCL/RVT scope semantics.
+> **Status: Phase A + Phase B shipped.** goto-definition and goto-reference work
+> for both `.tcl` files (Phase A) and `.rvt` Rivet templates (Phase B), including
+> cross-file resolution between `.rvt` and `.tcl`. See `editors/README.md` for
+> setup.
 >
 > The full v1 history (313 commits) is preserved at the `archive-v1` tag.
 

@@ -1,0 +1,15 @@
+<html>
+<body>
+<?
+  # A page-local helper: defined and used within this template (::request scope).
+  proc render_title {t} { return "<h1>$t</h1>" }
+  set title "Pets"
+?>
+<?= [render_title $title] ?>
+<ul>
+<? foreach item {cat dog fish} { ?>
+  <li><?= $item ?></li>
+<? } ?>
+</ul>
+</body>
+</html>

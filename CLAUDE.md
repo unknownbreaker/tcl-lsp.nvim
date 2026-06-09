@@ -12,21 +12,15 @@ too broad — many features, accumulating performance regressions that became
 intractable. That work is preserved at the `archive-v1` tag and on the `main`
 branch; recover any piece with `git checkout archive-v1 -- <path>`.
 
-## Current Phase: Research, not implementation
+## Current Phase: Phase A + Phase B shipped
 
-We are **not building features yet.** The v1 failure mode was implementing before
-understanding TCL's scope semantics. The current goal is the opposite:
+**goto-definition** and **goto-reference** are implemented for both `.tcl` files
+(Phase A) and `.rvt` Rivet templates (Phase B), including cross-file resolution
+between `.rvt` and `.tcl`. The implementation lives under `server/` (Go LSP server
+with stdio/JSON-RPC framing). Research lives in `research/`; plans in `docs/plans/`.
 
-1. **Research first.** Rigorously map TCL and RVT scope behavior — variables,
-   namespaces, procs, `upvar`/`global`/`uplevel`, namespace resolution rules, and
-   how RVT templates affect all of it. Produce clear, written specs.
-2. **Plan from the research.** Only once scope behavior is mapped, design how to
-   build it.
-3. **Scope tightly.** The v2 target is just two reliable features:
-   **goto-definition** and **goto-reference**. Nothing else until those are solid.
-
-Do not propose or scaffold additional LSP features (completion, hover, formatting,
-diagnostics, rename, etc.) during this phase.
+Scope remains tight: only those two features. Do not propose or scaffold additional
+LSP features (completion, hover, formatting, diagnostics, rename, etc.).
 
 ## Working Agreements
 

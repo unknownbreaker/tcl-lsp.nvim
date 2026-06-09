@@ -1,8 +1,8 @@
 # tcl-lsp — editor setup
 
 A Language Server for TCL/RVT providing **goto-definition** and
-**goto-references** across a workspace. (See the repo root `CLAUDE.md` /
-`docs/plans/` for status and scope; `.rvt`/Rivet is Phase B.)
+**goto-references** across a workspace. Both `.tcl` and `.rvt` (Rivet)
+files are supported.
 
 ## 1. Build the binary
 
@@ -49,6 +49,10 @@ Open `examples/main.tcl`, put the cursor on `::math::square` and goto-definition
 — it should jump to `examples/math.tcl`. Goto-references on `square` (in
 `math.tcl`) should list the call in `main.tcl`.
 
+For `.rvt` templates, open `examples/page.rvt`, put the cursor on `render_title`
+in the `<?= [render_title $title] ?>` line and goto-definition — it should jump to
+the `proc render_title` definition earlier in the same file.
+
 ## Verify the server itself
 
 ```sh
@@ -56,9 +60,9 @@ cd server
 go test ./...          # unit + end-to-end (the cmd/tcl-lsp smoke test builds and drives the binary)
 ```
 
-## Known limitations (Phase A)
+## Known limitations
 
 - Bare proc-local variables, `set x`/`incr x` bareword variable-name arguments,
   and `namespace path` command search are not yet resolved.
-- `.rvt` / Rivet templates are Phase B (needs the production Rivet version + a
-  representative template).
+- `source` include-following and `::rivet::` built-in command resolution are
+  deferred (see `docs/plans/2026-06-08-phase-b-rvt-design.md` §9).
