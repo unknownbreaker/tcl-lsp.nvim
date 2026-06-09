@@ -118,3 +118,53 @@ func TestExtractControlFlowSpansBlocks(t *testing.T) {
 		t.Fatalf("expected $items reference; refs:%#v", refs)
 	}
 }
+
+func TestExtractNoTags(t *testing.T) {
+	d := Extract("<html><body>no code here</body></html>")
+	if len(d.Mapping) != 0 {
+		t.Fatalf("expected no segments, got %#v", d.Mapping)
+	}
+	if defs := tcl.FileDefs(d.Script); len(defs) != 0 {
+		t.Fatalf("expected no defs from a tag-less file, got %#v", defs)
+	}
+}
+
+func TestExtractEmpty(t *testing.T) {
+	d := Extract("")
+	if len(d.Mapping) != 0 {
+		t.Fatalf("expected no segments")
+	}
+	if !strings.Contains(d.Script, "namespace eval ::request {") {
+		t.Fatalf("wrapper missing for empty input: %q", d.Script)
+	}
+}
+
+func TestExtractUnterminatedTag(t *testing.T) {
+	src := "<? set x 1\nset y 2" // no closing ?>
+	d := Extract(src)
+	var sawX bool
+	for _, dfn := range tcl.FileDefs(d.Script) {
+		if dfn.Name == "::request::x" {
+			sawX = true
+		}
+	}
+	if !sawX {
+		t.Fatalf("unterminated tag should emit code to EOF; defs=%#v", tcl.FileDefs(d.Script))
+	}
+}
+
+func TestExtractStrayCloseTag(t *testing.T) {
+	// A stray ?> in literal text (no preceding <?) is dropped as literal; the
+	// real code after it still parses.
+	src := "plain ?> text <? set a 1 ?>"
+	d := Extract(src)
+	var sawA bool
+	for _, dfn := range tcl.FileDefs(d.Script) {
+		if dfn.Name == "::request::a" {
+			sawA = true
+		}
+	}
+	if !sawA {
+		t.Fatalf("code after a stray ?> should still parse; defs=%#v", tcl.FileDefs(d.Script))
+	}
+}
