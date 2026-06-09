@@ -21,18 +21,18 @@ func New(ix *index.Index) *Resolver {
 }
 
 // Definition returns the definition site(s) for the symbol at byte offset in
-// src. file is the path of the calling document; it is currently unused but
-// reserved for frame-local resolution (a later phase). Returns nil if there is
-// no symbol at the offset or it resolves to nothing. Candidates are tried in
-// TCL precedence order (current namespace, then global); the first candidate
-// that resolves wins (a bare name is NOT unioned across namespaces).
+// src. file is the path of the calling document; page-local (::request::*)
+// symbols are scoped to file only. Returns nil if there is no symbol at the
+// offset or it resolves to nothing. Candidates are tried in TCL precedence
+// order (current namespace, then global); the first candidate that resolves
+// wins (a bare name is NOT unioned across namespaces).
 func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 	ref := refAt(file, src, offset)
 	if ref == nil {
 		return nil
 	}
 	for _, name := range r.candidates(ref) {
-		if locs := r.ix.Lookup(name); len(locs) > 0 {
+		if locs := r.lookupScoped(name, file); len(locs) > 0 {
 			return locs
 		}
 	}
@@ -159,9 +159,14 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	// use; it is the zero value (DefProc) when the target has no definition in
 	// the index (an undefined symbol). A reference site itself has no def-kind.
 	var targetKind tcl.DefKind
-	if defs := r.ix.Lookup(target); len(defs) > 0 {
+	if defs := r.lookupScoped(target, file); len(defs) > 0 {
 		targetKind = defs[0].Kind
 	}
+
+	// A page-local (::request) symbol has references only within its own page, so
+	// scanning other files would risk matching an identically-named page-local
+	// helper elsewhere (their primary candidate name collides).
+	pageLocal := strings.HasPrefix(target, "::request::")
 
 	var out []index.Location
 	scan := func(f string, refs []tcl.ContextRef) {
@@ -176,11 +181,13 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	}
 
 	scan(file, source.Refs(file, src)) // current file: parse the live source via the seam
-	for _, f := range r.ix.Files() {
-		if f == file {
-			continue
+	if !pageLocal {
+		for _, f := range r.ix.Files() {
+			if f == file {
+				continue
+			}
+			scan(f, r.ix.FileRefs(f))
 		}
-		scan(f, r.ix.FileRefs(f))
 	}
 	return out
 }
@@ -195,7 +202,7 @@ func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
 	if target == "" {
 		return nil
 	}
-	return r.ix.Lookup(target)
+	return r.lookupScoped(target, file)
 }
 
 func (r *Resolver) targetFQ(file, src string, offset int) string {
@@ -211,6 +218,24 @@ func (r *Resolver) targetFQ(file, src string, offset int) string {
 	return ""
 }
 
+// lookupScoped returns the definition sites of a fully-qualified name. A
+// page-local name (under ::request) resolves only to definitions in file, because
+// the per-request namespace is recreated per page and not shared across templates.
+// All other names resolve workspace-wide.
+func (r *Resolver) lookupScoped(name, file string) []index.Location {
+	locs := r.ix.Lookup(name)
+	if !strings.HasPrefix(name, "::request::") {
+		return locs
+	}
+	var kept []index.Location
+	for _, l := range locs {
+		if l.File == file {
+			kept = append(kept, l)
+		}
+	}
+	return kept
+}
+
 // refFQ resolves a reference to the fully-qualified name it binds to, using the
 // same first-match precedence as goto-definition. file is the document the ref
 // lives in (used for page-local scoping in lookups). If no candidate is defined,
@@ -218,7 +243,7 @@ func (r *Resolver) targetFQ(file, src string, offset int) string {
 func (r *Resolver) refFQ(ref *tcl.ContextRef, file string) string {
 	cands := r.candidates(ref)
 	for _, name := range cands {
-		if len(r.ix.Lookup(name)) > 0 {
+		if len(r.lookupScoped(name, file)) > 0 {
 			return name
 		}
 	}

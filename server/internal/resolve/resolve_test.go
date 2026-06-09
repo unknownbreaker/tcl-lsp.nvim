@@ -394,6 +394,43 @@ func TestReferencesViaNamespaceImport(t *testing.T) {
 	}
 }
 
+func TestRVTProcPageLocalDefinition(t *testing.T) {
+	ix := index.New()
+	src := "<? proc greet {} {} ?>\n<? greet ?>"
+	ix.IndexFile("page.rvt", src)
+	r := New(ix)
+
+	off := strings.LastIndex(src, "greet") // the call
+	locs := r.Definition("page.rvt", src, off)
+	if len(locs) != 1 || locs[0].Name != "::request::greet" || locs[0].File != "page.rvt" {
+		t.Fatalf("page-local goto-def = %#v", locs)
+	}
+}
+
+func TestRVTPageLocalNoCrossPageMatch(t *testing.T) {
+	ix := index.New()
+	a := "<? proc render {} {} ?>\n<? render ?>"
+	b := "<? proc render {} {} ?>\n<? render ?>"
+	ix.IndexFile("a.rvt", a)
+	ix.IndexFile("b.rvt", b)
+	r := New(ix)
+
+	// goto-def from a.rvt's call resolves only to a.rvt's definition.
+	off := strings.LastIndex(a, "render")
+	locs := r.Definition("a.rvt", a, off)
+	if len(locs) != 1 || locs[0].File != "a.rvt" {
+		t.Fatalf("expected only a.rvt def, got %#v", locs)
+	}
+
+	// find-references from a.rvt must not include b.rvt's identically-named helper.
+	refs := r.References("a.rvt", a, off)
+	for _, l := range refs {
+		if l.File == "b.rvt" {
+			t.Fatalf("page-local references leaked into b.rvt: %#v", refs)
+		}
+	}
+}
+
 func TestRVTToTCLCrossFile(t *testing.T) {
 	ix := index.New()
 	ix.IndexFile("lib.tcl", "namespace eval ::lib { proc helper {} {} }")
