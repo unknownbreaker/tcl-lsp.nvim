@@ -105,26 +105,17 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition
 }
 
 func recurseDefBodies(c Command, base int, ns string, frame FrameKind, out *[]Definition) {
-	// Mirrors recurseBodies in context.go so definitions and references agree on
-	// which braced words are script bodies: `namespace eval` and `proc` introduce
-	// a new scope, while control-flow and custom-command bodies run in the
-	// enclosing namespace and frame -- so a proc/variable defined inside an
-	// if/catch/foreach/... (e.g. conditional `proc` definition) is declared there.
+	// A proc's parameters are local definitions specific to the def walker; emit
+	// them before recursing the body. Body recursion uses the shared childBodies
+	// (bodies.go) so definitions and references descend the same bodies --
+	// including control-flow ones, so a proc defined inside an if/catch/foreach
+	// (e.g. conditional definition) is indexed.
 	w := c.Words
-	switch {
-	case isCmd(w, "namespace") && len(w) >= 4 && w[1].Text == "eval" && w[len(w)-1].Kind == WordBraced:
-		child := qualifyNamespace(w[2].Text, ns)
-		inner, innerBase := bracedInner(w[len(w)-1], base)
-		walkDefs(Parse(inner), innerBase, child, FrameNamespace, out)
-	case isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced:
+	if isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced {
 		emitProcParams(w[2], base, ns, out)
-		inner, innerBase := bracedInner(w[len(w)-1], base)
-		walkDefs(Parse(inner), innerBase, ns, FrameProc, out)
-	default:
-		for _, body := range scriptBodies(w) {
-			inner, innerBase := bracedInner(body, base)
-			walkDefs(Parse(inner), innerBase, ns, frame, out)
-		}
+	}
+	for _, b := range childBodies(c, base, ns, frame) {
+		walkDefs(Parse(b.Inner), b.Base, b.NS, b.Frame, out)
 	}
 }
 

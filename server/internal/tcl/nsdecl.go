@@ -23,15 +23,12 @@ func FileNamespaces(src string) map[string]*NamespaceInfo {
 func walkNS(cmds []Command, ns string, m map[string]*NamespaceInfo) {
 	for _, c := range cmds {
 		recordNSDecl(c, ns, m)
-		w := c.Words
-		if isCmd(w, "namespace") && len(w) >= 4 && w[1].Text == "eval" && w[len(w)-1].Kind == WordBraced {
-			child := qualifyNamespace(w[2].Text, ns)
-			inner, _ := bracedInner(w[len(w)-1], 0)
-			walkNS(Parse(inner), child, m)
-		}
-		if isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced {
-			inner, _ := bracedInner(w[len(w)-1], 0)
-			walkNS(Parse(inner), ns, m)
+		// Recurse the same bodies as the def/ref walkers (childBodies) so a
+		// conditional `namespace import`/`path`/`export` inside an if/catch/...
+		// is captured too. Offsets are irrelevant here (namespace decls carry
+		// names only), so base/frame are passthrough values.
+		for _, b := range childBodies(c, 0, ns, FrameNamespace) {
+			walkNS(Parse(b.Inner), b.NS, m)
 		}
 	}
 }

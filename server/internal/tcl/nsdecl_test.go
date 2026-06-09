@@ -125,3 +125,17 @@ func TestFileNamespacesCombinedNested(t *testing.T) {
 		t.Fatalf("::a::b imports = %#v", b.Imports)
 	}
 }
+
+// A namespace declaration inside a control-flow body must be captured, just like
+// the def and ref walkers descend such bodies (shared childBodies traversal).
+func TestFileNamespacesInControlFlowBody(t *testing.T) {
+	src := "namespace eval ::app {\n  if {1} { namespace import ::lib::* }\n}"
+	m := FileNamespaces(src)
+	info := m["::app"]
+	if info == nil {
+		t.Fatalf("no decls captured for ::app: %#v", m)
+	}
+	if !reflect.DeepEqual(info.Imports, []string{"::lib::*"}) {
+		t.Fatalf("conditional namespace import not captured: %#v", info.Imports)
+	}
+}
