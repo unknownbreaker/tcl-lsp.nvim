@@ -431,6 +431,20 @@ func TestRVTPageLocalNoCrossPageMatch(t *testing.T) {
 	}
 }
 
+func TestRVTPageLocalShadowsGlobal(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("lib.tcl", "proc greet {} {}") // ::greet
+	page := "<? proc greet {} {} ?>\n<? greet ?>"
+	ix.IndexFile("page.rvt", page)
+	r := New(ix)
+
+	off := strings.LastIndex(page, "greet") // the call
+	locs := r.Definition("page.rvt", page, off)
+	if len(locs) != 1 || locs[0].Name != "::request::greet" || locs[0].File != "page.rvt" {
+		t.Fatalf("page-local should shadow global: %#v", locs)
+	}
+}
+
 func TestRVTToTCLCrossFile(t *testing.T) {
 	ix := index.New()
 	ix.IndexFile("lib.tcl", "namespace eval ::lib { proc helper {} {} }")

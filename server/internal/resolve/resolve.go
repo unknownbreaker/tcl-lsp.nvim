@@ -166,7 +166,7 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	// A page-local (::request) symbol has references only within its own page, so
 	// scanning other files would risk matching an identically-named page-local
 	// helper elsewhere (their primary candidate name collides).
-	pageLocal := strings.HasPrefix(target, "::request::")
+	pageLocal := source.IsRVT(file) && strings.HasPrefix(target, "::request::")
 
 	var out []index.Location
 	scan := func(f string, refs []tcl.ContextRef) {
@@ -205,6 +205,10 @@ func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
 	return r.lookupScoped(target, file)
 }
 
+// targetFQ returns the fully-qualified name of the symbol at offset: a definition
+// name-range it falls within, else the reference there resolved to its FQ name.
+// file selects the document (so .rvt is extracted) and scopes page-local lookups.
+// Returns "" if there is no resolvable symbol.
 func (r *Resolver) targetFQ(file, src string, offset int) string {
 	for _, d := range source.Defs(file, src) {
 		if (d.Kind == tcl.DefProc || d.Kind == tcl.DefNamespaceVar) &&
@@ -224,7 +228,11 @@ func (r *Resolver) targetFQ(file, src string, offset int) string {
 // All other names resolve workspace-wide.
 func (r *Resolver) lookupScoped(name, file string) []index.Location {
 	locs := r.ix.Lookup(name)
-	if !strings.HasPrefix(name, "::request::") {
+	// Page-locality applies only when resolving from within a template: the
+	// ::request namespace is recreated per request and not shared across .rvt
+	// pages. A .tcl file that writes into ::request (unusual — outside the
+	// supported model, see research/05-rvt-scope.md V2) resolves workspace-wide.
+	if !source.IsRVT(file) || !strings.HasPrefix(name, "::request::") {
 		return locs
 	}
 	var kept []index.Location
