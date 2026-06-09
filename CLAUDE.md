@@ -9,8 +9,8 @@ with Neovim.
 
 **This is a deliberate restart (v2).** A previous implementation (313 commits) grew
 too broad — many features, accumulating performance regressions that became
-intractable. That work is preserved at the `archive-v1` tag and on the `main`
-branch; recover any piece with `git checkout archive-v1 -- <path>`.
+intractable. That work is preserved at the `archive-v1` tag (the `main` branch
+now holds v2); recover any piece with `git checkout archive-v1 -- <path>`.
 
 ## Current Phase: Phase A + Phase B shipped
 
@@ -33,5 +33,5 @@ LSP features (completion, hover, formatting, diagnostics, rename, etc.).
 ```bash
 git log archive-v1 --oneline      # browse the old history
 git checkout archive-v1 -- tcl/   # pull a specific path back as reference
-git checkout main                 # the full old tree still lives here
+git checkout archive-v1           # the full old tree lives at this tag
 ```
