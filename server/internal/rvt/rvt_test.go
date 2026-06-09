@@ -88,3 +88,33 @@ func TestExtractOutputShorthand(t *testing.T) {
 		t.Fatalf("expected $title variable ref from <?= ?>; refs=%#v", tcl.FileRefs(d.Script))
 	}
 }
+
+func TestExtractControlFlowSpansBlocks(t *testing.T) {
+	// foreach opens in one block, body is HTML + <?= ?>, closes in a later block.
+	src := "<? foreach it $items { ?>\n  <li><?= $it ?></li>\n<? } ?>\n"
+	d := Extract(src)
+
+	refs := tcl.FileRefs(d.Script)
+
+	// The loop variable used inside <?= ?> is seen — proof the braces stitched
+	// across blocks into one balanced foreach (an unbalanced stitch would not
+	// parse the body).
+	var sawIt, sawItems bool
+	for _, r := range refs {
+		if r.Ref.Kind == tcl.RefVariable && r.Ref.Name == "it" {
+			sawIt = true
+		}
+		if r.Ref.Kind == tcl.RefVariable && r.Ref.Name == "items" {
+			sawItems = true
+			if d.ToSource(r.Ref.Start) < 0 {
+				t.Fatalf("$items did not map back to source")
+			}
+		}
+	}
+	if !sawIt {
+		t.Fatalf("expected $it inside the stitched loop body; script:\n%s\nrefs:%#v", d.Script, refs)
+	}
+	if !sawItems {
+		t.Fatalf("expected $items reference; refs:%#v", refs)
+	}
+}
