@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -316,6 +317,12 @@ func TestServerRVTPageLocalDefinition(t *testing.T) {
 	_ = json.Unmarshal(resp.Result, &locs)
 	if len(locs) != 1 || locs[0].URI != "file:///page.rvt" {
 		t.Fatalf("page-local definition = %#v", locs)
+	}
+	wantCol := strings.Index("<? proc greet {} {} ?>", "greet")
+	if locs[0].Range.Start != (Position{Line: 0, Character: wantCol}) ||
+		locs[0].Range.End != (Position{Line: 0, Character: wantCol + len("greet")}) {
+		t.Fatalf("definition range = %#v, want greet name on line 0 cols %d..%d",
+			locs[0].Range, wantCol, wantCol+len("greet"))
 	}
 }
 

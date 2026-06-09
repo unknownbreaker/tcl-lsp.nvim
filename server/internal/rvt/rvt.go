@@ -94,6 +94,8 @@ func Extract(src string) Document {
 // ToVirtual maps a byte offset in the original .rvt to an offset in d.Script. ok
 // is false when srcOff falls in literal (non-TCL) text, which has no place in the
 // stitched script.
+// Not used by the request path (the resolver translates to source coordinates at
+// parse time via package source); provided to complete the bidirectional mapping.
 func (d Document) ToVirtual(srcOff int) (int, bool) {
 	segs := d.Mapping
 	i := sort.Search(len(segs), func(i int) bool { return segs[i].SrcOff+segs[i].Len > srcOff })

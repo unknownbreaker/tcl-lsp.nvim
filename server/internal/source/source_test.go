@@ -46,6 +46,9 @@ func TestRefsRVTTranslatesAndDropsWrapper(t *testing.T) {
 			if r.Ref.Start != want {
 				t.Fatalf("hello ref Start = %d, want %d (.rvt coord)", r.Ref.Start, want)
 			}
+			if r.Ref.End != want+len("hello") {
+				t.Fatalf("hello ref End = %d, want %d", r.Ref.End, want+len("hello"))
+			}
 		}
 		// The synthetic `namespace eval ::request {` wrapper must not leak through.
 		if r.Ref.Name == "namespace" || r.Ref.Name == "eval" {
