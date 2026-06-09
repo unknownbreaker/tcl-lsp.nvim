@@ -33,6 +33,29 @@ func TestDocumentToSourceToVirtual(t *testing.T) {
 	if _, ok := d.ToVirtual(0); ok { // literal region
 		t.Fatalf("ToVirtual(0) should be false")
 	}
+
+	// Boundary cases: exact start, last byte, one-past-end.
+	if got := d.ToSource(10); got != 2 { // exact start of segment 0
+		t.Fatalf("ToSource(10) = %d, want 2", got)
+	}
+	if got := d.ToSource(14); got != 6 { // last byte of segment 0
+		t.Fatalf("ToSource(14) = %d, want 6", got)
+	}
+	if got := d.ToSource(22); got != 32 { // last byte of segment 1
+		t.Fatalf("ToSource(22) = %d, want 32", got)
+	}
+	if got := d.ToSource(23); got != -1 { // one past end of segment 1
+		t.Fatalf("ToSource(23) = %d, want -1", got)
+	}
+	if v, ok := d.ToVirtual(2); !ok || v != 10 { // exact start (src)
+		t.Fatalf("ToVirtual(2) = %d,%v want 10,true", v, ok)
+	}
+	if v, ok := d.ToVirtual(6); !ok || v != 14 { // last byte of segment 0 (src)
+		t.Fatalf("ToVirtual(6) = %d,%v want 14,true", v, ok)
+	}
+	if _, ok := d.ToVirtual(7); ok { // one past segment 0 -> gap
+		t.Fatalf("ToVirtual(7) should be false (gap)")
+	}
 }
 
 func TestExtractSingleCodeBlock(t *testing.T) {
@@ -166,5 +189,18 @@ func TestExtractStrayCloseTag(t *testing.T) {
 	}
 	if !sawA {
 		t.Fatalf("code after a stray ?> should still parse; defs=%#v", tcl.FileDefs(d.Script))
+	}
+}
+
+func TestExtractEmptyTagBodyProducesNoSegment(t *testing.T) {
+	for _, src := range []string{"<??>", "<?=?>", "a<??>b"} {
+		d := Extract(src)
+		if len(d.Mapping) != 0 {
+			t.Fatalf("Extract(%q) produced segments %#v, want none", src, d.Mapping)
+		}
+	}
+	// A whitespace-only body is non-empty and still produces one segment.
+	if d := Extract("<? ?>"); len(d.Mapping) != 1 {
+		t.Fatalf(`Extract("<? ?>") segments = %#v, want 1`, d.Mapping)
 	}
 }

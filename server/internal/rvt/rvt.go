@@ -73,9 +73,13 @@ func Extract(src string) Document {
 		}
 
 		region := src[codeStart:codeEnd]
-		mapping = append(mapping, Segment{VirtOff: b.Len(), SrcOff: codeStart, Len: len(region)})
-		b.WriteString(region)
-		b.WriteByte('\n')
+		if len(region) > 0 {
+			// Skip empty regions (e.g. <??>): a zero-length segment can never match
+			// a translation lookup, so recording one is dead weight.
+			mapping = append(mapping, Segment{VirtOff: b.Len(), SrcOff: codeStart, Len: len(region)})
+			b.WriteString(region)
+			b.WriteByte('\n')
+		}
 
 		if rel < 0 {
 			break
