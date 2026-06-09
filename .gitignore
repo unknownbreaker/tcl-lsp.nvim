@@ -45,6 +45,9 @@ config.local.*
 .claude/settings.local.json
 .claude/plans/
 
+# AI learning journal / memory (local only, not shared)
+memory/
+
 # Temporary files
 tmp/
 temp/
