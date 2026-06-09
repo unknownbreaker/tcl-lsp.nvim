@@ -3,7 +3,7 @@ PKG := ./cmd/tcl-lsp
 DIST := dist
 BINDIR := $(HOME)/.local/bin
 
-.PHONY: build install dist test vet clean
+.PHONY: build install watch dist test vet clean
 
 build:
 	go build -o $(BINARY) $(PKG)
@@ -15,6 +15,21 @@ install: build
 	mkdir -p $(BINDIR)
 	cp $(BINARY) $(BINDIR)/$(BINARY)
 	@echo "installed $(BINARY) to $(BINDIR)/$(BINARY)"
+
+# Rebuild + reinstall on every change to a server .go file (run in a spare
+# terminal for live testing). Uses watchexec, else entr; needs one installed
+# (brew install watchexec).
+# NOTE: a rebuild does NOT update an already-running LSP -- restart it in the
+# editor afterwards (`:LspRestart` in Neovim) to load the new binary.
+watch:
+	@if command -v watchexec >/dev/null 2>&1; then \
+		watchexec -w . -e go -- $(MAKE) install; \
+	elif command -v entr >/dev/null 2>&1; then \
+		fd -e go . | entr -r $(MAKE) install; \
+	else \
+		echo "no file watcher found -- install one: brew install watchexec"; \
+		exit 1; \
+	fi
 
 test:
 	go test ./...
