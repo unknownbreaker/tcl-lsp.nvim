@@ -50,6 +50,16 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition
 			NameEnd:   base + w[1].End,
 		})
 	}
+	// A proc defined through a decorator macro (`CACHE_PROC proc name args body`).
+	if name, _, _, ok := decoratedProcDef(w); ok {
+		*out = append(*out, Definition{
+			Kind:      DefProc,
+			Name:      qualifyName(name.Text, ns),
+			Namespace: ns,
+			NameStart: base + name.Start,
+			NameEnd:   base + name.End,
+		})
+	}
 	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) {
 		*out = append(*out, Definition{
 			Kind:      DefNamespaceVar,
@@ -113,6 +123,8 @@ func recurseDefBodies(c Command, base int, ns string, frame FrameKind, out *[]De
 	w := c.Words
 	if isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced {
 		emitProcParams(w[2], base, ns, out)
+	} else if _, args, _, ok := decoratedProcDef(w); ok {
+		emitProcParams(args, base, ns, out)
 	}
 	for _, b := range childBodies(c, base, ns, frame) {
 		walkDefs(Parse(b.Inner), b.Base, b.NS, b.Frame, out)

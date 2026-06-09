@@ -156,6 +156,35 @@ func TestFileDefsInControlFlowBodies(t *testing.T) {
 	}
 }
 
+func TestFileDefsDecoratedProc(t *testing.T) {
+	// A proc-defining macro: `WRAPPER... proc NAME ARGS BODY`. The command head is
+	// the macro, not `proc`, so the proc must be recognized from the trailing
+	// `proc NAME ARGS BODY` form (one or more decorator words before `proc`).
+	defines := []struct{ src, name string }{
+		{"CACHE_PROC proc stuff {a b} { return 1 }", "::stuff"},
+		{"MEMOIZE 60 proc cached {x} {}", "::cached"},
+		{"LOG CACHE_PROC proc layered {} {}", "::layered"},
+		{"CACHE_PROC proc ::ns::qualified {} {}", "::ns::qualified"},
+		{"namespace eval ::app {\n  CACHE_PROC proc inside {} {}\n}", "::app::inside"},
+	}
+	for _, c := range defines {
+		if d := findDef(FileDefs(c.src), c.name); d == nil || d.Kind != DefProc {
+			t.Errorf("src %q: missing proc def %s; got %#v", c.src, c.name, FileDefs(c.src))
+		}
+	}
+	// A decorated proc's parameters are still locals.
+	if d := findDef(FileDefs("CACHE_PROC proc p {a b} {}"), "a"); d == nil || d.Kind != DefLocal {
+		t.Errorf("decorated proc params should be locals")
+	}
+	// List/data commands that merely contain the word `proc` must NOT be read as
+	// definitions.
+	for _, src := range []string{"lappend cmds proc foo {} {}", "set x proc foo {} {}", "list proc foo {} {}"} {
+		if d := findDef(FileDefs(src), "::foo"); d != nil {
+			t.Errorf("src %q: should not define ::foo; got %#v", src, FileDefs(src))
+		}
+	}
+}
+
 func TestFileDefsCombined(t *testing.T) {
 	src := "namespace eval ::math {\n  variable e 2.7\n  proc square {x} {\n    set r [expr {$x * $x}]\n  }\n}"
 	got := FileDefs(src)

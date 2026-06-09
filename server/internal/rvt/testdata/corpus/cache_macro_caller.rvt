@@ -1,0 +1,4 @@
+<? if {$id ne ""} {
+  lassign [compute_widget $id] name kind
+} ?>
+<p><?= $name ?></p>

@@ -36,6 +36,12 @@ func childBodies(c Command, base int, ns string, frame FrameKind) []bodyScope {
 		inner, innerBase := bracedInner(w[len(w)-1], base)
 		return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc}}
 	default:
+		// A decorated proc definition (`CACHE_PROC proc name args body`): its body
+		// is a proc scope, exactly like a plain proc.
+		if _, _, body, ok := decoratedProcDef(w); ok {
+			inner, innerBase := bracedInner(body, base)
+			return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc}}
+		}
 		// Control-flow (if/while/for/foreach/catch/try) and custom-command script
 		// bodies run in the enclosing namespace and frame -- no new scope.
 		var out []bodyScope
@@ -45,6 +51,37 @@ func childBodies(c Command, base int, ns string, frame FrameKind) []bodyScope {
 		}
 		return out
 	}
+}
+
+// decoratedProcDef recognizes a proc definition created through a proc-defining
+// macro: `WRAPPER... proc NAME ARGS BODY`, where the command head is the macro
+// (e.g. CACHE_PROC) rather than `proc`. It matches when `proc NAME ARGS BODY` is
+// the trailing four words, there is at least one decorator word before `proc`,
+// and the head is not a list/data builtin (so `lappend x proc foo {} {}` is not
+// misread). This covers single, argument-taking, and stacked decorators, and a
+// qualified NAME. A plain `proc` at the command head is handled directly by the
+// proc cases and is intentionally not matched here.
+func decoratedProcDef(w []Word) (name, args, body Word, ok bool) {
+	if len(w) < 5 || w[len(w)-1].Kind != WordBraced {
+		return // need at least DECORATOR proc NAME ARGS BODY, body braced
+	}
+	if w[0].Kind != WordBare || listOrDataHeads[w[0].Text] {
+		return
+	}
+	i := len(w) - 4 // index of `proc` if `proc NAME ARGS BODY` is the tail
+	if i >= 1 && w[i].Kind == WordBare && w[i].Text == "proc" && isPlainName(w[i+1]) {
+		return w[i+1], w[i+2], w[len(w)-1], true
+	}
+	return
+}
+
+// listOrDataHeads are builtins whose arguments may literally contain the word
+// `proc` as data (a list element or value), so a trailing `proc name args body`
+// in them is not a decorated proc definition.
+var listOrDataHeads = map[string]bool{
+	"set": true, "list": true, "lappend": true, "lassign": true, "lset": true,
+	"linsert": true, "lreplace": true, "concat": true, "dict": true,
+	"array": true, "append": true, "return": true, "expr": true,
 }
 
 // scriptBodies returns the braced script-argument words of a control-flow

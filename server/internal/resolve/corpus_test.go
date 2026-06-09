@@ -58,6 +58,25 @@ func TestCorpusCrossFileRvtToTcl(t *testing.T) {
 	}
 }
 
+// Decorator macro: a .rvt calls (via lassign [proc …] in an if-block) a proc
+// defined through a caching macro (CACHE_PROC proc …) in a .tcl file. Regression
+// test for decorator-wrapped proc definitions being invisible to goto-definition.
+func TestCorpusDecoratedProcResolves(t *testing.T) {
+	lib := corpusFile(t, "cache_macro_def.tcl")
+	page := corpusFile(t, "cache_macro_caller.rvt")
+
+	ix := index.New()
+	ix.IndexFile("cache_macro_def.tcl", lib)
+	ix.IndexFile("cache_macro_caller.rvt", page)
+	r := New(ix)
+
+	off := strings.Index(page, "compute_widget") // the call inside lassign [ ... ]
+	locs := r.Definition("cache_macro_caller.rvt", page, off)
+	if len(locs) != 1 || locs[0].File != "cache_macro_def.tcl" || locs[0].Name != "::compute_widget" {
+		t.Fatalf("decorated-proc goto-def = %#v", locs)
+	}
+}
+
 // Page-local: a bare helper defined at template top level resolves within its own
 // page, and an identically-sourced second page does not cross-match.
 func TestCorpusPageLocalIsolation(t *testing.T) {
