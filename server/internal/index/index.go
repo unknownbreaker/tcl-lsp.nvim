@@ -190,7 +190,7 @@ func (ix *Index) Namespace(ns string) (path []string, imports []string) {
 	return path, imports
 }
 
-// IndexDir walks root and indexes every *.tcl file found (recursively). A
+// IndexDir walks root and indexes every *.tcl and *.rvt file found (recursively). A
 // per-entry read error is recorded and the walk continues, so one unreadable
 // file or directory cannot truncate the whole workspace index. The `.git`
 // directory is skipped. The returned error aggregates any failures (nil if none).
@@ -208,7 +208,7 @@ func (ix *Index) IndexDir(root string) error {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(p, ".tcl") {
+		if !strings.HasSuffix(p, ".tcl") && !strings.HasSuffix(p, ".rvt") {
 			return nil
 		}
 		b, err := os.ReadFile(p)

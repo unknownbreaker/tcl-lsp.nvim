@@ -258,6 +258,27 @@ func TestIndexNamespaceClearedWithFile(t *testing.T) {
 	}
 }
 
+func TestIndexDirIncludesRVT(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "page.rvt"), []byte("<? proc onlyinrvt {} {} ?>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "lib.tcl"), []byte("namespace eval ::lib { proc helper {} {} }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ix := New()
+	if err := ix.IndexDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if len(ix.Lookup("::request::onlyinrvt")) != 1 {
+		t.Fatalf("IndexDir did not index the .rvt file")
+	}
+	if len(ix.Lookup("::lib::helper")) != 1 {
+		t.Fatalf("IndexDir regressed .tcl indexing")
+	}
+}
+
 func TestIndexFileRVTStoresRequestSymbol(t *testing.T) {
 	ix := New()
 	src := "<h1><? proc greet {} {} ?></h1>"
