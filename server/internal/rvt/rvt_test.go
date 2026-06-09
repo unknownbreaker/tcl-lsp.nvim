@@ -66,3 +66,25 @@ func TestExtractSingleCodeBlock(t *testing.T) {
 			def.NameStart, srcOff, src[max(srcOff, 0):end])
 	}
 }
+
+func TestExtractOutputShorthand(t *testing.T) {
+	src := `<h1><?= $title ?></h1>`
+	d := Extract(src)
+
+	var found bool
+	for _, r := range tcl.FileRefs(d.Script) {
+		if r.Ref.Kind == tcl.RefVariable && r.Ref.Name == "title" {
+			found = true
+			srcOff := d.ToSource(r.Ref.Start)
+			// Start may or may not include the leading '$'; accept either, but it
+			// must map back onto the title token in the source.
+			if srcOff < 0 || !(strings.HasPrefix(src[srcOff:], "title") || strings.HasPrefix(src[srcOff:], "$title")) {
+				end := min(srcOff+8, len(src))
+				t.Fatalf("ref mapped to src %d (%q), want 'title'/'$title'", srcOff, src[max(srcOff, 0):end])
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected $title variable ref from <?= ?>; refs=%#v", tcl.FileRefs(d.Script))
+	}
+}
