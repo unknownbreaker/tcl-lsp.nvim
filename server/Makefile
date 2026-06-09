@@ -1,11 +1,20 @@
 BINARY := tcl-lsp
 PKG := ./cmd/tcl-lsp
 DIST := dist
+BINDIR := $(HOME)/.local/bin
 
-.PHONY: build dist test vet clean
+.PHONY: build install dist test vet clean
 
 build:
 	go build -o $(BINARY) $(PKG)
+
+# Build, then copy the binary to BINDIR (default ~/.local/bin) -- where the
+# shipped editor configs (editors/nvim, editors/vim) expect to find it.
+# Override the destination with e.g. `make install BINDIR=/usr/local/bin`.
+install: build
+	mkdir -p $(BINDIR)
+	cp $(BINARY) $(BINDIR)/$(BINARY)
+	@echo "installed $(BINARY) to $(BINDIR)/$(BINARY)"
 
 test:
 	go test ./...
