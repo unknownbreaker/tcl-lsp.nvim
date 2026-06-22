@@ -137,6 +137,59 @@ func scriptBodies(w []Word) []Word {
 	return nil
 }
 
+// exprBodies returns the braced words a command evaluates as *expressions* (not
+// scripts): every braced argument of `expr`, the conditions of if/elseif, the
+// test of while, and the test clause of for. Tcl's expr engine evaluates
+// [command substitutions] inside these braces even though braces normally
+// suppress substitution, so the reference walker must scan them for embedded
+// calls -- a proc called only inside `if {[ready]} { ... }` is otherwise
+// invisible. This is the exact complement of scriptBodies/ifBodies for these
+// commands: a braced if-word is either a condition (here) or a body (there),
+// never both, so the two classifications cannot drift.
+func exprBodies(w []Word) []Word {
+	if len(w) == 0 || w[0].Kind != WordBare {
+		return nil
+	}
+	braced := func(i int) bool { return i >= 0 && i < len(w) && w[i].Kind == WordBraced }
+	switch w[0].Text {
+	case "expr":
+		var out []Word
+		for _, x := range w[1:] {
+			if x.Kind == WordBraced {
+				out = append(out, x)
+			}
+		}
+		return out
+	case "while":
+		if braced(1) { // while TEST body -- TEST is an expression.
+			return []Word{w[1]}
+		}
+	case "for":
+		if braced(2) { // for start TEST next body -- TEST is an expression.
+			return []Word{w[2]}
+		}
+	case "if":
+		return ifConditions(w)
+	}
+	return nil
+}
+
+// ifConditions returns the braced condition words of an if command: the words
+// immediately following `if` or `elseif`. It is the exact complement of ifBodies,
+// which returns every other braced word.
+func ifConditions(w []Word) []Word {
+	var conds []Word
+	for i := 1; i < len(w); i++ {
+		if w[i].Kind != WordBraced {
+			continue
+		}
+		if prev := w[i-1]; prev.Kind == WordBare && (prev.Text == "if" || prev.Text == "elseif") {
+			conds = append(conds, w[i])
+		}
+	}
+	return conds
+}
+
 // dataBraceCommands are builtins whose braced arguments hold data or an
 // expression -- never a script body -- so they are excluded from the
 // trailing-braced-argument script heuristic in scriptBodies.

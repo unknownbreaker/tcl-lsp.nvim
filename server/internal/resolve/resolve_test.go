@@ -261,6 +261,28 @@ func TestReferencesInsideCommandSubstitution(t *testing.T) {
 	}
 }
 
+func TestReferencesInsideConditionSubstitution(t *testing.T) {
+	ix := index.New()
+	// helper is called only inside an if-condition's [substitution] -- an expr
+	// position Tcl evaluates, so the call is a real reference.
+	src := "proc helper {} {}\nif {[helper]} { puts hi }"
+	ix.IndexFile("lib.tcl", src)
+	r := New(ix)
+
+	// find-references from the definition includes the in-condition call site.
+	locs := r.References("lib.tcl", src, 5)
+	if len(locs) != 1 {
+		t.Fatalf("expected 1 ref (the [helper] call in the if-condition), got %#v", locs)
+	}
+
+	// goto-definition from the in-condition call site resolves back to the proc.
+	callOff := strings.Index(src, "[helper]") + 1
+	defs := r.Definition("lib.tcl", src, callOff)
+	if len(defs) != 1 || defs[0].Name != "::helper" {
+		t.Fatalf("goto-def from in-condition call = %#v", defs)
+	}
+}
+
 func TestReferencesUsesLiveSourceForCurrentFile(t *testing.T) {
 	ix := index.New()
 	ix.IndexFile("lib.tcl", "proc greet {} {}")

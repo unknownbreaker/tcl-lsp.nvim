@@ -106,6 +106,35 @@ func TestCommandRefsBracketEmpty(t *testing.T) {
 	}
 }
 
+func TestCommandRefsConditionSubst(t *testing.T) {
+	// A command called inside a control-flow CONDITION's [substitution] is a real
+	// reference: Tcl's expr engine evaluates [..] inside if/elseif/while/for tests
+	// even though braces otherwise suppress substitution.
+	cases := []struct {
+		src, call string
+	}{
+		{"if {[invokedThing x]} { puts hi }", "invokedThing"},
+		{"if {$a} { puts a } elseif {[checkThing]} { puts b }", "checkThing"},
+		{"while {[moreRows $cursor]} { step }", "moreRows"},
+		{"for {set i 0} {[underLimit $i]} {incr i} { work }", "underLimit"},
+	}
+	for _, c := range cases {
+		cmds := Parse(c.src)
+		var found bool
+		for _, r := range CommandRefs(cmds[0]) {
+			if r.Kind == RefCommand && r.Name == c.call {
+				found = true
+				if c.src[r.Start:r.End] != c.call {
+					t.Errorf("src %q: ref offsets slice %q, want %q", c.src, c.src[r.Start:r.End], c.call)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("src %q: expected command ref %q from condition substitution; got %#v", c.src, c.call, CommandRefs(cmds[0]))
+		}
+	}
+}
+
 func TestCommandRefsExprBracedLimitation(t *testing.T) {
 	// KNOWN LIMITATION: a variable inside a braced expr argument is not found
 	// (braces suppress substitution structurally; we do not model expr's

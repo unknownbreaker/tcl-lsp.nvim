@@ -23,16 +23,21 @@ type Reference struct {
 // [command substitution] spans are included via substRefs.
 func CommandRefs(c Command) []Reference {
 	var refs []Reference
-	isExpr := len(c.Words) > 0 && isLiteralName(c.Words[0]) && c.Words[0].Text == "expr"
+	// Braced words this command evaluates as expressions (expr args, if/while/for
+	// conditions). Tcl evaluates [command substitutions] inside them, so they are
+	// scanned for embedded calls -- keyed by start offset, which is unique per word.
+	exprWord := map[int]bool{}
+	for _, e := range exprBodies(c.Words) {
+		exprWord[e.Start] = true
+	}
 	for idx, w := range c.Words {
 		if idx == 0 && isLiteralName(w) {
 			refs = append(refs, Reference{Kind: RefCommand, Name: w.Text, Start: w.Start, End: w.End})
 			continue
 		}
-		if isExpr && w.Kind == WordBraced {
-			// expr evaluates [command substitutions] inside its braces even though
-			// braces otherwise suppress substitution. Scan only the bracket spans so
-			// embedded calls are found while bare operands stay non-references.
+		if w.Kind == WordBraced && exprWord[w.Start] {
+			// Scan only the bracket spans so embedded calls are found while bare
+			// operands and $vars stay non-references (braces suppress those).
 			inner, innerBase := bracedInner(w, 0)
 			refs = append(refs, exprBracketRefs(inner, innerBase)...)
 			continue
