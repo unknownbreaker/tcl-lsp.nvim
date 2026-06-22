@@ -21,24 +21,25 @@ type Definition struct {
 	Namespace string // the namespace the definition lives in ("::" for locals' enclosing)
 	NameStart int
 	NameEnd   int
+	Scope     int
 }
 
 // FileDefs parses src and returns the definitions it declares, recursing into
 // namespace eval and proc bodies.
 func FileDefs(src string) []Definition {
 	var out []Definition
-	walkDefs(Parse(src), 0, "::", FrameNamespace, &out)
+	walkDefs(Parse(src), 0, "::", FrameNamespace, 0, &out)
 	return out
 }
 
-func walkDefs(cmds []Command, base int, ns string, frame FrameKind, out *[]Definition) {
+func walkDefs(cmds []Command, base int, ns string, frame FrameKind, scope int, out *[]Definition) {
 	for _, c := range cmds {
-		emitDefs(c, base, ns, frame, out)
-		recurseDefBodies(c, base, ns, frame, out)
+		emitDefs(c, base, ns, frame, scope, out)
+		recurseDefBodies(c, base, ns, frame, scope, out)
 	}
 }
 
-func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition) {
+func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[]Definition) {
 	w := c.Words
 	if isCmd(w, "proc") && len(w) >= 2 && isPlainName(w[1]) {
 		name := qualifyName(w[1].Text, ns)
@@ -48,6 +49,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition
 			Namespace: ns,
 			NameStart: base + w[1].Start,
 			NameEnd:   base + w[1].End,
+			Scope:     scope,
 		})
 	}
 	// A proc defined through a decorator macro (`CACHE_PROC proc name args body`).
@@ -58,6 +60,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition
 			Namespace: ns,
 			NameStart: base + name.Start,
 			NameEnd:   base + name.End,
+			Scope:     scope,
 		})
 	}
 	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) {
@@ -67,6 +70,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition
 			Namespace: ns,
 			NameStart: base + w[1].Start,
 			NameEnd:   base + w[1].End,
+			Scope:     scope,
 		})
 	}
 	if isCmd(w, "set") && frame == FrameNamespace && len(w) >= 2 && isPlainName(w[1]) {
@@ -76,12 +80,13 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition
 			Namespace: ns,
 			NameStart: base + w[1].Start,
 			NameEnd:   base + w[1].End,
+			Scope:     scope,
 		})
 	}
 	if isCmd(w, "set") && frame == FrameProc && len(w) >= 2 && isPlainName(w[1]) {
 		*out = append(*out, Definition{
 			Kind: DefLocal, Name: w[1].Text, Namespace: ns,
-			NameStart: base + w[1].Start, NameEnd: base + w[1].End,
+			NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
 		})
 	}
 	if isCmd(w, "global") && frame == FrameProc {
@@ -89,7 +94,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition
 			if isPlainName(gw) {
 				*out = append(*out, Definition{
 					Kind: DefGlobalLink, Name: gw.Text, Namespace: ns,
-					NameStart: base + gw.Start, NameEnd: base + gw.End,
+					NameStart: base + gw.Start, NameEnd: base + gw.End, Scope: scope,
 				})
 			}
 		}
@@ -107,14 +112,14 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, out *[]Definition
 			if isPlainName(alias) {
 				*out = append(*out, Definition{
 					Kind: DefLocal, Name: alias.Text, Namespace: ns,
-					NameStart: base + alias.Start, NameEnd: base + alias.End,
+					NameStart: base + alias.Start, NameEnd: base + alias.End, Scope: scope,
 				})
 			}
 		}
 	}
 }
 
-func recurseDefBodies(c Command, base int, ns string, frame FrameKind, out *[]Definition) {
+func recurseDefBodies(c Command, base int, ns string, frame FrameKind, scope int, out *[]Definition) {
 	// A proc's parameters are local definitions specific to the def walker; emit
 	// them before recursing the body. Body recursion uses the shared childBodies
 	// (bodies.go) so definitions and references descend the same bodies --
@@ -122,12 +127,14 @@ func recurseDefBodies(c Command, base int, ns string, frame FrameKind, out *[]De
 	// (e.g. conditional definition) is indexed.
 	w := c.Words
 	if isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced {
-		emitProcParams(w[2], base, ns, out)
-	} else if _, args, _, ok := decoratedProcDef(w); ok {
-		emitProcParams(args, base, ns, out)
+		_, bodyBase := bracedInner(w[len(w)-1], base)
+		emitProcParams(w[2], base, ns, bodyBase, out)
+	} else if _, args, body, ok := decoratedProcDef(w); ok {
+		_, bodyBase := bracedInner(body, base)
+		emitProcParams(args, base, ns, bodyBase, out)
 	}
-	for _, b := range childBodies(c, base, ns, frame) {
-		walkDefs(Parse(b.Inner), b.Base, b.NS, b.Frame, out)
+	for _, b := range childBodies(c, base, ns, frame, scope) {
+		walkDefs(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, out)
 	}
 }
 
@@ -158,7 +165,7 @@ func isUpvarLevel(w Word) bool {
 }
 
 // emitProcParams emits a DefLocal for each parameter name in a proc args word.
-func emitProcParams(argsWord Word, base int, ns string, out *[]Definition) {
+func emitProcParams(argsWord Word, base int, ns string, scope int, out *[]Definition) {
 	inner, innerBase := argsWord, base
 	text := inner.Text
 	start := innerBase + inner.Start
@@ -169,7 +176,7 @@ func emitProcParams(argsWord Word, base int, ns string, out *[]Definition) {
 	for _, p := range scanParams(text, start) {
 		*out = append(*out, Definition{
 			Kind: DefLocal, Name: p.Name, Namespace: ns,
-			NameStart: p.Start, NameEnd: p.End,
+			NameStart: p.Start, NameEnd: p.End, Scope: scope,
 		})
 	}
 }

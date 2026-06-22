@@ -193,6 +193,38 @@ func TestFileDefsDecoratedProc(t *testing.T) {
 	}
 }
 
+func defsNamed(defs []Definition, name string) []Definition {
+	var out []Definition
+	for _, d := range defs {
+		if d.Name == name {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func TestFileDefsLocalScopeThreading(t *testing.T) {
+	// Two procs each declare local `x`; their scopes differ. A `set` inside an
+	// if-body shares the enclosing proc's scope (no block scope in Tcl).
+	src := "proc f {x} {\n  set y 1\n  if {1} { set z 2 }\n}\nproc g {x} {}"
+	defs := FileDefs(src)
+
+	xs := defsNamed(defs, "x")
+	if len(xs) != 2 {
+		t.Fatalf("want 2 defs named x, got %d: %#v", len(xs), defs)
+	}
+	if xs[0].Scope == 0 || xs[0].Scope == xs[1].Scope {
+		t.Fatalf("param x scopes wrong (want distinct nonzero): %#v", xs)
+	}
+	fScope := xs[0].Scope
+	for _, n := range []string{"y", "z"} {
+		ds := defsNamed(defs, n)
+		if len(ds) != 1 || ds[0].Scope != fScope {
+			t.Fatalf("local %q = %#v, want scope %d", n, ds, fScope)
+		}
+	}
+}
+
 func TestFileDefsCombined(t *testing.T) {
 	src := "namespace eval ::math {\n  variable e 2.7\n  proc square {x} {\n    set r [expr {$x * $x}]\n  }\n}"
 	got := FileDefs(src)

@@ -17,35 +17,36 @@ type ContextRef struct {
 	Ref       Reference
 	Namespace string // e.g. "::" or "::app"
 	Frame     FrameKind
+	Scope     int
 }
 
 // FileRefs parses src and returns every reference with its namespace and frame
 // context, recursing into namespace eval and proc bodies.
 func FileRefs(src string) []ContextRef {
 	var out []ContextRef
-	walkScript(Parse(src), 0, "::", FrameNamespace, &out)
+	walkScript(Parse(src), 0, "::", FrameNamespace, 0, &out)
 	return out
 }
 
 // walkScript appends contextual refs for each command. base is added to ref
 // offsets so refs from a re-parsed (braced) body map back to absolute source.
-func walkScript(cmds []Command, base int, ns string, frame FrameKind, out *[]ContextRef) {
+func walkScript(cmds []Command, base int, ns string, frame FrameKind, scope int, out *[]ContextRef) {
 	for _, c := range cmds {
 		for _, r := range CommandRefs(c) {
 			r.Start += base
 			r.End += base
-			*out = append(*out, ContextRef{Ref: r, Namespace: ns, Frame: frame})
+			*out = append(*out, ContextRef{Ref: r, Namespace: ns, Frame: frame, Scope: scope})
 		}
-		recurseBodies(c, base, ns, frame, out)
+		recurseBodies(c, base, ns, frame, scope, out)
 	}
 }
 
 // recurseBodies walks each of a command's script bodies (as classified by the
 // shared childBodies) into the scope it runs in, collecting references. See
 // bodies.go for the body-vs-data/expression rules.
-func recurseBodies(c Command, base int, ns string, frame FrameKind, out *[]ContextRef) {
-	for _, b := range childBodies(c, base, ns, frame) {
-		walkScript(Parse(b.Inner), b.Base, b.NS, b.Frame, out)
+func recurseBodies(c Command, base int, ns string, frame FrameKind, scope int, out *[]ContextRef) {
+	for _, b := range childBodies(c, base, ns, frame, scope) {
+		walkScript(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, out)
 	}
 }
 

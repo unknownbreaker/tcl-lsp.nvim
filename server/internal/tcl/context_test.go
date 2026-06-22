@@ -210,6 +210,19 @@ func TestFileRefsCallInsideExprBraces(t *testing.T) {
 	}
 }
 
+func TestFileRefsLocalScopeMatchesDef(t *testing.T) {
+	src := "proc f {} {\n  set y 1\n  puts $y\n}"
+	defs := FileDefs(src)
+	ys := defsNamed(defs, "y")
+	if len(ys) != 1 {
+		t.Fatalf("want 1 def y, got %#v", defs)
+	}
+	vy := findVar(FileRefs(src), "y")
+	if vy == nil || vy.Scope == 0 || vy.Scope != ys[0].Scope {
+		t.Fatalf("$y ref scope %#v vs def scope %d", vy, ys[0].Scope)
+	}
+}
+
 func TestFileRefsNamespaceInsideProc(t *testing.T) {
 	// Inverse nesting: namespace eval inside a proc body must RESET to
 	// FrameNamespace (not inherit FrameProc) and use the inner namespace.
