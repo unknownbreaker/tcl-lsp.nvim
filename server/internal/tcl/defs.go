@@ -72,6 +72,12 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 			NameEnd:   base + w[1].End,
 			Scope:     scope,
 		})
+		if frame == FrameProc {
+			*out = append(*out, Definition{
+				Kind: DefLocal, Name: w[1].Text, Namespace: ns,
+				NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
+			})
+		}
 	}
 	if isCmd(w, "set") && frame == FrameNamespace && len(w) >= 2 && isPlainName(w[1]) {
 		*out = append(*out, Definition{
@@ -116,6 +122,9 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 				})
 			}
 		}
+	}
+	if frame == FrameProc {
+		emitLoopVarDefs(w, base, ns, scope, out)
 	}
 }
 
@@ -219,6 +228,52 @@ func paramFromWord(w Word, base int) (string, int, int) {
 		return w.Text, base + w.Start, base + w.End
 	}
 	return "", 0, 0
+}
+
+// emitLoopVarDefs emits DefLocal bindings for loop/destructuring target variables
+// that introduce proc-locals: foreach/lmap var lists, lassign targets, and
+// dict for/map key lists. Called only in FrameProc.
+func emitLoopVarDefs(w []Word, base int, ns string, scope int, out *[]Definition) {
+	if len(w) == 0 || w[0].Kind != WordBare {
+		return
+	}
+	switch w[0].Text {
+	case "foreach", "lmap":
+		// (varlist list)+ body -- varlists sit at odd indices before the body.
+		for i := 1; i+1 < len(w); i += 2 {
+			emitVarListNames(w[i], base, ns, scope, out)
+		}
+	case "lassign":
+		// lassign list var ?var ...? -- targets are w[2:].
+		for _, vw := range w[2:] {
+			emitVarListNames(vw, base, ns, scope, out)
+		}
+	case "dict":
+		// dict for {k v} dict body ; dict map {k v} dict body.
+		if len(w) >= 5 && w[1].Kind == WordBare && (w[1].Text == "for" || w[1].Text == "map") {
+			emitVarListNames(w[2], base, ns, scope, out)
+		}
+	}
+}
+
+// emitVarListNames emits a DefLocal for each plain name in a variable-list word: a
+// brace list {a b} yields a and b; a bare word yields itself. Substituted/quoted
+// specs are skipped.
+func emitVarListNames(vw Word, base int, ns string, scope int, out *[]Definition) {
+	text := vw.Text
+	start := base + vw.Start
+	if vw.Kind == WordBraced && len(text) >= 2 {
+		text = text[1 : len(text)-1]
+		start = base + vw.Start + 1
+	} else if vw.Kind != WordBare {
+		return
+	}
+	for _, p := range scanParams(text, start) {
+		*out = append(*out, Definition{
+			Kind: DefLocal, Name: p.Name, Namespace: ns,
+			NameStart: p.Start, NameEnd: p.End, Scope: scope,
+		})
+	}
 }
 
 // qualifyName resolves a command/variable name against the current namespace:

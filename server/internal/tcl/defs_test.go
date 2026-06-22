@@ -225,6 +225,42 @@ func TestFileDefsLocalScopeThreading(t *testing.T) {
 	}
 }
 
+func TestFileDefsLoopAndDestructuringLocals(t *testing.T) {
+	src := "proc f {} {\n" +
+		"  foreach it $items { puts $it }\n" +
+		"  foreach {a b} $pairs {}\n" +
+		"  lassign $row x y\n" +
+		"  dict for {k v} $d {}\n" +
+		"  variable count\n" +
+		"}"
+	defs := FileDefs(src)
+	procScope := defsNamed(defs, "it")[0].Scope
+	if procScope == 0 {
+		t.Fatalf("expected nonzero proc scope")
+	}
+	for _, n := range []string{"it", "a", "b", "x", "y", "k", "v"} {
+		ds := defsNamed(defs, n)
+		if len(ds) != 1 || ds[0].Kind != DefLocal || ds[0].Scope != procScope {
+			t.Fatalf("local %q = %#v, want one DefLocal in scope %d", n, ds, procScope)
+		}
+		if src[ds[0].NameStart:ds[0].NameEnd] != n {
+			t.Fatalf("local %q offsets slice %q", n, src[ds[0].NameStart:ds[0].NameEnd])
+		}
+	}
+	// `variable count` inside a proc yields a DefLocal alias in addition to the
+	// existing DefNamespaceVar.
+	cnt := defsNamed(defs, "count")
+	hasLocal := false
+	for _, d := range cnt {
+		if d.Kind == DefLocal && d.Scope == procScope {
+			hasLocal = true
+		}
+	}
+	if !hasLocal {
+		t.Fatalf("variable-in-proc should add a DefLocal: %#v", cnt)
+	}
+}
+
 func TestFileDefsCombined(t *testing.T) {
 	src := "namespace eval ::math {\n  variable e 2.7\n  proc square {x} {\n    set r [expr {$x * $x}]\n  }\n}"
 	got := FileDefs(src)
