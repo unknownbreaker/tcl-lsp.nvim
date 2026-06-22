@@ -77,6 +77,26 @@ func TestCorpusDecoratedProcResolves(t *testing.T) {
 	}
 }
 
+// Decorator macro with a trailing flag: a .rvt call resolves into a proc defined
+// through `MEMOIZE proc … -ttl 60`, where flags follow the body so it is not the
+// command's last word. Regression test for decorated-proc detection that assumed
+// the body was the trailing word.
+func TestCorpusDecoratedProcTrailingFlagResolves(t *testing.T) {
+	lib := corpusFile(t, "memoize_macro_def.tcl")
+	page := corpusFile(t, "memoize_macro_caller.rvt")
+
+	ix := index.New()
+	ix.IndexFile("memoize_macro_def.tcl", lib)
+	ix.IndexFile("memoize_macro_caller.rvt", page)
+	r := New(ix)
+
+	off := strings.Index(page, "compute_price") // the call inside lassign [ ... ]
+	locs := r.Definition("memoize_macro_caller.rvt", page, off)
+	if len(locs) != 1 || locs[0].File != "memoize_macro_def.tcl" || locs[0].Name != "::compute_price" {
+		t.Fatalf("trailing-flag decorated-proc goto-def = %#v", locs)
+	}
+}
+
 // Page-local: a bare helper defined at template top level resolves within its own
 // page, and an identically-sourced second page does not cross-match.
 func TestCorpusPageLocalIsolation(t *testing.T) {

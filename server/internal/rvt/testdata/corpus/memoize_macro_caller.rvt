@@ -1,0 +1,4 @@
+<? if {$sku ne ""} {
+  lassign [compute_price $sku] label
+} ?>
+<p><?= $label ?></p>

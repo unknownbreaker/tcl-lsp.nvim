@@ -166,15 +166,23 @@ func TestFileDefsDecoratedProc(t *testing.T) {
 		{"LOG CACHE_PROC proc layered {} {}", "::layered"},
 		{"CACHE_PROC proc ::ns::qualified {} {}", "::ns::qualified"},
 		{"namespace eval ::app {\n  CACHE_PROC proc inside {} {}\n}", "::app::inside"},
+		// Body need not be the last word: a macro may take trailing flags/values
+		// after `proc NAME ARGS BODY`.
+		{"TRACE_PROC proc traced {x} { return $x } -log debug", "::traced"},
+		{"MEMOIZE proc cached {} {} -ttl 60", "::cached"},
+		{"DECORATE proc inside_block {} {} -flag", "::inside_block"},
 	}
 	for _, c := range defines {
 		if d := findDef(FileDefs(c.src), c.name); d == nil || d.Kind != DefProc {
 			t.Errorf("src %q: missing proc def %s; got %#v", c.src, c.name, FileDefs(c.src))
 		}
 	}
-	// A decorated proc's parameters are still locals.
-	if d := findDef(FileDefs("CACHE_PROC proc p {a b} {}"), "a"); d == nil || d.Kind != DefLocal {
-		t.Errorf("decorated proc params should be locals")
+	// A decorated proc's parameters are still locals -- including when the macro
+	// takes trailing flags after the body (the body is no longer the last word).
+	for _, src := range []string{"CACHE_PROC proc p {a b} {}", "MEMOIZE proc p {a b} {} -ttl 60"} {
+		if d := findDef(FileDefs(src), "a"); d == nil || d.Kind != DefLocal {
+			t.Errorf("src %q: decorated proc params should be locals; got %#v", src, FileDefs(src))
+		}
 	}
 	// List/data commands that merely contain the word `proc` must NOT be read as
 	// definitions.
