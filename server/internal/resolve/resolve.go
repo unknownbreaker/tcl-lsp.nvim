@@ -20,6 +20,55 @@ func New(ix *index.Index) *Resolver {
 	return &Resolver{ix: ix}
 }
 
+// isLocalBinding reports whether a definition kind binds a proc-local name.
+func isLocalBinding(k tcl.DefKind) bool {
+	return k == tcl.DefLocal || k == tcl.DefGlobalLink
+}
+
+// localAt reports whether offset sits on a proc-local symbol, returning its
+// bare name and scope. Definition name-ranges (local bindings) are checked
+// first, then FrameProc variable references ($x uses).
+func (r *Resolver) localAt(file, src string, offset int) (name string, scope int, ok bool) {
+	for _, d := range source.Defs(file, src) {
+		if isLocalBinding(d.Kind) && offset >= d.NameStart && offset < d.NameEnd {
+			return d.Name, d.Scope, true
+		}
+	}
+	for _, ref := range source.Refs(file, src) {
+		if ref.Ref.Kind == tcl.RefVariable && ref.Frame == tcl.FrameProc &&
+			offset >= ref.Ref.Start && offset < ref.Ref.End {
+			return ref.Ref.Name, ref.Scope, true
+		}
+	}
+	return "", 0, false
+}
+
+// localDefinition returns the nearest preceding binding of (name, scope) at or
+// before offset, falling back to the first binding when none precedes.
+func (r *Resolver) localDefinition(file, src string, offset int, name string, scope int) []index.Location {
+	bestStart, bestEnd, haveBest := 0, 0, false
+	firstStart, firstEnd, haveFirst := 0, 0, false
+	for _, d := range source.Defs(file, src) {
+		if !isLocalBinding(d.Kind) || d.Name != name || d.Scope != scope {
+			continue
+		}
+		if !haveFirst || d.NameStart < firstStart {
+			firstStart, firstEnd, haveFirst = d.NameStart, d.NameEnd, true
+		}
+		if d.NameStart <= offset && (!haveBest || d.NameStart > bestStart) {
+			bestStart, bestEnd, haveBest = d.NameStart, d.NameEnd, true
+		}
+	}
+	s, e := bestStart, bestEnd
+	if !haveBest {
+		if !haveFirst {
+			return nil
+		}
+		s, e = firstStart, firstEnd
+	}
+	return []index.Location{{File: file, Name: name, Kind: tcl.DefLocal, NameStart: s, NameEnd: e}}
+}
+
 // Definition returns the definition site(s) for the symbol at byte offset in
 // src. file is the path of the calling document; page-local (::request::*)
 // symbols are scoped to file only. Returns nil if there is no symbol at the
@@ -27,6 +76,9 @@ func New(ix *index.Index) *Resolver {
 // order (current namespace, then global); the first candidate that resolves
 // wins (a bare name is NOT unioned across namespaces).
 func (r *Resolver) Definition(file, src string, offset int) []index.Location {
+	if name, scope, ok := r.localAt(file, src, offset); ok {
+		return r.localDefinition(file, src, offset, name, scope)
+	}
 	ref := refAt(file, src, offset)
 	if ref == nil {
 		return nil

@@ -85,14 +85,59 @@ func TestDefinitionQualifiedVariable(t *testing.T) {
 	}
 }
 
-func TestDefinitionProcLocalDeferred(t *testing.T) {
-	// A bare variable inside a proc body is local-only; resolving it is deferred
-	// to the frame-local resolution plan. For now it returns nothing.
+func TestDefinitionProcLocalNearestPreceding(t *testing.T) {
 	r := New(index.New())
-	src := "proc f {x} { puts $x }"
+	// Two `set total` bindings: the second one is nearest-preceding to `return $total`.
+	src := "proc f {x} {\n  set total 0\n  set total 1\n  return $total\n}"
+	off := strings.Index(src, "return $total") + len("return $")
+	locs := r.Definition("a.tcl", src, off)
+	if len(locs) != 1 {
+		t.Fatalf("want 1 def, got %#v", locs)
+	}
+	// nearest preceding binding is the second `set total 1`, not the first.
+	if got := src[locs[0].NameStart:locs[0].NameEnd]; got != "total" {
+		t.Fatalf("slice %q", got)
+	}
+	// second `set total` appears after the first; its `total` token should be returned.
+	secondSetTotal := strings.LastIndex(src, "set total") + len("set ")
+	if locs[0].NameStart != secondSetTotal {
+		t.Fatalf("expected nearest-preceding (second set total), got offset %d", locs[0].NameStart)
+	}
+}
+
+func TestDefinitionProcLocalParamFallback(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {x} {\n  return $x\n}"
 	off := strings.Index(src, "$x") + 1
+	locs := r.Definition("a.tcl", src, off)
+	if len(locs) != 1 || src[locs[0].NameStart:locs[0].NameEnd] != "x" {
+		t.Fatalf("param fallback failed: %#v", locs)
+	}
+	if locs[0].NameStart != strings.Index(src, "{x}")+1 {
+		t.Fatalf("expected the param x, got %d", locs[0].NameStart)
+	}
+}
+
+func TestDefinitionProcLocalScopeIsolation(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {} {\n  set v 1\n  puts $v\n}\nproc g {} {\n  set v 2\n}"
+	off := strings.Index(src, "puts $v") + len("puts $")
+	locs := r.Definition("a.tcl", src, off)
+	if len(locs) != 1 {
+		t.Fatalf("want 1, got %#v", locs)
+	}
+	// must resolve to f's `set v`, not g's.
+	if locs[0].NameStart != strings.Index(src, "set v 1")+len("set ") {
+		t.Fatalf("crossed proc scope: %#v", locs)
+	}
+}
+
+func TestDefinitionProcLocalUndefinedIsNil(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {} {\n  puts $missing\n}"
+	off := strings.Index(src, "$missing") + 1
 	if locs := r.Definition("a.tcl", src, off); locs != nil {
-		t.Fatalf("bare proc-local should be unresolved (deferred), got %#v", locs)
+		t.Fatalf("undefined local should be nil, got %#v", locs)
 	}
 }
 
