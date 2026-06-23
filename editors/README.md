@@ -52,10 +52,6 @@ Open a `.tcl` file and use `gd` (goto-definition) and your references keymap
 After pulling new server code, run `:TclLspRebuild` then `:LspRestart` (or
 `:Lazy update` / `:Lazy build tcl-lsp.nvim`).
 
-> **Branch pin:** the spec sets `branch = "rebuild"` because the v2 Go server
-> lives on `rebuild`; GitHub's default branch is still the old v1 tree. Remove
-> that line once `rebuild` becomes the default branch.
->
 > **Developing the LSP itself?** The file ships a commented **Mode B** spec that
 > points at your local working clone (`dir = …`) instead of a lazy-managed one —
 > swap to it so your edits + `make watch` / `:TclLspRebuild` drive the server.

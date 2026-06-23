@@ -79,8 +79,6 @@ return {
     -- MODE A (default): let lazy.nvim manage the clone + build. Drop this file
     -- in and it just works on any machine with go + make.
     "unknownbreaker/tcl-lsp.nvim",
-    branch = "rebuild", -- the v2 Go server lives on `rebuild`; GitHub's default
-    -- branch is still the old v1 tree. Drop this once `rebuild` becomes default.
     build = "make -C server build", -- runs on install and on :Lazy update/build
     lazy = false,
     priority = 100,
