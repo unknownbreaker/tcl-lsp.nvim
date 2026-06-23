@@ -197,12 +197,44 @@ func variableCandidates(name, ns string, frame tcl.FrameKind) []string {
 	return nil // bare proc-local — deferred
 }
 
+// localReferences returns every occurrence of the proc-local (name, scope) in the
+// current file: binding sites and $-use sites. Locals never cross files, so only
+// the current document is scanned. Results are deduped by byte range.
+func (r *Resolver) localReferences(file, src, name string, scope int) []index.Location {
+	seen := map[[2]int]bool{}
+	var out []index.Location
+	add := func(start, end int) {
+		key := [2]int{start, end}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, index.Location{File: file, Name: name, Kind: tcl.DefLocal, NameStart: start, NameEnd: end})
+	}
+	for _, d := range source.Defs(file, src) {
+		if isLocalBinding(d.Kind) && d.Name == name && d.Scope == scope {
+			add(d.NameStart, d.NameEnd)
+		}
+	}
+	for _, ref := range source.Refs(file, src) {
+		if ref.Ref.Kind == tcl.RefVariable && ref.Frame == tcl.FrameProc &&
+			ref.Ref.Name == name && ref.Scope == scope {
+			// Ref.Start points at '$'; the name itself starts one byte later.
+			add(ref.Ref.Start+1, ref.Ref.End)
+		}
+	}
+	return out
+}
+
 // References returns all workspace references to the symbol at byte offset in
 // src. The current file is parsed from the live src; other files use the
 // reference sites precomputed at index time, so a request does not re-parse the
 // whole workspace. Only command and namespace/qualified-variable references are
 // matched; bare proc-locals and bareword variable-name arguments are not.
 func (r *Resolver) References(file, src string, offset int) []index.Location {
+	if name, scope, ok := r.localAt(file, src, offset); ok {
+		return r.localReferences(file, src, name, scope)
+	}
 	target := r.targetFQ(file, src, offset)
 	if target == "" {
 		return nil
@@ -250,6 +282,15 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 // no-op when already at the definition), so `gr` with the cursor on the proc
 // name still yields the declaration. Returns nil for an undefined symbol.
 func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
+	if name, scope, ok := r.localAt(file, src, offset); ok {
+		var out []index.Location
+		for _, d := range source.Defs(file, src) {
+			if isLocalBinding(d.Kind) && d.Name == name && d.Scope == scope {
+				out = append(out, index.Location{File: file, Name: name, Kind: tcl.DefLocal, NameStart: d.NameStart, NameEnd: d.NameEnd})
+			}
+		}
+		return out
+	}
 	target := r.targetFQ(file, src, offset)
 	if target == "" {
 		return nil

@@ -285,12 +285,60 @@ func TestReferencesNamespaceVariable(t *testing.T) {
 	}
 }
 
-func TestReferencesProcLocalDeferred(t *testing.T) {
+func TestReferencesProcLocalAllOccurrences(t *testing.T) {
 	r := New(index.New())
-	src := "proc f {x} { puts $x }"
+	src := "proc f {x} {\n  set x 1\n  incr x\n  puts $x\n}"
 	off := strings.Index(src, "$x") + 1
-	if locs := r.References("a.tcl", src, off); locs != nil {
-		t.Fatalf("proc-local references are deferred, got %#v", locs)
+	locs := r.References("a.tcl", src, off)
+	// param x, set x, incr x, $x  => 4 occurrences, all in a.tcl.
+	if len(locs) != 4 {
+		t.Fatalf("want 4 occurrences, got %d: %#v", len(locs), locs)
+	}
+	for _, l := range locs {
+		if l.File != "a.tcl" || src[l.NameStart:l.NameEnd] != "x" {
+			t.Fatalf("bad occurrence %#v", l)
+		}
+	}
+}
+
+func TestReferencesProcLocalForeachVar(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {} {\n  foreach it $items {\n    puts $it\n  }\n}"
+	// Use LastIndex to land on the $it in `puts $it`, not the $it prefix of $items.
+	off := strings.LastIndex(src, "$it") + 1
+	locs := r.References("a.tcl", src, off)
+	// foreach binding `it` + `$it` use.
+	if len(locs) != 2 {
+		t.Fatalf("want 2, got %#v", locs)
+	}
+}
+
+func TestReferencesProcLocalCurrentFileOnly(t *testing.T) {
+	ix := index.New()
+	// A second file with an identically-named proc-local must not be matched.
+	ix.IndexFile("other.tcl", "proc g {} {\n  set v 9\n  puts $v\n}")
+	r := New(ix)
+	src := "proc f {} {\n  set v 1\n  puts $v\n}"
+	off := strings.Index(src, "$v") + 1
+	locs := r.References("a.tcl", src, off)
+	for _, l := range locs {
+		if l.File != "a.tcl" {
+			t.Fatalf("local references leaked to %s: %#v", l.File, locs)
+		}
+	}
+	if len(locs) != 2 {
+		t.Fatalf("want 2 (set v, $v) in a.tcl, got %#v", locs)
+	}
+}
+
+func TestReferencesProcLocalGlobalLink(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {} {\n  global config\n  puts $config\n}"
+	off := strings.Index(src, "$config") + 1
+	locs := r.References("a.tcl", src, off)
+	// `global config` link site + `$config` use.
+	if len(locs) != 2 {
+		t.Fatalf("want 2, got %#v", locs)
 	}
 }
 
