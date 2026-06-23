@@ -6,10 +6,10 @@ import "strings"
 type DefKind int
 
 const (
-	DefProc        DefKind = iota // a proc (command) definition
-	DefNamespaceVar               // a namespace variable (variable / qualified set / ns-top set)
-	DefLocal                      // a proc-local variable (param, set, upvar alias)
-	DefGlobalLink                 // a `global name` link to ::name
+	DefProc         DefKind = iota // a proc (command) definition
+	DefNamespaceVar                // a namespace variable (variable / qualified set / ns-top set)
+	DefLocal                       // a proc-local variable (param, set, upvar alias)
+	DefGlobalLink                  // a `global name` link to ::name
 )
 
 // Definition is a declaration site. Name is fully qualified for proc and

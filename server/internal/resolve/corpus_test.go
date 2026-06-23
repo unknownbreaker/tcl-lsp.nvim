@@ -168,3 +168,29 @@ func TestCorpusControlFlowSpanningResolves(t *testing.T) {
 		t.Fatalf("block-spanning goto-def = %#v", locs)
 	}
 }
+
+// Proc-local inside an .rvt <? ?> block: goto-def on a $-use lands on the nearest
+// preceding binding within the same proc, and find-refs stays within the page.
+func TestCorpusProcLocalInRVT(t *testing.T) {
+	page := corpusFile(t, "proc_local.rvt")
+	ix := index.New()
+	ix.IndexFile("proc_local.rvt", page)
+	r := New(ix)
+
+	off := strings.Index(page, "return $total") + len("return $")
+	defs := r.Definition("proc_local.rvt", page, off)
+	if len(defs) != 1 || defs[0].File != "proc_local.rvt" ||
+		page[defs[0].NameStart:defs[0].NameEnd] != "total" {
+		t.Fatalf("rvt proc-local goto-def = %#v", defs)
+	}
+
+	refs := r.References("proc_local.rvt", page, off)
+	if len(refs) < 2 {
+		t.Fatalf("expected >=2 occurrences of total, got %#v", refs)
+	}
+	for _, l := range refs {
+		if l.File != "proc_local.rvt" {
+			t.Fatalf("proc-local ref leaked to %s", l.File)
+		}
+	}
+}

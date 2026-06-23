@@ -1,0 +1,8 @@
+<? proc summarize {rows} {
+    set total 0
+    foreach r $rows {
+        incr total
+    }
+    return $total
+} ?>
+<p><?= summarize $data ?></p>
