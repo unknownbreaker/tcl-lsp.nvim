@@ -95,6 +95,15 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 			NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
 		})
 	}
+	if frame == FrameProc && len(w) >= 2 && isPlainName(w[1]) {
+		switch {
+		case isCmd(w, "incr"), isCmd(w, "append"), isCmd(w, "lappend"):
+			*out = append(*out, Definition{
+				Kind: DefLocal, Name: w[1].Text, Namespace: ns,
+				NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
+			})
+		}
+	}
 	if isCmd(w, "global") && frame == FrameProc {
 		for _, gw := range w[1:] {
 			if isPlainName(gw) {

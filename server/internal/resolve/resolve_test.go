@@ -141,6 +141,20 @@ func TestDefinitionProcLocalUndefinedIsNil(t *testing.T) {
 	}
 }
 
+func TestDefinitionProcLocalIncrIsBinding(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {} {\n  set total 0\n  incr total\n  return $total\n}"
+	off := strings.Index(src, "return $total") + len("return $")
+	locs := r.Definition("a.tcl", src, off)
+	if len(locs) != 1 {
+		t.Fatalf("want 1 def, got %#v", locs)
+	}
+	// nearest preceding binding is `incr total`.
+	if locs[0].NameStart != strings.Index(src, "incr total")+len("incr ") {
+		t.Fatalf("expected nearest-preceding incr total, got %#v", locs)
+	}
+}
+
 func TestDefinitionMultipleSites(t *testing.T) {
 	ix := index.New()
 	ix.IndexFile("a.tcl", "proc dup {} {}")

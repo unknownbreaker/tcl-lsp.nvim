@@ -261,6 +261,24 @@ func TestFileDefsLoopAndDestructuringLocals(t *testing.T) {
 	}
 }
 
+func TestFileDefsIncrAppendLappendLocals(t *testing.T) {
+	src := "proc f {} {\n  incr n\n  append s x\n  lappend items y\n}"
+	defs := FileDefs(src)
+	procScope := defsNamed(defs, "n")
+	if len(procScope) != 1 {
+		t.Fatalf("want 1 def n, got %#v", defs)
+	}
+	for _, name := range []string{"n", "s", "items"} {
+		ds := defsNamed(defs, name)
+		if len(ds) != 1 || ds[0].Kind != DefLocal || ds[0].Scope == 0 {
+			t.Fatalf("local %q = %#v, want one DefLocal with nonzero scope", name, ds)
+		}
+		if src[ds[0].NameStart:ds[0].NameEnd] != name {
+			t.Fatalf("local %q offsets slice %q", name, src[ds[0].NameStart:ds[0].NameEnd])
+		}
+	}
+}
+
 func TestFileDefsCombined(t *testing.T) {
 	src := "namespace eval ::math {\n  variable e 2.7\n  proc square {x} {\n    set r [expr {$x * $x}]\n  }\n}"
 	got := FileDefs(src)
