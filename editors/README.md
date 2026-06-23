@@ -6,13 +6,17 @@ files are supported.
 
 ## 1. Build the binary
 
-Requires Go 1.23+.
+**Neovim / lazy.nvim users can skip this** — the plugin spec builds the server
+automatically on install (see step 2). You need this section only for Vim, for a
+manual install, or for a machine with no Go toolchain.
+
+Requires Go 1.23+ and `make`.
 
 ```sh
 cd server
 make build            # produces ./tcl-lsp for your platform
-# or cross-compile all platforms into ./dist:
-make dist
+# or cross-compile every platform into ./dist:
+make dist             # ./dist/tcl-lsp-{linux,darwin}-{amd64,arm64}, windows-amd64.exe
 ```
 
 Install it on your PATH, e.g.:
@@ -22,20 +26,43 @@ mkdir -p ~/.local/bin
 cp server/tcl-lsp ~/.local/bin/tcl-lsp
 ```
 
+**No Go on the target machine?** Cross-compile elsewhere with `make dist`, then
+copy the matching static binary over (`uname -m`: `x86_64` → `-linux-amd64`,
+`aarch64` → `-linux-arm64`):
+
+```sh
+scp server/dist/tcl-lsp-linux-amd64  <host>:~/.local/bin/tcl-lsp
+ssh <host> chmod +x ~/.local/bin/tcl-lsp
+```
+
 ## 2. Configure your editor
 
-### Neovim / LazyVim (0.11+)
+### Neovim / LazyVim (0.11+, lazy.nvim)
 
-Copy `editors/nvim/tcl-lsp.lua` to `~/.config/nvim/lua/plugins/tcl-lsp.lua`,
-set the `repo` path at the top to your clone (and `cmd` if the binary is not at
-`~/.local/bin/tcl-lsp`). Restart Neovim, open a `.tcl` file, and use `gd`
-(goto-definition) and your references keymap (LazyVim: `grr`; stock Neovim:
-`:lua vim.lsp.buf.references()`).
+Copy `editors/nvim/tcl-lsp.lua` to `~/.config/nvim/lua/plugins/tcl-lsp.lua` and
+restart Neovim. That's the whole install: lazy.nvim clones the repo, the spec's
+`build` hook compiles the Go server, and the config points the LSP at the binary
+inside the clone — no `make install`, no PATH setup, no path editing. Building
+needs `go` + `make` on the machine (if absent, the config tells you to drop in a
+prebuilt binary from step 1 instead).
 
-> The snippet is a self-contained local plugin spec using Neovim 0.11's native
-> `vim.lsp.config`/`vim.lsp.enable`. It deliberately does NOT merge into the
-> `nvim-lspconfig` spec (LazyVim owns that, and the merge does not reliably run
-> the setup — the server would never start). Confirm attachment with
+Open a `.tcl` file and use `gd` (goto-definition) and your references keymap
+(LazyVim: `grr`; stock Neovim: `:lua vim.lsp.buf.references()`).
+
+After pulling new server code, run `:TclLspRebuild` then `:LspRestart` (or
+`:Lazy update` / `:Lazy build tcl-lsp.nvim`).
+
+> **Branch pin:** the spec sets `branch = "rebuild"` because the v2 Go server
+> lives on `rebuild`; GitHub's default branch is still the old v1 tree. Remove
+> that line once `rebuild` becomes the default branch.
+>
+> **Developing the LSP itself?** The file ships a commented **Mode B** spec that
+> points at your local working clone (`dir = …`) instead of a lazy-managed one —
+> swap to it so your edits + `make watch` / `:TclLspRebuild` drive the server.
+>
+> The spec is standalone (Neovim 0.11 native `vim.lsp.config`/`vim.lsp.enable`)
+> on purpose: merging into LazyVim's `nvim-lspconfig` spec does not reliably run
+> the setup, so the server would never start. Confirm attachment with
 > `:checkhealth lsp` (look for `tcl_lsp`).
 
 ### Vim (vim-lsp)
@@ -62,7 +89,13 @@ go test ./...          # unit + end-to-end (the cmd/tcl-lsp smoke test builds an
 
 ## Known limitations
 
-- Bare proc-local variables, `set x`/`incr x` bareword variable-name arguments,
-  and `namespace path` command search are not yet resolved.
-- `source` include-following and `::rivet::` built-in command resolution are
-  deferred (see `docs/plans/2026-06-08-phase-b-rvt-design.md` §9).
+- Array-element locals (`set arr(i)` / `$arr(i)`) are not yet resolved (a
+  high-priority follow-up; see
+  `docs/superpowers/specs/2026-06-22-proc-local-variable-resolution-design.md`).
+- `namespace path` command search, `source` include-following, and `::rivet::`
+  built-in command resolution are deferred (see
+  `docs/plans/2026-06-08-phase-b-rvt-design.md` §9).
+
+Proc-local variables (params, `set`/`incr`/`append`/`lappend`,
+`foreach`/`lmap`/`lassign`/`dict for` targets, `upvar`/`global`/`variable`
+links) now resolve within their enclosing proc.
