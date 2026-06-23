@@ -169,7 +169,12 @@ use in the current file.
   walker to recognize `name(index)` targets and the variable scanner to key
   array references by base name — noted here so the v1 binding-extraction and
   `localAt` design leave room for it rather than hard-coding `isPlainName`-only
-  targets.
+  targets. **Head start for v2:** `parseVarRef` (`internal/tcl/varref.go`)
+  already stops the name scan at `(`, so a `$arr(i)` use is emitted as a
+  `RefVariable` with `Name: "arr"` (the base name). The missing half is the
+  def side: `set arr(i) …` is rejected by `isPlainName` (the parens), so array
+  element writes are not yet indexed as bindings — that, plus keying array
+  references by base name in `localAt`/`localReferences`, is the v2 work.
 - **Also out of scope for v1:** `dict with` key injection, namespace-level loop
   variables, liveness/dead-store analysis ("unused parameter" is a diagnostic
   concern, not a references concern).
