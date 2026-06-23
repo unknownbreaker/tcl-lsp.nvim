@@ -6,9 +6,9 @@ files are supported.
 
 ## 1. Build the binary
 
-**Neovim / lazy.nvim users can skip this** — the plugin spec builds the server
-automatically on install (see step 2). You need this section only for Vim, for a
-manual install, or for a machine with no Go toolchain.
+**Neovim / lazy.nvim users can skip this** — the plugin builds the server
+automatically the first time you open a TCL/RVT file (see step 2). You need this
+section only for Vim, for a manual install, or for a machine with no Go toolchain.
 
 Requires Go 1.23+ and `make`.
 
@@ -40,17 +40,23 @@ ssh <host> chmod +x ~/.local/bin/tcl-lsp
 ### Neovim / LazyVim (0.11+, lazy.nvim)
 
 Copy `editors/nvim/tcl-lsp.lua` to `~/.config/nvim/lua/plugins/tcl-lsp.lua` and
-restart Neovim. That's the whole install: lazy.nvim clones the repo, the spec's
-`build` hook compiles the Go server, and the config points the LSP at the binary
-inside the clone — no `make install`, no PATH setup, no path editing. Building
-needs `go` + `make` on the machine (if absent, the config tells you to drop in a
-prebuilt binary from step 1 instead).
+restart Neovim. That's the whole install. lazy.nvim clones the repo and, via the
+spec's `opts`, calls `require("tcl-lsp").setup(opts)`; the plugin then builds the
+bundled Go server **from source on first use** (the first time you open a TCL/RVT
+file) and wires it into Neovim's native LSP. No `make`, no `make install`, no PATH
+setup, no binary path to maintain. Building needs `go` + `make` on the machine; if
+they're absent the plugin tells you to build it once by hand (or drop in a
+prebuilt binary from step 1).
+
+The spec loads on the `tcl`/`rvt` filetypes (`ft = { "tcl", "rvt" }`) and exposes
+a documented `opts` table — `filetypes`, `root_markers`, `cmd` (override the
+binary), `auto_build` — all optional, defaults shown inline. Edit those to
+customize; leave `opts = {}` for defaults.
 
 Open a `.tcl` file and use `gd` (goto-definition) and your references keymap
 (LazyVim: `grr`; stock Neovim: `:lua vim.lsp.buf.references()`).
 
-After pulling new server code, run `:TclLspRebuild` then `:LspRestart` (or
-`:Lazy update` / `:Lazy build tcl-lsp.nvim`).
+After pulling new server code, run `:TclLspRebuild` then `:LspRestart`.
 
 > **Developing the LSP itself?** The file ships a commented **Mode B** spec that
 > points at your local working clone (`dir = …`) instead of a lazy-managed one —
