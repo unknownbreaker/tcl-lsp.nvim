@@ -219,8 +219,7 @@ func (r *Resolver) localReferences(file, src, name string, scope int) []index.Lo
 	for _, ref := range source.Refs(file, src) {
 		if ref.Ref.Kind == tcl.RefVariable && ref.Frame == tcl.FrameProc &&
 			ref.Ref.Name == name && ref.Scope == scope {
-			// Ref.Start points at '$'; the name itself starts one byte later.
-			add(ref.Ref.Start+1, ref.Ref.End)
+			add(ref.Ref.Start, ref.Ref.End)
 		}
 	}
 	return out

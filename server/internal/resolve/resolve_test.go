@@ -290,14 +290,27 @@ func TestReferencesProcLocalAllOccurrences(t *testing.T) {
 	src := "proc f {x} {\n  set x 1\n  incr x\n  puts $x\n}"
 	off := strings.Index(src, "$x") + 1
 	locs := r.References("a.tcl", src, off)
-	// param x, set x, incr x, $x  => 4 occurrences, all in a.tcl.
+	// param x, set x, incr x  => 3 binding sites (slice to "x")
+	// puts $x                  => 1 use site (slice to "$x")
 	if len(locs) != 4 {
 		t.Fatalf("want 4 occurrences, got %d: %#v", len(locs), locs)
 	}
+	var nBindings, nUses int
 	for _, l := range locs {
-		if l.File != "a.tcl" || src[l.NameStart:l.NameEnd] != "x" {
-			t.Fatalf("bad occurrence %#v", l)
+		if l.File != "a.tcl" {
+			t.Fatalf("local reference leaked to wrong file: %#v", l)
 		}
+		switch src[l.NameStart:l.NameEnd] {
+		case "x":
+			nBindings++
+		case "$x":
+			nUses++
+		default:
+			t.Fatalf("unexpected slice %q in occurrence %#v", src[l.NameStart:l.NameEnd], l)
+		}
+	}
+	if nBindings != 3 || nUses != 1 {
+		t.Fatalf("want 3 binding sites + 1 use, got %d bindings + %d uses", nBindings, nUses)
 	}
 }
 
