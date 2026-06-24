@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"os"
+	"strings"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
 	"github.com/unknownbreaker/tcl-lsp/internal/resolve"
@@ -12,10 +14,16 @@ import (
 // Server is a single-goroutine LSP server: it reads and dispatches messages
 // sequentially, so the index/resolver need no locking.
 type Server struct {
-	conn *Conn
-	ix   *index.Index
-	res  *resolve.Resolver
-	docs map[string]string // uri -> live text
+	conn   *Conn
+	ix     *index.Index
+	res    *resolve.Resolver
+	docs   map[string]string // uri -> live text
+	nextID int               // id for server-initiated requests (registerCapability)
+}
+
+// isIndexable reports whether a path is a workspace file the index tracks.
+func isIndexable(path string) bool {
+	return strings.HasSuffix(path, ".tcl") || strings.HasSuffix(path, ".rvt")
 }
 
 // NewServer builds a server over conn with an empty index.
@@ -50,6 +58,12 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 			}
 		}
 	}()
+	// A message with no method but an id is a RESPONSE to a server-initiated
+	// request (e.g. the client's reply to registerCapability). It is not ours to
+	// answer; ignore it so we don't reply to a reply.
+	if m.Method == "" {
+		return false
+	}
 	switch m.Method {
 	case "initialize":
 		var p InitializeParams
@@ -69,7 +83,17 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 			TextDocumentSync: 1, DefinitionProvider: true, ReferencesProvider: true,
 		}})
 	case "initialized":
-		// notification; no-op
+		// Per the spec, dynamic registration happens after initialized. Register
+		// for file watching so the client reports on-disk .tcl/.rvt changes; this
+		// keeps the index fresh for files that are never opened in the editor.
+		s.registerFileWatchers()
+	case "workspace/didChangeWatchedFiles":
+		var p DidChangeWatchedFilesParams
+		if err := json.Unmarshal(m.Params, &p); err != nil {
+			log.Printf("didChangeWatchedFiles: bad params: %v", err)
+			break
+		}
+		s.applyWatchedChanges(p.Changes)
 	case "shutdown":
 		s.reply(m.ID, nil)
 	case "textDocument/didOpen":
@@ -137,6 +161,51 @@ func (s *Server) reply(id json.RawMessage, result any) {
 func (s *Server) setDoc(uri, text string) {
 	s.docs[uri] = text
 	s.ix.IndexFile(uriToPath(uri), text)
+}
+
+// registerFileWatchers asks the client to watch all workspace .tcl/.rvt files
+// and report changes via workspace/didChangeWatchedFiles. The client's reply is
+// ignored (handled by the response guard in dispatch).
+func (s *Server) registerFileWatchers() {
+	s.nextID++
+	id, _ := json.Marshal(s.nextID)
+	params, _ := json.Marshal(RegistrationParams{Registrations: []Registration{{
+		ID:     "watch-tcl-rvt",
+		Method: "workspace/didChangeWatchedFiles",
+		RegisterOptions: DidChangeWatchedFilesRegistrationOptions{Watchers: []FileSystemWatcher{
+			{GlobPattern: "**/*.tcl"},
+			{GlobPattern: "**/*.rvt"},
+		}},
+	}}})
+	if err := s.conn.Write(&Message{ID: id, Method: "client/registerCapability", Params: params}); err != nil {
+		log.Printf("registerCapability: %v", err)
+	}
+}
+
+// applyWatchedChanges re-indexes created/changed files and drops deleted ones.
+// An open document's live text always wins, so changes to open files are skipped
+// (didChange already keeps them fresh, and the on-disk copy may be stale).
+func (s *Server) applyWatchedChanges(changes []FileEvent) {
+	for _, ch := range changes {
+		path := uriToPath(ch.URI)
+		if !isIndexable(path) {
+			continue
+		}
+		switch ch.Type {
+		case FileChangeCreated, FileChangeChanged:
+			if _, open := s.docs[pathToURI(path)]; open {
+				continue // live text is authoritative for open docs
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				log.Printf("watched file %s: %v", path, err)
+				continue
+			}
+			s.ix.IndexFile(path, string(b))
+		case FileChangeDeleted:
+			s.ix.RemoveFile(path)
+		}
+	}
 }
 
 // sourceOf returns the best-available source for a path: the live document if

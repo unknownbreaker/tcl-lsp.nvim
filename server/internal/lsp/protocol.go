@@ -90,6 +90,52 @@ type ServerCapabilities struct {
 	ReferencesProvider bool `json:"referencesProvider"`
 }
 
+// Dynamic capability registration (server -> client). After `initialized` the
+// server registers for file watching so the client reports on-disk .tcl/.rvt
+// changes via workspace/didChangeWatchedFiles, keeping the index fresh for files
+// that are never opened in the editor.
+
+// RegistrationParams is the client/registerCapability request payload.
+type RegistrationParams struct {
+	Registrations []Registration `json:"registrations"`
+}
+
+// Registration is one capability registration. RegisterOptions is method-specific.
+type Registration struct {
+	ID              string `json:"id"`
+	Method          string `json:"method"`
+	RegisterOptions any    `json:"registerOptions,omitempty"`
+}
+
+// DidChangeWatchedFilesRegistrationOptions lists the glob patterns to watch.
+type DidChangeWatchedFilesRegistrationOptions struct {
+	Watchers []FileSystemWatcher `json:"watchers"`
+}
+
+// FileSystemWatcher watches paths matching GlobPattern. Kind defaults (on the
+// client) to create|change|delete when omitted.
+type FileSystemWatcher struct {
+	GlobPattern string `json:"globPattern"`
+}
+
+// FileChange* are workspace/didChangeWatchedFiles change kinds.
+const (
+	FileChangeCreated = 1
+	FileChangeChanged = 2
+	FileChangeDeleted = 3
+)
+
+// DidChangeWatchedFilesParams is the workspace/didChangeWatchedFiles notification.
+type DidChangeWatchedFilesParams struct {
+	Changes []FileEvent `json:"changes"`
+}
+
+// FileEvent is one watched-file change: a URI and a FileChange* type.
+type FileEvent struct {
+	URI  string `json:"uri"`
+	Type int    `json:"type"`
+}
+
 // uriToPath converts a file:// URI to a filesystem path. A string that is not a
 // file URI is returned unchanged (best effort).
 func uriToPath(uri string) string {
