@@ -1,0 +1,9 @@
+{
+  "languageserver": {
+    "tcl-lsp": {
+      "command": "tcl-lsp",
+      "filetypes": ["tcl", "rvt"],
+      "rootPatterns": [".git"]
+    }
+  }
+}
