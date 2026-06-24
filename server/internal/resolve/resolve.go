@@ -43,30 +43,28 @@ func (r *Resolver) localAt(file, src string, offset int) (name string, scope int
 	return "", 0, false
 }
 
-// localDefinition returns the nearest preceding binding of (name, scope) at or
-// before offset, falling back to the first binding when none precedes.
-func (r *Resolver) localDefinition(file, src string, offset int, name string, scope int) []index.Location {
-	bestStart, bestEnd, haveBest := 0, 0, false
-	firstStart, firstEnd, haveFirst := 0, 0, false
+// localDefinition returns the declaration of (name, scope): the first (lowest
+// offset) binding in the file. Tcl locals have no declaration keyword, so the
+// earliest binding -- the parameter, or the first set/incr/foreach/etc. that
+// introduces the name -- is treated as the definition. goto-definition from any
+// occurrence (a use, or a later mutation like `lappend`/`incr`) lands here and is
+// idempotent, matching how LSPs for declaration-less languages behave. Every
+// occurrence remains discoverable via find-references. Returns nil if (name,
+// scope) has no binding.
+func (r *Resolver) localDefinition(file, src, name string, scope int) []index.Location {
+	firstStart, firstEnd, have := 0, 0, false
 	for _, d := range source.Defs(file, src) {
 		if !isLocalBinding(d.Kind) || d.Name != name || d.Scope != scope {
 			continue
 		}
-		if !haveFirst || d.NameStart < firstStart {
-			firstStart, firstEnd, haveFirst = d.NameStart, d.NameEnd, true
-		}
-		if d.NameStart <= offset && (!haveBest || d.NameStart > bestStart) {
-			bestStart, bestEnd, haveBest = d.NameStart, d.NameEnd, true
+		if !have || d.NameStart < firstStart {
+			firstStart, firstEnd, have = d.NameStart, d.NameEnd, true
 		}
 	}
-	s, e := bestStart, bestEnd
-	if !haveBest {
-		if !haveFirst {
-			return nil
-		}
-		s, e = firstStart, firstEnd
+	if !have {
+		return nil
 	}
-	return []index.Location{{File: file, Name: name, Kind: tcl.DefLocal, NameStart: s, NameEnd: e}}
+	return []index.Location{{File: file, Name: name, Kind: tcl.DefLocal, NameStart: firstStart, NameEnd: firstEnd}}
 }
 
 // Definition returns the definition site(s) for the symbol at byte offset in
@@ -77,7 +75,7 @@ func (r *Resolver) localDefinition(file, src string, offset int, name string, sc
 // wins (a bare name is NOT unioned across namespaces).
 func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 	if name, scope, ok := r.localAt(file, src, offset); ok {
-		return r.localDefinition(file, src, offset, name, scope)
+		return r.localDefinition(file, src, name, scope)
 	}
 	ref := refAt(file, src, offset)
 	if ref == nil {

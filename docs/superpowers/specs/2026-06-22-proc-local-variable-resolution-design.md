@@ -57,9 +57,10 @@ def-to-ref for equality (`def.Scope == ref.Scope`); it is never compared against
 a cursor position. This keeps `.rvt` correct: occurrence offsets
 (`Start`/`End`/`NameStart`/`NameEnd`) get mapped to document coordinates by the
 source seam, but `scopeID` stays in the stitched-parse coordinate space. Because
-defs and refs from the same parse share that space, equality still holds, and
-the only position comparisons (`NameStart ≤ offset` for nearest-preceding) use
-mapped offsets on both sides.
+defs and refs from the same parse share that space, equality still holds. (The
+only position comparison is `localAt`'s containment check — is the cursor offset
+within an occurrence's `NameStart..NameEnd` — which uses mapped offsets on both
+sides; goto-def no longer compares offsets at all, see Revised note below.)
 
 ### Why scope "falls out" of the existing traversal
 
@@ -126,10 +127,15 @@ A new helper and three branches that run **before** the existing FQ/index path:
   2. Else if it falls within a `FrameProc` `RefVariable` range in
      `source.Refs(file, src)` → return its `(Name, Scope)`.
   3. Else `ok = false`.
-- `Definition`: when `localAt` is `ok`, among bindings matching `(name, scope)`
-  in the current file, return the **nearest preceding** one (`NameStart ≤ offset`,
-  maximal), falling back to the **first** binding when none precedes. Single
-  location. (Skips the index path entirely.)
+- `Definition`: when `localAt` is `ok`, return the **declaration** — the
+  **first** (lowest-offset) binding matching `(name, scope)` in the current file.
+  Single location. (Skips the index path entirely.) **Revised 2026-06-23:** the
+  original design returned the *nearest preceding* binding; in practice that
+  landed goto-def on a later mutation (e.g. `lappend`/`incr`) and could not chain
+  back to the declaration (a use → mutation hop dead-ended, since the cursor then
+  sat on that binding). First-binding matches the convention for
+  declaration-less languages (one idempotent hop to the origin); every mutation
+  is still reachable via find-references.
 - `References`: when `localAt` is `ok`, return the union of (a) binding sites and
   (b) `$`-use occurrences matching `(name, scope)`, **current file only**, deduped
   by range.
@@ -144,7 +150,8 @@ never reached for a resolvable local because `localAt` intercepts first.
 
 **goto-definition on `$total`** → `refAt` finds the `RefVariable` →
 `localAt` returns `(total, scopeA)` → gather `(total, scopeA)` bindings → return
-the nearest `set total` at/above the cursor (or the param if none precedes).
+the first (declaring) `set total` / the param — the same target from any
+occurrence, so the jump is idempotent.
 
 **find-references on `total`** (cursor on a binding or a use) → `localAt` returns
 `(total, scopeA)` → union of every `(total, scopeA)` binding site and `$total`
@@ -185,7 +192,8 @@ use in the current file.
   control-flow bodies inherit, decorated procs mint a new scope; new binding
   forms (`foreach`/`lmap`/`lassign`/`dict for`/`variable`-in-proc) emitted as
   `DefLocal` with correct scope and offsets.
-- **`internal/resolve`:** goto-def nearest-preceding + param fallback; find-refs
+- **`internal/resolve`:** goto-def first-binding (declaration), idempotent from
+  use or mutation; find-refs
   returns all occurrences (param + `set`/`incr` targets + `$`-uses);
   nested-proc isolation; `foreach` loop var; `global` link; negative case
   (undefined bare var → `nil`).

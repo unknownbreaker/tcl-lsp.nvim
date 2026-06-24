@@ -85,23 +85,22 @@ func TestDefinitionQualifiedVariable(t *testing.T) {
 	}
 }
 
-func TestDefinitionProcLocalNearestPreceding(t *testing.T) {
+func TestDefinitionProcLocalDeclaration(t *testing.T) {
 	r := New(index.New())
-	// Two `set total` bindings: the second one is nearest-preceding to `return $total`.
+	// Two `set total` bindings: goto-def lands on the FIRST (the declaration),
+	// not the nearest preceding one.
 	src := "proc f {x} {\n  set total 0\n  set total 1\n  return $total\n}"
 	off := strings.Index(src, "return $total") + len("return $")
 	locs := r.Definition("a.tcl", src, off)
 	if len(locs) != 1 {
 		t.Fatalf("want 1 def, got %#v", locs)
 	}
-	// nearest preceding binding is the second `set total 1`, not the first.
 	if got := src[locs[0].NameStart:locs[0].NameEnd]; got != "total" {
 		t.Fatalf("slice %q", got)
 	}
-	// second `set total` appears after the first; its `total` token should be returned.
-	secondSetTotal := strings.LastIndex(src, "set total") + len("set ")
-	if locs[0].NameStart != secondSetTotal {
-		t.Fatalf("expected nearest-preceding (second set total), got offset %d", locs[0].NameStart)
+	// strings.Index finds the FIRST `set total` — the declaration.
+	if locs[0].NameStart != strings.Index(src, "set total")+len("set ") {
+		t.Fatalf("expected first `set total` (declaration), got offset %d", locs[0].NameStart)
 	}
 }
 
@@ -141,17 +140,29 @@ func TestDefinitionProcLocalUndefinedIsNil(t *testing.T) {
 	}
 }
 
-func TestDefinitionProcLocalIncrIsBinding(t *testing.T) {
+func TestDefinitionProcLocalJumpsToDeclarationNotMutation(t *testing.T) {
 	r := New(index.New())
-	src := "proc f {} {\n  set total 0\n  incr total\n  return $total\n}"
-	off := strings.Index(src, "return $total") + len("return $")
-	locs := r.Definition("a.tcl", src, off)
-	if len(locs) != 1 {
-		t.Fatalf("want 1 def, got %#v", locs)
+	// Declared once with `set`, later mutated with a build-up command. goto-def
+	// from the use AND from the mutation site both land on the original `set thing`
+	// declaration -- the mutation is never the target, and from a mutation you can
+	// reach the declaration (the old nearest-preceding behavior dead-ended on the
+	// mutation itself).
+	src := "proc f {} {\n  set thing [list]\n  lappend thing $blah\n  return $thing\n}"
+	decl := strings.Index(src, "set thing") + len("set ")
+
+	useOff := strings.Index(src, "return $thing") + len("return $")
+	if locs := r.Definition("a.tcl", src, useOff); len(locs) != 1 || locs[0].NameStart != decl {
+		t.Fatalf("from use: expected declaration at %d, got %#v", decl, locs)
 	}
-	// nearest preceding binding is `incr total`.
-	if locs[0].NameStart != strings.Index(src, "incr total")+len("incr ") {
-		t.Fatalf("expected nearest-preceding incr total, got %#v", locs)
+
+	mutOff := strings.Index(src, "lappend thing") + len("lappend ")
+	if locs := r.Definition("a.tcl", src, mutOff); len(locs) != 1 || locs[0].NameStart != decl {
+		t.Fatalf("from mutation: expected declaration at %d, got %#v", decl, locs)
+	}
+
+	// From the declaration itself, goto-def is idempotent (stays put).
+	if locs := r.Definition("a.tcl", src, decl); len(locs) != 1 || locs[0].NameStart != decl {
+		t.Fatalf("from declaration: expected idempotent, got %#v", locs)
 	}
 }
 
