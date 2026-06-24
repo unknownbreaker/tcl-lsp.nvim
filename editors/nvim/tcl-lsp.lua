@@ -6,11 +6,15 @@
 -- bundled Go server and wiring it into Neovim's native LSP -- lives in the
 -- plugin's lua/tcl-lsp module, so this spec stays tiny.
 --
--- The server is built from source on install and rebuilt on every lazy.nvim
--- update (via the `build` directive below); that needs `go` + `make` on the
--- machine (the plugin tells you if they're missing). No `make install`, no PATH
--- setup, no binary path to maintain. After an update, :LspRestart swaps the
--- running server for the rebuilt one.
+-- The server is built from source on install and rebuilt automatically whenever
+-- the server sources are newer than the compiled binary -- so an update always
+-- gets a fresh server. The lazy.nvim `build` directive below rebuilds at update
+-- time; on top of that, the plugin self-heals at load time (it rebuilds a stale
+-- binary), which is what makes auto-rebuild work under ANY plugin manager or a
+-- manual `git pull`, not just lazy. Building needs `go` + `make` (the plugin
+-- tells you if they're missing). No `make install`, no PATH setup, no binary
+-- path to maintain. After an update, :LspRestart swaps the running server for
+-- the rebuilt one.
 
 return {
   {
