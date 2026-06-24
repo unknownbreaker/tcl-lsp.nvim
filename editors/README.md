@@ -80,8 +80,9 @@ Vim has no built-in LSP client, so pick one — **vim-lsp** (lightweight, pure
 Vimscript) or **coc.nvim** (heavier, needs Node, but supports the full LSP
 surface and also runs on Neovim). Either way:
 
-- **Build the server first** (step 1) — Vim does not auto-build it. Put `tcl-lsp`
-  on your PATH, or point the config at the absolute `server/tcl-lsp` path.
+- **The server binary.** The bundled **vim-lsp** config builds it for you (see
+  below). For **coc**, build it first (step 1) — Put `tcl-lsp` on your PATH, or
+  point the config at the absolute `server/tcl-lsp` path.
 - **`.rvt` detection** ships in `ftdetect/rvt.vim` (loaded automatically when the
   repo is on your plugin runtimepath; it also benefits non-lazy Neovim). If you
   are not installing the repo as a plugin, add to your vimrc:
@@ -95,12 +96,17 @@ source /path/to/tcl-lsp.nvim/editors/vim/tcl-lsp.vim
 ```
 
 It registers the server for `tcl`/`rvt`, finds the project root **`.git`-first**
-(see the note below), and warns if the binary is missing. Use `:LspDefinition`
-and `:LspReferences`.
+(see the note below), and — like the Neovim plugin — **builds the bundled server
+on first use and rebuilds it whenever the sources are newer than the binary**, so
+a `git pull` never leaves you on a stale server (needs `go` + `make`; without them
+an existing binary is used as-is). Point `g:tcl_lsp_cmd` at a prebuilt binary to
+skip building, or set `g:tcl_lsp_auto_build = 0`. Use `:LspDefinition` and
+`:LspReferences`.
 
 **coc.nvim** — merge `editors/vim/coc-settings.json` into your coc config
 (`:CocConfig`). coc supports `workspace/didChangeWatchedFiles`, so on-disk changes
-re-index live (the same behavior Neovim gets).
+re-index live (the same behavior Neovim gets). coc just runs the binary, so build
+it yourself (step 1) and rebuild after pulling new server code.
 
 > **Root detection matters — same fragmentation trap as Neovim.** Cross-file
 > resolution (`.tcl` definitions ↔ `.rvt` call sites) only works when one server
@@ -111,10 +117,11 @@ re-index live (the same behavior Neovim gets).
 > per-package dir win and hide references. If you do not use git, swap in
 > `pkgIndex.tcl`.
 
-**Caveats vs. Neovim.** Two niceties are Neovim-only:
-- **Auto-rebuild on update** is handled by the Neovim Lua layer; on Vim, rebuild
-  by hand (`make -C server build`) after pulling new server code.
-- **Live on-disk re-indexing** (`didChangeWatchedFiles`) works under coc but
+**Caveats vs. Neovim.**
+- **Auto-rebuild on update:** the bundled **vim-lsp** config has it (via
+  `autoload/tcl_lsp.vim`, the Vimscript port of the Neovim build logic); **coc**
+  does not — rebuild by hand (`make -C server build`) after pulling.
+- **Live on-disk re-indexing** (`didChangeWatchedFiles`) works under **coc** but
   **not vim-lsp**; with vim-lsp the server still indexes at startup and on open,
   so you only miss files changed on disk without being opened.
 

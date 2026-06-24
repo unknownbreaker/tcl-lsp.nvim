@@ -3,14 +3,19 @@
 " Classic Vimscript — works in Vim and Neovim. Source this from your vimrc:
 "     source /path/to/tcl-lsp.nvim/editors/vim/tcl-lsp.vim
 "
+" By default it builds the bundled Go server on first use and rebuilds it
+" whenever the sources are newer than the binary (parity with the Neovim
+" plugin), so a `git pull` of this repo never leaves you on a stale server.
+" Building needs `go` + `make`; without them an existing binary is used as-is.
+"
 " Prerequisites:
-"   1. Build the server once (needs go + make):  make -C /path/to/tcl-lsp.nvim/server build
-"      Then either put `tcl-lsp` on your PATH, or set g:tcl_lsp_cmd (below) to the
-"      absolute path of server/tcl-lsp.
-"   2. vim-lsp (+ async.vim) installed.
-"   3. .rvt filetype detection — shipped in this repo's ftdetect/rvt.vim if you
-"      install the repo as a plugin; otherwise add to your vimrc:
-"          autocmd BufRead,BufNewFile *.rvt setfiletype rvt
+"   - vim-lsp (+ async.vim) installed.
+"   - .rvt filetype detection — shipped in this repo's ftdetect/rvt.vim, loaded
+"     automatically because this file adds the repo to 'runtimepath'.
+"
+" Options (set before sourcing):
+"   let g:tcl_lsp_cmd = '/abs/path/to/tcl-lsp'   " use a prebuilt binary; skips the build
+"   let g:tcl_lsp_auto_build = 0                 " never build; use whatever binary exists
 "
 " Use :LspDefinition and :LspReferences (or your vim-lsp keymaps).
 
@@ -19,11 +24,12 @@ if exists('g:loaded_tcl_lsp_vim')
 endif
 let g:loaded_tcl_lsp_vim = 1
 
-" Path to the server binary. Default assumes `tcl-lsp` is on $PATH; override in
-" your vimrc before sourcing this file if it lives elsewhere, e.g.
-"     let g:tcl_lsp_cmd = expand('~/Repos/tcl-lsp.nvim/server/tcl-lsp')
-if !exists('g:tcl_lsp_cmd')
-  let g:tcl_lsp_cmd = 'tcl-lsp'
+" Repo root from this file: <root>/editors/vim/tcl-lsp.vim. Put the repo on
+" 'runtimepath' so autoload/tcl_lsp.vim (the build helpers) and ftdetect/rvt.vim
+" resolve even when this file is sourced directly rather than installed.
+let s:root = fnamemodify(resolve(expand('<sfile>:p')), ':h:h:h')
+if stridx(&runtimepath, s:root) < 0
+  execute 'set runtimepath+=' . fnameescape(s:root)
 endif
 
 " Resolve the project root. .git wins so ONE server indexes the whole repo
@@ -42,15 +48,21 @@ function! s:tcl_lsp_root_uri(...) abort
 endfunction
 
 function! s:tcl_lsp_register() abort
-  if !executable(g:tcl_lsp_cmd)
+  " An explicit g:tcl_lsp_cmd (a prebuilt binary) is used as-is; otherwise build
+  " or refresh the bundled server.
+  let l:cmd = get(g:, 'tcl_lsp_cmd', '')
+  if empty(l:cmd)
+    let l:cmd = tcl_lsp#ensure_built(s:root, get(g:, 'tcl_lsp_auto_build', 1))
+  endif
+  if empty(l:cmd) || !executable(l:cmd)
     echohl WarningMsg
-    echomsg 'tcl-lsp: server not found (' . g:tcl_lsp_cmd . '). Build it: make -C <repo>/server build'
+    echomsg 'tcl-lsp: no usable server binary; not registering. Build: make -C ' . s:root . '/server build'
     echohl None
     return
   endif
   call lsp#register_server({
     \ 'name': 'tcl-lsp',
-    \ 'cmd': {server_info -> [g:tcl_lsp_cmd]},
+    \ 'cmd': {server_info -> [l:cmd]},
     \ 'allowlist': ['tcl', 'rvt'],
     \ 'root_uri': function('s:tcl_lsp_root_uri'),
     \ })
