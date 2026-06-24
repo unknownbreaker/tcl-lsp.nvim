@@ -40,7 +40,11 @@ to the origin:
 
 **Fallback:** if the origin is not defined anywhere in the workspace index,
 goto-definition returns the link statement (today's behavior) — never a dead end.
-The origin lookup is cross-file via the existing index. Single location either way.
+The origin lookup is cross-file via the existing index. The link-line fallback is
+a single location; the chased origin returns whatever the index holds for that
+fully-qualified name — usually one site, but multiple if the global is defined in
+several files (consistent with how proc goto-definition already returns all
+definition sites via the same index lookup).
 
 The same chase fires whether goto-def is invoked from a `$config` use or with the
 cursor on the name in the `global`/`upvar` statement; both route through
