@@ -659,6 +659,62 @@ func TestDefinitionArrayNamespaceCrossFile(t *testing.T) {
 	}
 }
 
+func TestDefinitionGlobalChasesToOrigin(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("lib.tcl", "set ::config 1")
+	use := "proc f {} {\n  global config\n  return $config\n}"
+	ix.IndexFile("use.tcl", use)
+	r := New(ix)
+
+	off := strings.Index(use, "return $config") + len("return $")
+	locs := r.Definition("use.tcl", use, off)
+	if len(locs) != 1 || locs[0].File != "lib.tcl" || locs[0].Name != "::config" {
+		t.Fatalf("global chase = %#v", locs)
+	}
+}
+
+func TestDefinitionGlobalFallsBackToLink(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {} {\n  global config\n  return $config\n}"
+	off := strings.Index(src, "return $config") + len("return $")
+	locs := r.Definition("a.tcl", src, off)
+	if len(locs) != 1 || locs[0].File != "a.tcl" {
+		t.Fatalf("want fallback to link in a.tcl, got %#v", locs)
+	}
+	// ::config is undefined in the workspace -> land on the `global config` line.
+	if locs[0].NameStart != strings.Index(src, "global config")+len("global ") {
+		t.Fatalf("expected the `global config` link, got %#v", locs)
+	}
+}
+
+func TestDefinitionUpvarHashZeroChasesToOrigin(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("lib.tcl", "set ::sessions {}")
+	use := "proc f {} {\n  upvar #0 sessions s\n  return $s\n}"
+	ix.IndexFile("use.tcl", use)
+	r := New(ix)
+
+	off := strings.Index(use, "return $s") + len("return $")
+	locs := r.Definition("use.tcl", use, off)
+	if len(locs) != 1 || locs[0].File != "lib.tcl" || locs[0].Name != "::sessions" {
+		t.Fatalf("upvar #0 chase = %#v", locs)
+	}
+}
+
+func TestDefinitionUpvarFrameRelativeStaysOnLink(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {} {\n  upvar 1 caller v\n  return $v\n}"
+	off := strings.Index(src, "return $v") + len("return $")
+	locs := r.Definition("a.tcl", src, off)
+	if len(locs) != 1 || locs[0].File != "a.tcl" {
+		t.Fatalf("want link in a.tcl, got %#v", locs)
+	}
+	// frame-relative target is dynamic -> land on the upvar alias `v`.
+	if locs[0].NameStart != strings.Index(src, "caller v")+len("caller ") {
+		t.Fatalf("expected the upvar alias v, got %#v", locs)
+	}
+}
+
 func TestRVTToTCLCrossFile(t *testing.T) {
 	ix := index.New()
 	ix.IndexFile("lib.tcl", "namespace eval ::lib { proc helper {} {} }")
