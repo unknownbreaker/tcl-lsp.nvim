@@ -51,7 +51,16 @@ end
 -- setup() (see editors/nvim/tcl-lsp.lua for documented examples).
 local defaults = {
   filetypes = { "tcl", "rvt" }, -- buffers the server attaches to
-  root_markers = { "pkgIndex.tcl", ".git" }, -- how the project root is detected
+  -- How the project root is detected. ORDER IS PRIORITY (Neovim 0.11+): the
+  -- repo root (.git) MUST come first. The server indexes its root's whole
+  -- subtree, and cross-file resolution (.tcl proc <-> .rvt call site) only works
+  -- when both files share one server/index. TCL projects put a pkgIndex.tcl in
+  -- every package dir; if that marker wins, each package spawns its own server
+  -- rooted at a narrow subtree that excludes the .rvt pages, so find-references
+  -- from a .tcl silently misses .rvt call sites (goto-def the other way still
+  -- works, which is the confusing asymmetry). pkgIndex.tcl stays only as a
+  -- fallback for non-git checkouts.
+  root_markers = { ".git", "pkgIndex.tcl" },
   cmd = nil, -- override the server binary (string or list); nil = bundled binary
   auto_build = true, -- build the bundled Go server on first use if missing
 }

@@ -34,7 +34,9 @@ return {
     -- `opts` makes lazy.nvim call require("tcl-lsp").setup(opts) on load.
     opts = {
       -- filetypes    = { "tcl", "rvt" },           -- buffers the server attaches to
-      -- root_markers = { "pkgIndex.tcl", ".git" },  -- how the project root is found
+      -- root_markers = { ".git", "pkgIndex.tcl" },  -- project root first (order = priority);
+      --                                             -- .git must win so one server indexes the
+      --                                             -- whole repo (.tcl defs + .rvt call sites).
       -- cmd          = nil,   -- path to a server binary to use instead of the
       --                       -- bundled one (string or list); nil = bundled
       -- auto_build   = true,  -- build the bundled Go server on first use if missing
