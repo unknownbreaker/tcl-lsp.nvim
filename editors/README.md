@@ -42,8 +42,9 @@ ssh <host> chmod +x ~/.local/bin/tcl-lsp
 Copy `editors/nvim/tcl-lsp.lua` to `~/.config/nvim/lua/plugins/tcl-lsp.lua` and
 restart Neovim. That's the whole install. lazy.nvim clones the repo and, via the
 spec's `opts`, calls `require("tcl-lsp").setup(opts)`; the plugin then builds the
-bundled Go server **from source on first use** (the first time you open a TCL/RVT
-file) and wires it into Neovim's native LSP. No `make`, no `make install`, no PATH
+bundled Go server **from source on install** (and the `build` directive rebuilds
+it on every `:Lazy update`, so you never run a stale server after pulling new
+server code) and wires it into Neovim's native LSP. No `make install`, no PATH
 setup, no binary path to maintain. Building needs `go` + `make` on the machine; if
 they're absent the plugin tells you to build it once by hand (or drop in a
 prebuilt binary from step 1).
@@ -56,7 +57,10 @@ customize; leave `opts = {}` for defaults.
 Open a `.tcl` file and use `gd` (goto-definition) and your references keymap
 (LazyVim: `grr`; stock Neovim: `:lua vim.lsp.buf.references()`).
 
-After pulling new server code, run `:TclLspRebuild` then `:LspRestart`.
+A `:Lazy update` rebuilds the server automatically (via `build`); run
+`:LspRestart` afterward to swap the running process. If you pull server code
+some other way (or you're in Mode B below), run `:TclLspRebuild` then
+`:LspRestart`.
 
 > **Developing the LSP itself?** The file ships a commented **Mode B** spec that
 > points at your local working clone (`dir = …`) instead of a lazy-managed one —

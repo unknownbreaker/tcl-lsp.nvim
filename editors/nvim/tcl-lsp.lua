@@ -6,15 +6,24 @@
 -- bundled Go server and wiring it into Neovim's native LSP -- lives in the
 -- plugin's lua/tcl-lsp module, so this spec stays tiny.
 --
--- The server is built from source on first use; that needs `go` + `make` on the
+-- The server is built from source on install and rebuilt on every lazy.nvim
+-- update (via the `build` directive below); that needs `go` + `make` on the
 -- machine (the plugin tells you if they're missing). No `make install`, no PATH
--- setup, no binary path to maintain.
+-- setup, no binary path to maintain. After an update, :LspRestart swaps the
+-- running server for the rebuilt one.
 
 return {
   {
     -- MODE A (default): lazy.nvim manages the clone. Works on any machine with
     -- go + make. `rebuild` is now the default branch, so no branch pin needed.
     "unknownbreaker/tcl-lsp.nvim",
+
+    -- Recompile the bundled Go server whenever lazy.nvim installs OR updates the
+    -- plugin. Without this, `ensure_built` only builds when the binary is missing,
+    -- so a `:Lazy update` that pulls new server code would leave the OLD binary in
+    -- place and you'd silently run a stale server. (Run :LspRestart after an update
+    -- to swap the already-running process for the freshly built one.) Needs go + make.
+    build = "make -C server build",
 
     -- Load only when you open a TCL/RVT buffer (the idiomatic lazy pattern for a
     -- filetype-scoped LSP). vim.lsp.enable doesn't spawn the server until a
