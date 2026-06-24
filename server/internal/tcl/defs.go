@@ -79,29 +79,35 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 			})
 		}
 	}
-	if isCmd(w, "set") && frame == FrameNamespace && len(w) >= 2 && isPlainName(w[1]) {
-		*out = append(*out, Definition{
-			Kind:      DefNamespaceVar,
-			Name:      qualifyName(w[1].Text, ns),
-			Namespace: ns,
-			NameStart: base + w[1].Start,
-			NameEnd:   base + w[1].End,
-			Scope:     scope,
-		})
+	if isCmd(w, "set") && frame == FrameNamespace && len(w) >= 2 {
+		if name, s, e, ok := arrayBaseName(w[1]); ok {
+			*out = append(*out, Definition{
+				Kind:      DefNamespaceVar,
+				Name:      qualifyName(name, ns),
+				Namespace: ns,
+				NameStart: base + s,
+				NameEnd:   base + e,
+				Scope:     scope,
+			})
+		}
 	}
-	if isCmd(w, "set") && frame == FrameProc && len(w) >= 2 && isPlainName(w[1]) {
-		*out = append(*out, Definition{
-			Kind: DefLocal, Name: w[1].Text, Namespace: ns,
-			NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
-		})
+	if isCmd(w, "set") && frame == FrameProc && len(w) >= 2 {
+		if name, s, e, ok := arrayBaseName(w[1]); ok {
+			*out = append(*out, Definition{
+				Kind: DefLocal, Name: name, Namespace: ns,
+				NameStart: base + s, NameEnd: base + e, Scope: scope,
+			})
+		}
 	}
-	if frame == FrameProc && len(w) >= 2 && isPlainName(w[1]) {
+	if frame == FrameProc && len(w) >= 2 {
 		switch {
 		case isCmd(w, "incr"), isCmd(w, "append"), isCmd(w, "lappend"):
-			*out = append(*out, Definition{
-				Kind: DefLocal, Name: w[1].Text, Namespace: ns,
-				NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
-			})
+			if name, s, e, ok := arrayBaseName(w[1]); ok {
+				*out = append(*out, Definition{
+					Kind: DefLocal, Name: name, Namespace: ns,
+					NameStart: base + s, NameEnd: base + e, Scope: scope,
+				})
+			}
 		}
 	}
 	if isCmd(w, "global") && frame == FrameProc {
@@ -163,6 +169,35 @@ func recurseDefBodies(c Command, base int, ns string, frame FrameKind, scope int
 // (no substitution). Used for proc/variable/set targets.
 func isPlainName(w Word) bool {
 	return isLiteralName(w)
+}
+
+// arrayBaseName returns the variable name a definition target word binds, with a
+// byte range relative to the parse base (callers add `base`). For an array
+// element target like `arr(i)` or `arr($i)` it returns the base name `arr` and a
+// range covering just `arr`; for a plain scalar target it returns the whole word.
+// ok is false when the target is not a usable bare name (empty, a leading `(`, or
+// a base containing a substitution). The index after `(` may be anything.
+func arrayBaseName(w Word) (name string, start, end int, ok bool) {
+	if w.Kind != WordBare || w.Text == "" {
+		return "", 0, 0, false
+	}
+	p := strings.IndexByte(w.Text, '(')
+	if p < 0 {
+		if !isPlainName(w) {
+			return "", 0, 0, false
+		}
+		return w.Text, w.Start, w.End, true
+	}
+	baseText := w.Text[:p]
+	if baseText == "" {
+		return "", 0, 0, false
+	}
+	for i := 0; i < len(baseText); i++ {
+		if baseText[i] == '$' || baseText[i] == '[' {
+			return "", 0, 0, false
+		}
+	}
+	return baseText, w.Start, w.Start + p, true
 }
 
 // isUpvarLevel reports whether a word is an upvar level argument (a number like

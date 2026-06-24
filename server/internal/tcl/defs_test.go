@@ -279,6 +279,53 @@ func TestFileDefsIncrAppendLappendLocals(t *testing.T) {
 	}
 }
 
+func TestFileDefsArrayElementLocals(t *testing.T) {
+	src := "proc f {} {\n" +
+		"  set arr(a) 0\n" +
+		"  incr arr(b)\n" +
+		"  append str(x) hi\n" +
+		"  lappend items(k) v\n" +
+		"  set dyn($i) 1\n" +
+		"}"
+	defs := FileDefs(src)
+	for _, name := range []string{"arr", "str", "items", "dyn"} {
+		ds := defsNamed(defs, name)
+		if len(ds) == 0 {
+			t.Fatalf("no def named %q; got %#v", name, defs)
+		}
+		d := ds[0]
+		if d.Kind != DefLocal || d.Scope == 0 {
+			t.Fatalf("%q: want DefLocal in nonzero scope, got %#v", name, d)
+		}
+		if src[d.NameStart:d.NameEnd] != name {
+			t.Fatalf("%q: range slices %q, want the base name", name, src[d.NameStart:d.NameEnd])
+		}
+	}
+	// The parenthesized form must NOT be emitted as a name.
+	if d := findDef(defs, "arr(a)"); d != nil {
+		t.Fatalf("should not emit parenthesized name arr(a): %#v", d)
+	}
+	// A plain scalar target is unaffected.
+	if d := findDef(FileDefs("proc f {} {\n  set plain 1\n}"), "plain"); d == nil {
+		t.Fatalf("scalar set should still emit a DefLocal named plain")
+	}
+}
+
+func TestFileDefsArrayElementNamespaceVar(t *testing.T) {
+	src := "namespace eval ::app {\n  set cfg(host) x\n}"
+	defs := FileDefs(src)
+	d := findDef(defs, "::app::cfg")
+	if d == nil || d.Kind != DefNamespaceVar {
+		t.Fatalf("want DefNamespaceVar ::app::cfg, got %#v", defs)
+	}
+	if src[d.NameStart:d.NameEnd] != "cfg" {
+		t.Fatalf("range slices %q, want cfg", src[d.NameStart:d.NameEnd])
+	}
+	if findDef(defs, "::app::cfg(host)") != nil {
+		t.Fatalf("should not emit ::app::cfg(host)")
+	}
+}
+
 func TestFileDefsCombined(t *testing.T) {
 	src := "namespace eval ::math {\n  variable e 2.7\n  proc square {x} {\n    set r [expr {$x * $x}]\n  }\n}"
 	got := FileDefs(src)
