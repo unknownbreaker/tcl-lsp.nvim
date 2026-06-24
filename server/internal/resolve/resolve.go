@@ -52,17 +52,25 @@ func (r *Resolver) localAt(file, src string, offset int) (name string, scope int
 // occurrence remains discoverable via find-references. Returns nil if (name,
 // scope) has no binding.
 func (r *Resolver) localDefinition(file, src, name string, scope int) []index.Location {
-	firstStart, firstEnd, have := 0, 0, false
+	firstStart, firstEnd, firstOrigin, have := 0, 0, "", false
 	for _, d := range source.Defs(file, src) {
 		if !isLocalBinding(d.Kind) || d.Name != name || d.Scope != scope {
 			continue
 		}
 		if !have || d.NameStart < firstStart {
-			firstStart, firstEnd, have = d.NameStart, d.NameEnd, true
+			firstStart, firstEnd, firstOrigin, have = d.NameStart, d.NameEnd, d.Origin, true
 		}
 	}
 	if !have {
 		return nil
+	}
+	// Origin-chase: a global/upvar link points at a variable in another scope.
+	// Jump to that origin's definition when it exists in the workspace index;
+	// otherwise fall back to the link statement.
+	if firstOrigin != "" {
+		if locs := r.lookupScoped(firstOrigin, file); len(locs) > 0 {
+			return locs
+		}
 	}
 	return []index.Location{{File: file, Name: name, Kind: tcl.DefLocal, NameStart: firstStart, NameEnd: firstEnd}}
 }
