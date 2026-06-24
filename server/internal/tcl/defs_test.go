@@ -326,6 +326,26 @@ func TestFileDefsArrayElementNamespaceVar(t *testing.T) {
 	}
 }
 
+func TestFileDefsGlobalUpvarOrigin(t *testing.T) {
+	cases := []struct{ src, name, wantOrigin string }{
+		{"proc f {} {\n  global config\n}", "config", "::config"},
+		{"proc f {} {\n  global ::app::x\n}", "::app::x", "::app::x"},
+		{"proc f {} {\n  upvar #0 sessions s\n}", "s", "::sessions"},
+		{"proc f {} {\n  upvar 0 ::app::cfg c\n}", "c", "::app::cfg"},
+		{"proc f {} {\n  upvar 1 caller v\n}", "v", ""},
+		{"proc f {} {\n  set local 1\n}", "local", ""},
+	}
+	for _, tc := range cases {
+		d := findDef(FileDefs(tc.src), tc.name)
+		if d == nil {
+			t.Fatalf("src %q: no def named %q in %#v", tc.src, tc.name, FileDefs(tc.src))
+		}
+		if d.Origin != tc.wantOrigin {
+			t.Fatalf("src %q: Origin = %q, want %q", tc.src, d.Origin, tc.wantOrigin)
+		}
+	}
+}
+
 func TestFileDefsCombined(t *testing.T) {
 	src := "namespace eval ::math {\n  variable e 2.7\n  proc square {x} {\n    set r [expr {$x * $x}]\n  }\n}"
 	got := FileDefs(src)
