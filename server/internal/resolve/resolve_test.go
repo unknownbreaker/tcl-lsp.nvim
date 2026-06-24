@@ -598,6 +598,67 @@ func TestRVTPageLocalShadowsGlobal(t *testing.T) {
 	}
 }
 
+func TestReferencesProcLocalArray(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {} {\n  set arr(a) 0\n  set arr(b) 1\n  return [list $arr(a) $arr(b)]\n}"
+	useOff := strings.Index(src, "$arr(a)") + 1
+	// goto-def from a use lands on the first element write (the declaration).
+	defs := r.Definition("a.tcl", src, useOff)
+	if len(defs) != 1 || defs[0].NameStart != strings.Index(src, "set arr(a)")+len("set ") {
+		t.Fatalf("array goto-def = %#v", defs)
+	}
+	if src[defs[0].NameStart:defs[0].NameEnd] != "arr" {
+		t.Fatalf("range slices %q, want arr", src[defs[0].NameStart:defs[0].NameEnd])
+	}
+	// find-refs gathers both element writes + both uses, current file only.
+	refs := r.References("a.tcl", src, useOff)
+	if len(refs) != 4 {
+		t.Fatalf("want 4 occurrences (2 writes + 2 uses), got %#v", refs)
+	}
+	for _, l := range refs {
+		if l.File != "a.tcl" {
+			t.Fatalf("leaked to %s: %#v", l.File, refs)
+		}
+	}
+}
+
+func TestReferencesProcLocalArrayScopeIsolation(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {} {\n  set m(x) 1\n  puts $m(x)\n}\nproc g {} {\n  set m(y) 2\n}"
+	useOff := strings.Index(src, "$m(x)") + 1
+	defs := r.Definition("a.tcl", src, useOff)
+	if len(defs) != 1 || defs[0].NameStart != strings.Index(src, "set m(x)")+len("set ") {
+		t.Fatalf("crossed scope or wrong target: %#v", defs)
+	}
+}
+
+func TestDefinitionArrayNamespaceCrossFile(t *testing.T) {
+	ix := index.New()
+	lib := "namespace eval ::app {\n  set cfg(host) localhost\n}"
+	page := "namespace eval ::app {\n  puts $cfg(host)\n}"
+	ix.IndexFile("lib.tcl", lib)
+	ix.IndexFile("use.tcl", page)
+	r := New(ix)
+
+	off := strings.Index(page, "$cfg(host)") + 1
+	locs := r.Definition("use.tcl", page, off)
+	if len(locs) != 1 || locs[0].File != "lib.tcl" || locs[0].Name != "::app::cfg" {
+		t.Fatalf("namespace array cross-file goto-def = %#v", locs)
+	}
+
+	defOff := strings.Index(lib, "cfg(host)")
+	refs := r.References("lib.tcl", lib, defOff)
+	found := false
+	for _, l := range refs {
+		if l.File == "use.tcl" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("references missing the ::app::cfg use in use.tcl: %#v", refs)
+	}
+}
+
 func TestRVTToTCLCrossFile(t *testing.T) {
 	ix := index.New()
 	ix.IndexFile("lib.tcl", "namespace eval ::lib { proc helper {} {} }")

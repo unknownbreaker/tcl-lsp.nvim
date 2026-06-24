@@ -1,0 +1,8 @@
+<? proc build_row {cells} {
+    set cell(count) 0
+    foreach c $cells {
+        incr cell(count)
+    }
+    return $cell(count)
+} ?>
+<p><?= build_row $data ?></p>
