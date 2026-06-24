@@ -169,6 +169,32 @@ func TestCorpusControlFlowSpanningResolves(t *testing.T) {
 	}
 }
 
+// Proc-local array inside an .rvt <? ?> block: goto-def on a $arr(idx) use lands
+// on the first element write within the same proc, and find-refs stays in-page.
+func TestCorpusArrayLocalInRVT(t *testing.T) {
+	page := corpusFile(t, "array_local.rvt")
+	ix := index.New()
+	ix.IndexFile("array_local.rvt", page)
+	r := New(ix)
+
+	off := strings.Index(page, "return $cell(count)") + len("return $")
+	defs := r.Definition("array_local.rvt", page, off)
+	if len(defs) != 1 || defs[0].File != "array_local.rvt" ||
+		page[defs[0].NameStart:defs[0].NameEnd] != "cell" {
+		t.Fatalf("rvt array goto-def = %#v", defs)
+	}
+
+	refs := r.References("array_local.rvt", page, off)
+	if len(refs) < 2 {
+		t.Fatalf("expected >=2 occurrences of cell, got %#v", refs)
+	}
+	for _, l := range refs {
+		if l.File != "array_local.rvt" {
+			t.Fatalf("ref leaked to %s", l.File)
+		}
+	}
+}
+
 // Proc-local inside an .rvt <? ?> block: goto-def on a $-use lands on the nearest
 // preceding binding within the same proc, and find-refs stays within the page.
 func TestCorpusProcLocalInRVT(t *testing.T) {
