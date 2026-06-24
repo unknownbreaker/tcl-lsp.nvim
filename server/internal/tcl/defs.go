@@ -22,6 +22,10 @@ type Definition struct {
 	NameStart int
 	NameEnd   int
 	Scope     int
+	// Origin is the fully-qualified variable a global/upvar link points at
+	// (e.g. `global config` -> "::config"), or "" when there is none or it is
+	// not statically known. Used by goto-definition to chase past the link.
+	Origin string
 }
 
 // FileDefs parses src and returns the definitions it declares, recursing into
@@ -116,6 +120,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 				*out = append(*out, Definition{
 					Kind: DefGlobalLink, Name: gw.Text, Namespace: ns,
 					NameStart: base + gw.Start, NameEnd: base + gw.End, Scope: scope,
+					Origin: globalOrigin(gw.Text),
 				})
 			}
 		}
@@ -123,9 +128,11 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 	if isCmd(w, "upvar") && frame == FrameProc && len(w) >= 3 {
 		args := w[1:]
 		// Optional leading level (e.g. 1 or #0); the rest are (otherVar, alias)
-		// pairs. The alias names are static locals; the otherVar targets are often
-		// dynamic and not recorded here.
+		// pairs. The alias names are static locals; a target is chaseable only
+		// when qualified or reached via the #0 (global) frame -- see upvarOrigin.
+		level := ""
 		if len(args) > 0 && isUpvarLevel(args[0]) {
+			level = args[0].Text
 			args = args[1:]
 		}
 		for i := 1; i < len(args); i += 2 {
@@ -134,6 +141,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 				*out = append(*out, Definition{
 					Kind: DefLocal, Name: alias.Text, Namespace: ns,
 					NameStart: base + alias.Start, NameEnd: base + alias.End, Scope: scope,
+					Origin: upvarOrigin(level, args[i-1]),
 				})
 			}
 		}
@@ -198,6 +206,34 @@ func arrayBaseName(w Word) (name string, start, end int, ok bool) {
 		}
 	}
 	return baseText, w.Start, w.Start + p, true
+}
+
+// globalOrigin returns the fully-qualified global variable a `global NAME` links
+// to: the global namespace always, so a bare name is qualified with "::".
+func globalOrigin(name string) string {
+	if strings.HasPrefix(name, "::") {
+		return name
+	}
+	return "::" + name
+}
+
+// upvarOrigin returns the fully-qualified origin an `upvar` alias points at, or ""
+// when it is not statically resolvable. A qualified target (`::x`) is absolute; a
+// bare target is the global variable of that name only when the level is "#0"
+// (the global frame). Frame-relative levels (default/`1`/`#N>0`) name a variable
+// in another call frame and are dynamic -> "".
+func upvarOrigin(level string, target Word) string {
+	base, _, _, ok := arrayBaseName(target)
+	if !ok {
+		return "" // dynamic/substituted target (e.g. $name)
+	}
+	if strings.HasPrefix(base, "::") {
+		return base
+	}
+	if level == "#0" {
+		return "::" + base
+	}
+	return ""
 }
 
 // isUpvarLevel reports whether a word is an upvar level argument (a number like
