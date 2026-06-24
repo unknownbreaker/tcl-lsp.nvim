@@ -10,6 +10,7 @@ luacov.report.out
 coverage/
 .coverage
 .luacov
+tests/.deps/
 
 # Build artifacts
 build/

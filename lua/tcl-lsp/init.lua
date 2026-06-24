@@ -8,6 +8,8 @@
 --
 -- Requires Neovim 0.11+ (native vim.lsp.config / vim.lsp.enable).
 
+local build = require("tcl-lsp.build")
+
 local M = {}
 
 -- plugin_root resolves this file's install dir up to the repo root
@@ -16,71 +18,6 @@ local M = {}
 local function plugin_root()
   local src = debug.getinfo(1, "S").source:sub(2) -- strip leading "@"
   return vim.fn.fnamemodify(src, ":p:h:h:h")
-end
-
--- mtime returns a file's modification time in epoch seconds, or nil if absent.
-local function mtime(path)
-  local st = (vim.uv or vim.loop).fs_stat(path)
-  return st and st.mtime.sec or nil
-end
-
--- is_stale reports whether the binary (built at bin_mtime) predates any server
--- source file, i.e. the plugin was updated but the binary was not rebuilt. This
--- is what makes auto-rebuild work under ANY plugin manager (or a manual git
--- pull), not just lazy.nvim's `build` hook: the check runs at load time and
--- triggers a rebuild whenever the sources are newer than the binary.
-local function is_stale(bin_mtime, server_dir)
-  local sources = vim.fn.globpath(server_dir, "**/*.go", false, true)
-  for _, extra in ipairs({ "go.mod", "go.sum", "Makefile" }) do
-    table.insert(sources, server_dir .. "/" .. extra)
-  end
-  for _, f in ipairs(sources) do
-    local m = mtime(f)
-    if m and m > bin_mtime then
-      return true
-    end
-  end
-  return false
-end
-
--- ensure_built returns the path to the server binary, building it from the
--- bundled `server/` when it is missing OR stale (older than the server source,
--- e.g. after the plugin was updated). A build is a one-time, ~seconds cost.
--- Returns nil (after notifying) only when no binary exists and one cannot be
--- built; a stale binary that cannot be rebuilt is used as-is.
-local function ensure_built(root, auto_build)
-  local bin = root .. "/server/tcl-lsp"
-  local server_dir = root .. "/server"
-  local bin_mtime = mtime(bin)
-  local exists = bin_mtime ~= nil
-  if exists and not is_stale(bin_mtime, server_dir) then
-    return bin -- present and up to date
-  end
-  if not auto_build then
-    return exists and bin or nil -- opted out: use a stale binary if we have one
-  end
-  if vim.fn.executable("go") == 0 or vim.fn.executable("make") == 0 then
-    if exists then
-      return bin -- can't rebuild a stale binary; run it rather than fail
-    end
-    vim.notify(
-      "tcl-lsp: server binary missing and `go`/`make` not found.\n"
-        .. "Build it once with:  make -C " .. server_dir .. " build",
-      vim.log.levels.ERROR
-    )
-    return nil
-  end
-  vim.notify(
-    exists and "tcl-lsp: server sources changed — rebuilding…" or "tcl-lsp: building server (one-time)…",
-    vim.log.levels.INFO
-  )
-  local res = vim.system({ "make", "-C", server_dir, "build" }, { text = true }):wait()
-  if res.code ~= 0 then
-    vim.notify("tcl-lsp: build failed:\n" .. (res.stderr ~= "" and res.stderr or res.stdout), vim.log.levels.ERROR)
-    return exists and bin or nil -- fall back to the stale binary if the rebuild failed
-  end
-  vim.notify("tcl-lsp: server built.", vim.log.levels.INFO)
-  return bin
 end
 
 -- Defaults. Every field is overridable via the `opts` table a user passes to
@@ -110,7 +47,7 @@ function M.setup(opts)
     cmd = { cmd }
   end
   if not cmd then
-    local bin = ensure_built(root, opts.auto_build)
+    local bin = build.ensure_built(root, opts.auto_build)
     if not bin then
       return -- ensure_built already told the user what to do
     end
