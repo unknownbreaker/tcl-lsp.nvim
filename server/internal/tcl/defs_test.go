@@ -400,3 +400,17 @@ func TestFileDefsItclClassQualifiedHead(t *testing.T) {
 		t.Fatalf("::itcl::class not recognized: %#v", defs)
 	}
 }
+
+func TestFileDefsMethodLoopVarCarriesClass(t *testing.T) {
+	src := "itcl::class ::C {\n  method m {} {\n    foreach x {1 2} { puts $x }\n  }\n}"
+	var xv *Definition
+	for _, d := range FileDefs(src) {
+		dd := d
+		if d.Kind == DefLocal && d.Name == "x" {
+			xv = &dd
+		}
+	}
+	if xv == nil || xv.Class != "::C" {
+		t.Fatalf("foreach var in a method body should carry Class ::C, got %#v", xv)
+	}
+}

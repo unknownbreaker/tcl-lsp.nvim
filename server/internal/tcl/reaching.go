@@ -491,7 +491,7 @@ func localBindings(c Command, base int) []Definition {
 	}
 
 	// foreach / lmap / lassign / dict for|map — loop var lists
-	emitLoopVarDefs(w, base, "::", 0, &out)
+	emitLoopVarDefs(w, base, "::", 0, "", &out)
 
 	return out
 }

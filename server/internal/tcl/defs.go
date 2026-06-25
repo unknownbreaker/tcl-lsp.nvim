@@ -172,7 +172,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 		})
 	}
 	if frame == FrameProc {
-		emitLoopVarDefs(w, base, ns, scope, out)
+		emitLoopVarDefs(w, base, ns, scope, class, out)
 	}
 }
 
@@ -339,7 +339,7 @@ func paramFromWord(w Word, base int) (string, int, int) {
 // emitLoopVarDefs emits DefLocal bindings for loop/destructuring target variables
 // that introduce proc-locals: foreach/lmap var lists, lassign targets, and
 // dict for/map key lists. Called only in FrameProc.
-func emitLoopVarDefs(w []Word, base int, ns string, scope int, out *[]Definition) {
+func emitLoopVarDefs(w []Word, base int, ns string, scope int, class string, out *[]Definition) {
 	if len(w) == 0 || w[0].Kind != WordBare {
 		return
 	}
@@ -347,17 +347,17 @@ func emitLoopVarDefs(w []Word, base int, ns string, scope int, out *[]Definition
 	case "foreach", "lmap":
 		// (varlist list)+ body -- varlists sit at odd indices before the body.
 		for i := 1; i+1 < len(w); i += 2 {
-			emitVarListNames(w[i], base, ns, scope, out)
+			emitVarListNames(w[i], base, ns, scope, class, out)
 		}
 	case "lassign":
 		// lassign list var ?var ...? -- targets are w[2:].
 		for _, vw := range w[2:] {
-			emitVarListNames(vw, base, ns, scope, out)
+			emitVarListNames(vw, base, ns, scope, class, out)
 		}
 	case "dict":
 		// dict for {k v} dict body ; dict map {k v} dict body.
 		if len(w) >= 5 && w[1].Kind == WordBare && (w[1].Text == "for" || w[1].Text == "map") {
-			emitVarListNames(w[2], base, ns, scope, out)
+			emitVarListNames(w[2], base, ns, scope, class, out)
 		}
 	}
 }
@@ -365,7 +365,7 @@ func emitLoopVarDefs(w []Word, base int, ns string, scope int, out *[]Definition
 // emitVarListNames emits a DefLocal for each plain name in a variable-list word: a
 // brace list {a b} yields a and b; a bare word yields itself. Substituted/quoted
 // specs are skipped.
-func emitVarListNames(vw Word, base int, ns string, scope int, out *[]Definition) {
+func emitVarListNames(vw Word, base int, ns string, scope int, class string, out *[]Definition) {
 	text := vw.Text
 	start := base + vw.Start
 	if vw.Kind == WordBraced && len(text) >= 2 {
@@ -378,6 +378,7 @@ func emitVarListNames(vw Word, base int, ns string, scope int, out *[]Definition
 		*out = append(*out, Definition{
 			Kind: DefLocal, Name: p.Name, Namespace: ns,
 			NameStart: p.Start, NameEnd: p.End, Scope: scope,
+			Class: class,
 		})
 	}
 }
