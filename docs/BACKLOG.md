@@ -39,3 +39,29 @@ so only external changes to unopened files are missed. coc handles this natively
 A fix would require Vimscript-side mtime polling (classic Vim has no native fs
 watch) plus a way to push notifications through vim-lsp — hacky and low value.
 Recommend leaving it; document the limitation (done, see `editors/README.md`).
+
+## Reaching-defs follow-ups (from the final whole-branch review)
+
+**Status:** deferred. **Area:** `server/internal/tcl/reaching.go`, `varref.go`, `resolve.go`.
+
+The reaching-definitions feature (proc-local goto-def) shipped with three known,
+non-blocking limitations — all graceful (they fall back to first-binding, never
+crash), all noted in code comments:
+
+1. **Array-ness detection is duplicated/low-layer.** `resolve.go` has its own
+   `isArrayVarAt`/`isNameByte` byte-scan to detect `$arr(key)` uses (so they
+   bypass reaching, which doesn't track subscripts). This re-derives info the
+   lexer discarded: `parseVarRef` (`varref.go`) drops the `(subscript)` and emits
+   only the base name. Cleaner: add a `hasSubscript`/array flag to the use-side
+   `Reference` so the resolver reads it instead of re-scanning, removing the
+   duplicated `isNameByte`. Correctness is fine today; this is layering debt.
+2. **A `$x` use directly inside a `switch` arm body** yields no reaching answer
+   (falls back to first-binding). The conservative switch path collects arm
+   *bindings* but doesn't run use-recording through arm bodies as a normal
+   sequence. Low value; rare.
+3. **`try ... on e {varList} {body}` handler var-list names** aren't emitted as
+   local bindings by `localBindings`, so `$e` there falls back to first-binding.
+
+Also deferred from the design: **OO (`$obj method`) type-tracking** (the original
+motivation), which would consume this reaching engine plus a class/method symbol
+layer — its own future spec.

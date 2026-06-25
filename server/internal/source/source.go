@@ -64,3 +64,33 @@ func Namespaces(path, content string) map[string]*tcl.NamespaceInfo {
 	}
 	return tcl.FileNamespaces(rvt.Extract(content).Script)
 }
+
+// Reaching returns the local bindings that may reach the variable use at byte
+// offset in content, in SOURCE coordinates. For .rvt the offset is mapped into the
+// stitched ::request script and each result range is translated back to the .rvt;
+// ranges that map outside a real region are dropped. ok is false when there is no
+// reaching set (caller falls back).
+func Reaching(path, content string, offset int) ([]tcl.Definition, bool) {
+	if !IsRVT(path) {
+		return tcl.ReachingAt(content, offset)
+	}
+	doc := rvt.Extract(content)
+	vOff, ok := doc.ToVirtual(offset)
+	if !ok {
+		return nil, false
+	}
+	defs, ok := tcl.ReachingAt(doc.Script, vOff)
+	if !ok {
+		return nil, false
+	}
+	var out []tcl.Definition
+	for _, d := range defs {
+		s := doc.ToSource(d.NameStart)
+		if s < 0 {
+			continue
+		}
+		d.NameStart, d.NameEnd = s, s+(d.NameEnd-d.NameStart)
+		out = append(out, d)
+	}
+	return out, len(out) > 0
+}
