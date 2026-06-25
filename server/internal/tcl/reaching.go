@@ -281,6 +281,14 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 		return in, false
 	}
 	binds := localBindings(c, base)
+	if isRMW(c) && !a.found {
+		for _, d := range binds {
+			if a.useOff >= d.NameStart && a.useOff < d.NameEnd {
+				a.answer = append([]Definition(nil), in[d.Name]...)
+				a.found = true
+			}
+		}
+	}
 	if len(binds) == 0 {
 		return in, true
 	}
@@ -454,4 +462,10 @@ func localBindings(c Command, base int) []Definition {
 	emitLoopVarDefs(w, base, "::", 0, &out)
 
 	return out
+}
+
+// isRMW reports whether command c is a read-modify-write command
+// (incr, append, or lappend).
+func isRMW(c Command) bool {
+	return isCmd(c.Words, "incr") || isCmd(c.Words, "append") || isCmd(c.Words, "lappend")
 }

@@ -129,3 +129,15 @@ func TestReachingSizeCapFallsBack(t *testing.T) {
 		t.Fatalf("expected ok=false (fallback) for oversized proc body")
 	}
 }
+
+func TestReachingRMWTargetIsUse(t *testing.T) {
+	src := "proc f {} {\n  set x 1\n  incr x\n}"
+	off := strings.Index(src, "incr x") + len("incr ") // the `x` of `incr x`
+	defs, ok := ReachingAt(src, off)
+	if !ok || len(defs) != 1 {
+		t.Fatalf("rmw target should be a use: ok=%v defs=%#v", ok, defs)
+	}
+	if defs[0].NameStart != strings.Index(src, "set x 1")+len("set ") {
+		t.Fatalf("want the prior `set x 1`, got %#v", defs)
+	}
+}
