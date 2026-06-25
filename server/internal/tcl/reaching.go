@@ -34,34 +34,6 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 	return a.answer, true
 }
 
-// enclosingProc returns the interior text and absolute base of the innermost proc
-// body containing useOff, plus the proc's args Word and the base for interpreting
-// it. A proc-introducing body is FrameProc with Scope==Base (childBodies sets a
-// proc body's Scope to its own interior offset; control-flow bodies keep the
-// enclosing scope).
-func enclosingProc(cmds []Command, base int, ns string, frame FrameKind, scope, useOff int) (inner string, innerBase int, argsWord Word, argsBase int, found bool) {
-	for _, c := range cmds {
-		for _, b := range childBodies(c, base, ns, frame, scope, "") {
-			if useOff < b.Base || useOff >= b.Base+len(b.Inner) {
-				continue
-			}
-			// Try to find a deeper (more nested) proc first.
-			if in2, base2, aw2, ab2, ok2 := enclosingProc(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, useOff); ok2 {
-				return in2, base2, aw2, ab2, true
-			}
-			// This body is the innermost one containing useOff. Check if it is a
-			// proc frame (Scope==Base means childBodies set it as a proc body's
-			// own interior, not a control-flow body sharing the enclosing scope).
-			if b.Frame == FrameProc && b.Scope == b.Base {
-				// Recover the args word from the proc command.
-				aw, ab := procArgsWord(c, base)
-				return b.Inner, b.Base, aw, ab, true
-			}
-		}
-	}
-	return "", 0, Word{}, 0, false
-}
-
 // enclosingProcOrScope returns the interior text and absolute base of the innermost
 // scope (proc or namespace) containing useOff, plus the proc's args Word and base
 // for interpreting it (empty/zero for namespace scopes). Also returns the frame

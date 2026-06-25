@@ -210,11 +210,16 @@ func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 	if receiverOff, methodName, ok := source.ObjMethodAt(file, src, offset); ok {
 		classes := source.ClassOf(file, src, receiverOff)
 		if len(classes) > 0 {
-			seen := map[[2]int]bool{}
+			type locKey struct {
+				File       string
+				NameStart  int
+				NameEnd    int
+			}
+			seen := map[locKey]bool{}
 			var out []index.Location
 			for _, cls := range classes {
 				for _, loc := range r.methodInClass(cls, methodName) {
-					key := [2]int{loc.NameStart, loc.NameEnd}
+					key := locKey{loc.File, loc.NameStart, loc.NameEnd}
 					if !seen[key] {
 						seen[key] = true
 						out = append(out, loc)
