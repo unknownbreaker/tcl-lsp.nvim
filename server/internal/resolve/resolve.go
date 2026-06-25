@@ -194,6 +194,9 @@ func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 		// Proc-local resolution found nothing. If the use is inside a class method
 		// body, fall back to the class's instance variables (MRO walk). Proc-locals
 		// take precedence: this branch is reached only when local resolution fails.
+		// Ivar fallback relies on localDefinition returning nil (not a synthetic
+		// DefLocal) for a bare ivar use with no local binding; if that ever
+		// changes, ivar resolution silently breaks.
 		if ref := refAt(file, src, offset); ref != nil && ref.Frame == tcl.FrameProc && ref.Class != "" {
 			if locs := r.ivarInClass(ref.Class, name); len(locs) > 0 {
 				return locs
