@@ -47,6 +47,27 @@ func isModifiableMember(s string) bool {
 	return false
 }
 
+// minMemberBodyWords returns the word count at and above which the LAST braced
+// word of a class member declaration is its body rather than its parameter list:
+//
+//	method NAME ARGS BODY        — 4
+//	constructor ARGS ?INIT? BODY — 3
+//	destructor BODY              — 2
+//
+// Below this count the declaration is signature-only (a forward declaration whose
+// body is supplied later by itcl::body), so its trailing brace is the parameter
+// list and must not be descended as a script.
+func minMemberBodyWords(w []Word) int {
+	switch {
+	case isCmd(w, "constructor"):
+		return 3
+	case isCmd(w, "destructor"):
+		return 2
+	default: // method
+		return 4
+	}
+}
+
 // childBodies returns the script bodies of c that walkers should recurse into,
 // each tagged with the scope it runs in. `namespace eval` and `proc` introduce a
 // new scope; control-flow and custom-command script bodies run in the enclosing
@@ -79,6 +100,17 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 	case frame == FrameClass && (isCmd(w, "method") || isCmd(w, "constructor") || isCmd(w, "destructor")) && w[len(w)-1].Kind == WordBraced:
 		// method/constructor/destructor inside a class body — each runs as a proc
 		// frame carrying the enclosing class name.
+		//
+		// The last braced word is the *body* only when the declaration actually
+		// has one. A signature-only declaration — a method forward-declared in the
+		// class block whose body is supplied later by `itcl::body` — has no body,
+		// and its last braced word is the *parameter list* (data, not code). Return
+		// nil (rather than falling through to the trailing-braced-argument heuristic
+		// in the default branch, which would walk the param list and emit bogus
+		// refs to its first name).
+		if len(w) < minMemberBodyWords(w) {
+			return nil
+		}
 		inner, innerBase := bracedInner(w[len(w)-1], base)
 		out := []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: class}}
 		// A constructor may carry an optional init block before the body

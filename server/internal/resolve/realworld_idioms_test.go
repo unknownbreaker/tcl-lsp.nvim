@@ -9,6 +9,7 @@ import (
 
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
 	"github.com/unknownbreaker/tcl-lsp/internal/source"
+	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
 
 // These tests run against VERBATIM excerpts of real production code vendored in
@@ -119,6 +120,21 @@ func TestRealWorldTier2ThisMethod(t *testing.T) {
 	}
 	if !ok {
 		t.Errorf("resolved location is not the content_type method: %#v", locs)
+	}
+}
+
+// TestRealWorldNoBogusParamRefs: the signature-only methods in the real fixture
+// (forward declarations whose bodies are supplied later by itcl::body) must not
+// leak their parameter names as command references. mdlist/dictionary/hooks_d
+// each appear only as the sole parameter of such a declaration in rweb_page.tcl.
+func TestRealWorldNoBogusParamRefs(t *testing.T) {
+	src := readRealworld(t, "rweb_page.tcl")
+	params := map[string]bool{"mdlist": true, "dictionary": true, "hooks_d": true}
+	for _, r := range source.Refs("rweb_page.tcl", src) {
+		name := src[r.Ref.Start:r.Ref.End]
+		if r.Ref.Kind == tcl.RefCommand && params[name] {
+			t.Errorf("parameter %q of a signature-only method leaked as a command reference", name)
+		}
 	}
 }
 
