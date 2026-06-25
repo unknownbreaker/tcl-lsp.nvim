@@ -104,3 +104,45 @@ func Reaching(path, content string, offset int) ([]tcl.Definition, bool) {
 	}
 	return out, len(out) > 0
 }
+
+// ClassOf returns the class set for a receiver variable at offset in content,
+// in SOURCE coordinates. For .rvt the offset is mapped into the stitched ::request
+// script; no translation is needed on the result (class names are plain strings).
+func ClassOf(path, content string, offset int) []string {
+	if !IsRVT(path) {
+		return tcl.ClassOf(content, offset)
+	}
+	doc := rvt.Extract(content)
+	vOff, ok := doc.ToVirtual(offset)
+	if !ok {
+		return nil
+	}
+	return tcl.ClassOf(doc.Script, vOff)
+}
+
+// ObjMethodAt detects the "$var method" command shape at byte offset in
+// content, in SOURCE coordinates. Returns (receiverSourceOff, methodName, true)
+// when offset falls on the second word of a "$var method" command; the receiver
+// offset points to the variable name byte (after '$') in source coordinates.
+// For .rvt, offset is translated into the stitched script, the shape is
+// detected there, and the receiver offset is translated back to source.
+func ObjMethodAt(path, content string, offset int) (receiverOff int, methodName string, ok bool) {
+	if !IsRVT(path) {
+		return tcl.ObjMethodAt(content, offset)
+	}
+	doc := rvt.Extract(content)
+	vOff, mapped := doc.ToVirtual(offset)
+	if !mapped {
+		return 0, "", false
+	}
+	vReceiverOff, mn, found := tcl.ObjMethodAt(doc.Script, vOff)
+	if !found {
+		return 0, "", false
+	}
+	// Translate the receiver offset from virtual (stitched-script) to source.
+	srcReceiverOff := doc.ToSource(vReceiverOff)
+	if srcReceiverOff < 0 {
+		return 0, "", false
+	}
+	return srcReceiverOff, mn, true
+}

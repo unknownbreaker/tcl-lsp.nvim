@@ -919,3 +919,38 @@ func TestDefinitionProcLocalShadowsIvar(t *testing.T) {
 			wantStart, locs[0].NameStart, locs)
 	}
 }
+
+func TestDefinitionObjMethod(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("disp.tcl", "itcl::class ::STDisplay {\n  method field {name} {}\n}")
+	r := New(ix)
+	src := "proc f {} {\n  set d [::STDisplay #auto]\n  $d field isbn\n}"
+	off := strings.Index(src, "field isbn") // cursor on the method word
+	locs := r.Definition("use.tcl", src, off)
+	if len(locs) != 1 || locs[0].File != "disp.tcl" || locs[0].Name != "field" {
+		t.Fatalf("$obj method goto-def = %#v", locs)
+	}
+}
+
+func TestDefinitionObjMethodUnknownReceiver(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("disp.tcl", "itcl::class ::STDisplay { method field {} {} }")
+	r := New(ix)
+	src := "proc f {obj} {\n  $obj field\n}" // obj is a param -> unknown type
+	off := strings.Index(src, "field")
+	if locs := r.Definition("use.tcl", src, off); len(locs) != 0 {
+		t.Fatalf("unknown receiver should not resolve: %#v", locs)
+	}
+}
+
+func TestDefinitionObjMethodRVT(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("disp.tcl", "itcl::class ::STDisplay {\n  method field {name} {}\n}")
+	r := New(ix)
+	page := "<? set d [::STDisplay #auto]\n$d field isbn ?>"
+	off := strings.Index(page, "field isbn") // method word in the .rvt page
+	locs := r.Definition("page.rvt", page, off)
+	if len(locs) != 1 || locs[0].File != "disp.tcl" || locs[0].Name != "field" {
+		t.Fatalf("rvt $obj method goto-def = %#v", locs)
+	}
+}
