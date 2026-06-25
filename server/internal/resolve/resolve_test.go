@@ -799,3 +799,24 @@ func TestReferencesItclClass(t *testing.T) {
 		t.Fatalf("class references should include the a.tcl instantiation: %#v", refs)
 	}
 }
+
+func TestDefinitionIntraClassMethod(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("c.tcl",
+		"itcl::class ::Base { method helper {} {} }\n"+
+			"itcl::class ::Derived {\n  inherit ::Base\n"+
+			"  method run {} {\n    helper\n    field\n  }\n"+
+			"  method field {} {}\n}")
+	r := New(ix)
+	src := ix.Source("c.tcl")
+	// bare `field` call inside run() -> Derived's own method
+	offField := strings.Index(src, "    field") + len("    ")
+	if locs := r.Definition("c.tcl", src, offField); len(locs) != 1 || locs[0].Name != "field" {
+		t.Fatalf("intra-class method `field` = %#v", locs)
+	}
+	// bare `helper` call -> inherited from ::Base (MRO)
+	offHelper := strings.Index(src, "    helper") + len("    ")
+	if locs := r.Definition("c.tcl", src, offHelper); len(locs) != 1 || locs[0].Name != "helper" {
+		t.Fatalf("inherited method `helper` = %#v", locs)
+	}
+}

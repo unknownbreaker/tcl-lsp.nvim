@@ -122,6 +122,35 @@ func (r *Resolver) localDefinition(file, src, name string, scope, offset int) []
 	return []index.Location{{File: file, Name: name, Kind: tcl.DefLocal, NameStart: firstStart, NameEnd: firstEnd}}
 }
 
+// methodInClass looks up method name in the class identified by classFQ,
+// walking the inheritance chain depth-first (first match wins). Returns the
+// method's definition sites, or nil if not found. A visited set guards against
+// inheritance cycles.
+func (r *Resolver) methodInClass(classFQ, name string) []index.Location {
+	return r.methodInClassSeen(classFQ, name, map[string]bool{})
+}
+
+func (r *Resolver) methodInClassSeen(classFQ, name string, seen map[string]bool) []index.Location {
+	if seen[classFQ] {
+		return nil
+	}
+	seen[classFQ] = true
+	ci := r.ix.Class(classFQ)
+	if ci == nil {
+		return nil
+	}
+	if locs := ci.Methods[name]; len(locs) > 0 {
+		return locs
+	}
+	// Walk bases depth-first; first match wins.
+	for _, base := range ci.Inherit {
+		if locs := r.methodInClassSeen(base, name, seen); len(locs) > 0 {
+			return locs
+		}
+	}
+	return nil
+}
+
 // Definition returns the definition site(s) for the symbol at byte offset in
 // src. file is the path of the calling document; page-local (::request::*)
 // symbols are scoped to file only. Returns nil if there is no symbol at the
@@ -135,6 +164,14 @@ func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 	ref := refAt(file, src, offset)
 	if ref == nil {
 		return nil
+	}
+	// Intra-class method resolution: a bare command call (or $this method) inside
+	// a class method body resolves to a method on the current class (or its bases).
+	// This takes precedence over the global command path but comes after proc-locals.
+	if ref.Ref.Kind == tcl.RefCommand && ref.Frame == tcl.FrameProc && ref.Class != "" {
+		if locs := r.methodInClass(ref.Class, ref.Ref.Name); len(locs) > 0 {
+			return locs
+		}
 	}
 	for _, name := range r.candidates(ref) {
 		if locs := r.lookupScoped(name, file); len(locs) > 0 {
