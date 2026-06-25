@@ -22,3 +22,26 @@ func TestClassOfUnknownIsNil(t *testing.T) {
 		t.Fatalf("ClassOf on a param should be nil, got %#v", got)
 	}
 }
+
+func TestClassOfConditionalInstantiation(t *testing.T) {
+	src := "proc f {} {\n  if {$c} {\n    set d [::STDisplay #auto]\n  }\n  $d field\n}"
+	off := strings.LastIndex(src, "$d") + 1
+	got := ClassOf(src, off)
+	if len(got) != 1 || got[0] != "::STDisplay" {
+		t.Fatalf("conditional instantiation: ClassOf = %#v, want [::STDisplay]", got)
+	}
+}
+
+func TestClassOfUnionAcrossBranches(t *testing.T) {
+	src := "proc f {} {\n  if {$c} {\n    set d [::A #auto]\n  } else {\n    set d [::B #auto]\n  }\n  $d field\n}"
+	off := strings.LastIndex(src, "$d") + 1
+	got := ClassOf(src, off)
+	// may-reach: both branch classes, deduped, order-independent
+	set := map[string]bool{}
+	for _, c := range got {
+		set[c] = true
+	}
+	if len(got) != 2 || !set["::A"] || !set["::B"] {
+		t.Fatalf("union across branches: ClassOf = %#v, want {::A, ::B}", got)
+	}
+}

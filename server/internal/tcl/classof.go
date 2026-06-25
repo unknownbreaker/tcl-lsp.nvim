@@ -32,25 +32,33 @@ func ClassOf(src string, receiverUseOff int) []string {
 	var classes []string
 	seen := map[string]bool{}
 
-	for _, c := range cmds {
-		// Only consider `set NAME VALUE` commands.
-		if !isCmd(c.Words, "set") || len(c.Words) < 3 {
-			continue
-		}
-		nameWord := c.Words[1]
-		absNameStart := innerBase + nameWord.Start
-		absNameEnd := innerBase + nameWord.End
-		if !wanted[nameRange{absNameStart, absNameEnd}] {
-			continue
-		}
-		// This command is the binding site. Check if the value word is a
-		// command substitution whose head is a qualified class name.
-		cls := extractInstantiationClass(c.Words[2], innerBase)
-		if cls != "" && !seen[cls] {
-			seen[cls] = true
-			classes = append(classes, cls)
+	// walkCmds recursively visits every command in a sequence (and all nested
+	// child-body commands) to find `set NAME VALUE` commands whose name token
+	// matches one of the wanted reaching-def ranges.  This mirrors the recursion
+	// pattern used by collectBindings in reaching.go so that bindings inside
+	// if/foreach/while bodies are discovered at any nesting depth.
+	var walkCmds func(seq []Command, base int)
+	walkCmds = func(seq []Command, base int) {
+		for _, c := range seq {
+			if isCmd(c.Words, "set") && len(c.Words) >= 3 {
+				nameWord := c.Words[1]
+				absStart := base + nameWord.Start
+				absEnd := base + nameWord.End
+				if wanted[nameRange{absStart, absEnd}] {
+					cls := extractInstantiationClass(c.Words[2])
+					if cls != "" && !seen[cls] {
+						seen[cls] = true
+						classes = append(classes, cls)
+					}
+				}
+			}
+			// Recurse into child script bodies (if/foreach/while/etc.).
+			for _, b := range childBodies(c, base, "::", FrameProc, base, "") {
+				walkCmds(Parse(b.Inner), b.Base)
+			}
 		}
 	}
+	walkCmds(cmds, innerBase)
 
 	if len(classes) == 0 {
 		return nil
@@ -61,15 +69,13 @@ func ClassOf(src string, receiverUseOff int) []string {
 // extractInstantiationClass returns the class name from a value word that looks
 // like a command substitution instantiation: `[ClassName ...]` where ClassName
 // is a qualified name (contains "::" or starts with "::"). Returns "" otherwise.
-func extractInstantiationClass(w Word, base int) string {
+func extractInstantiationClass(w Word) string {
 	// The value word for `set v [::Cls #auto]` is a WordBare whose text
 	// starts with '[' (the bracket span).
 	var text string
-	var textBase int
 	switch w.Kind {
 	case WordBare, WordQuoted:
 		text = w.Text
-		textBase = base + w.Start
 	default:
 		return ""
 	}
@@ -77,7 +83,6 @@ func extractInstantiationClass(w Word, base int) string {
 	// Strip leading/trailing quotes for WordQuoted.
 	if w.Kind == WordQuoted && len(text) >= 2 {
 		text = text[1 : len(text)-1]
-		textBase++
 	}
 
 	// Find the first '[' that opens a command substitution.
@@ -104,7 +109,6 @@ func extractInstantiationClass(w Word, base int) string {
 		innerEnd = end - 1
 	}
 	inner := text[i+1 : innerEnd]
-	_ = textBase // offsets not needed for this extraction
 
 	// Parse the inner command and take its head word.
 	innerCmds := Parse(inner)
