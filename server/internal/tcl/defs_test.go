@@ -15,9 +15,11 @@ func findDef(defs []Definition, name string) *Definition {
 }
 
 func TestFileDefsProcGlobal(t *testing.T) {
-	got := FileDefs("proc greet {} {}")
+	src := "proc greet {} {}"
+	got := FileDefs(src)
 	want := []Definition{
-		{Kind: DefProc, Name: "::greet", Namespace: "::", NameStart: 5, NameEnd: 10},
+		{Kind: DefProc, Name: "::greet", Namespace: "::", NameStart: 5, NameEnd: 10,
+			FullStart: 0, FullEnd: len(src)},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
@@ -449,5 +451,29 @@ func TestFileDefsItclBody(t *testing.T) {
 	}
 	if m == nil || m.Class != "::C" {
 		t.Fatalf("want external DefMethod field on ::C, got %#v", FileDefs(src))
+	}
+}
+
+func TestFileDefsFullExtent(t *testing.T) {
+	src := "proc render {x} {\n  return $x\n}"
+	var d *Definition
+	for _, def := range FileDefs(src) {
+		if def.Kind == DefProc {
+			dd := def
+			d = &dd
+		}
+	}
+	if d == nil {
+		t.Fatal("no DefProc")
+	}
+	// FullStart at `proc`, FullEnd at the closing brace.
+	if src[d.FullStart:d.FullStart+4] != "proc" {
+		t.Fatalf("FullStart not at command start: %q", src[d.FullStart:d.FullStart+4])
+	}
+	if d.FullEnd != len(src) || src[d.FullEnd-1] != '}' {
+		t.Fatalf("FullEnd not at closing brace: %d", d.FullEnd)
+	}
+	if d.FullStart > d.NameStart || d.FullEnd < d.NameEnd {
+		t.Fatalf("full range must contain name range")
 	}
 }

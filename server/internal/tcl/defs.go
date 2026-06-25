@@ -17,13 +17,18 @@ const (
 
 // Definition is a declaration site. Name is fully qualified for proc, class, and
 // namespace-variable kinds; for locals it is the bare local name. NameStart and
-// NameEnd are the absolute byte range of the declared name token.
+// NameEnd are the absolute byte range of the declared name token. FullStart and
+// FullEnd are the byte range of the entire defining command (first word start to
+// last word end), set for symbol kinds (DefProc, DefNamespaceVar, DefClass,
+// DefMethod, DefIvar); locals leave them 0.
 type Definition struct {
 	Kind      DefKind
 	Name      string
 	Namespace string // the namespace the definition lives in ("::" for locals' enclosing)
 	NameStart int
 	NameEnd   int
+	FullStart int // byte offset of the first word of the defining command
+	FullEnd   int // byte offset past the last word of the defining command
 	Scope     int
 	// Origin is the fully-qualified variable a global/upvar link points at
 	// (e.g. `global config` -> "::config"), or "" when there is none or it is
@@ -51,18 +56,26 @@ func walkDefs(cmds []Command, base int, ns string, frame FrameKind, scope int, c
 
 func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class string, out *[]Definition) {
 	w := c.Words
+	var cmdStart, cmdEnd int
+	if len(w) > 0 {
+		cmdStart = base + w[0].Start
+		cmdEnd = base + w[len(w)-1].End
+	}
 	if frame == FrameClass {
 		switch {
 		case len(w) >= 1 && (isCmd(w, "constructor") || isCmd(w, "destructor")):
 			// constructor/destructor have no name word; use the keyword itself as the name.
 			*out = append(*out, Definition{Kind: DefMethod, Name: w[0].Text, Class: class,
-				Namespace: ns, NameStart: base + w[0].Start, NameEnd: base + w[0].End, Scope: scope})
+				Namespace: ns, NameStart: base + w[0].Start, NameEnd: base + w[0].End, Scope: scope,
+				FullStart: cmdStart, FullEnd: cmdEnd})
 		case len(w) >= 2 && (isCmd(w, "method") || isCmd(w, "proc")) && isPlainName(w[1]):
 			*out = append(*out, Definition{Kind: DefMethod, Name: w[1].Text, Class: class,
-				Namespace: ns, NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope})
+				Namespace: ns, NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
+				FullStart: cmdStart, FullEnd: cmdEnd})
 		case len(w) >= 2 && (isCmd(w, "variable") || isCmd(w, "common")) && isPlainName(w[1]):
 			*out = append(*out, Definition{Kind: DefIvar, Name: w[1].Text, Class: class,
-				Namespace: ns, NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope})
+				Namespace: ns, NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
+				FullStart: cmdStart, FullEnd: cmdEnd})
 		}
 		return // class-body declarations handled; skip namespace/proc rules below
 	}
@@ -74,6 +87,8 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 			Namespace: ns,
 			NameStart: base + w[1].Start,
 			NameEnd:   base + w[1].End,
+			FullStart: cmdStart,
+			FullEnd:   cmdEnd,
 			Scope:     scope,
 			Class:     class,
 		})
@@ -86,6 +101,8 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 			Namespace: ns,
 			NameStart: base + name.Start,
 			NameEnd:   base + name.End,
+			FullStart: cmdStart,
+			FullEnd:   cmdEnd,
 			Scope:     scope,
 			Class:     class,
 		})
@@ -97,6 +114,8 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 			Namespace: ns,
 			NameStart: base + w[1].Start,
 			NameEnd:   base + w[1].End,
+			FullStart: cmdStart,
+			FullEnd:   cmdEnd,
 			Scope:     scope,
 			Class:     class,
 		})
@@ -116,6 +135,8 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 				Namespace: ns,
 				NameStart: base + s,
 				NameEnd:   base + e,
+				FullStart: cmdStart,
+				FullEnd:   cmdEnd,
 				Scope:     scope,
 				Class:     class,
 			})
@@ -184,6 +205,8 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 			Namespace: ns,
 			NameStart: base + w[1].Start,
 			NameEnd:   base + w[1].End,
+			FullStart: cmdStart,
+			FullEnd:   cmdEnd,
 			Scope:     scope,
 			Class:     class,
 		})
@@ -205,6 +228,8 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 					Namespace: ns,
 					NameStart: base + segStart,
 					NameEnd:   base + w[1].End,
+					FullStart: cmdStart,
+					FullEnd:   cmdEnd,
 					Scope:     scope,
 				})
 			}
