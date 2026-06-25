@@ -87,8 +87,10 @@ func TestDefinitionQualifiedVariable(t *testing.T) {
 
 func TestDefinitionProcLocalDeclaration(t *testing.T) {
 	r := New(index.New())
-	// Two `set total` bindings: goto-def lands on the FIRST (the declaration),
-	// not the nearest preceding one.
+	// Two `set total` bindings: under reaching-defs semantics, goto-def from
+	// `return $total` lands on the LAST `set total` — the one that actually
+	// reaches the use. The first `set total 0` is killed by `set total 1`
+	// in a straight-line sequence.
 	src := "proc f {x} {\n  set total 0\n  set total 1\n  return $total\n}"
 	off := strings.Index(src, "return $total") + len("return $")
 	locs := r.Definition("a.tcl", src, off)
@@ -98,9 +100,9 @@ func TestDefinitionProcLocalDeclaration(t *testing.T) {
 	if got := src[locs[0].NameStart:locs[0].NameEnd]; got != "total" {
 		t.Fatalf("slice %q", got)
 	}
-	// strings.Index finds the FIRST `set total` — the declaration.
-	if locs[0].NameStart != strings.Index(src, "set total")+len("set ") {
-		t.Fatalf("expected first `set total` (declaration), got offset %d", locs[0].NameStart)
+	// strings.LastIndex finds the LAST `set total` — the one that reaches the use.
+	if locs[0].NameStart != strings.LastIndex(src, "set total")+len("set ") {
+		t.Fatalf("expected last `set total` (reaching def), got offset %d", locs[0].NameStart)
 	}
 }
 
@@ -142,17 +144,20 @@ func TestDefinitionProcLocalUndefinedIsNil(t *testing.T) {
 
 func TestDefinitionProcLocalJumpsToDeclarationNotMutation(t *testing.T) {
 	r := New(index.New())
-	// Declared once with `set`, later mutated with a build-up command. goto-def
-	// from the use AND from the mutation site both land on the original `set thing`
-	// declaration -- the mutation is never the target, and from a mutation you can
-	// reach the declaration (the old nearest-preceding behavior dead-ended on the
-	// mutation itself).
+	// Declared once with `set`, later mutated with a build-up command (lappend).
+	// Under reaching-defs semantics:
+	//   - From the use ($thing in return): lappend kills the prior set, so goto-def
+	//     lands on the `lappend thing` site (the mutation that reaches the use).
+	//   - From the mutation (lappend thing): the reaching set at that RMW binding
+	//     is the prior `set thing`, so goto-def still lands on the declaration.
+	//   - From the declaration itself: goto-def is idempotent (stays put).
 	src := "proc f {} {\n  set thing [list]\n  lappend thing $blah\n  return $thing\n}"
 	decl := strings.Index(src, "set thing") + len("set ")
+	lappendThing := strings.Index(src, "lappend thing") + len("lappend ")
 
 	useOff := strings.Index(src, "return $thing") + len("return $")
-	if locs := r.Definition("a.tcl", src, useOff); len(locs) != 1 || locs[0].NameStart != decl {
-		t.Fatalf("from use: expected declaration at %d, got %#v", decl, locs)
+	if locs := r.Definition("a.tcl", src, useOff); len(locs) != 1 || locs[0].NameStart != lappendThing {
+		t.Fatalf("from use: expected reaching def lappend thing at %d, got %#v", lappendThing, locs)
 	}
 
 	mutOff := strings.Index(src, "lappend thing") + len("lappend ")
@@ -741,5 +746,25 @@ func TestRVTToTCLCrossFile(t *testing.T) {
 	}
 	if !inRVT {
 		t.Fatalf("expected page.rvt among references to ::lib::helper: %#v", got)
+	}
+}
+
+func TestDefinitionLocalReachingBranch(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {} {\n  set x 1\n  if {$c} { set x 2 } else { set x 3 }\n  puts $x\n}"
+	off := strings.LastIndex(src, "$x") + 1
+	defs := r.Definition("a.tcl", src, off)
+	if len(defs) != 2 { // reaches set x 2 and set x 3, not set x 1
+		t.Fatalf("reaching goto-def: want 2, got %#v", defs)
+	}
+}
+
+func TestDefinitionLocalReachingLatestStraightLine(t *testing.T) {
+	r := New(index.New())
+	src := "proc f {} {\n  set x 1\n  set x 2\n  puts $x\n}"
+	off := strings.LastIndex(src, "$x") + 1
+	defs := r.Definition("a.tcl", src, off)
+	if len(defs) != 1 || defs[0].NameStart != strings.LastIndex(src, "set x 2")+len("set ") {
+		t.Fatalf("want the latest binding (set x 2), got %#v", defs)
 	}
 }

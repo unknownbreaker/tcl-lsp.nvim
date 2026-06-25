@@ -195,8 +195,11 @@ func TestCorpusArrayLocalInRVT(t *testing.T) {
 	}
 }
 
-// Proc-local inside an .rvt <? ?> block: goto-def on a $-use lands on the nearest
-// preceding binding within the same proc, and find-refs stays within the page.
+// Proc-local inside an .rvt <? ?> block: goto-def on a $-use returns the
+// reaching definition(s) within the same proc, and find-refs stays within
+// the page. Under reaching-defs semantics, `incr total` in the loop body
+// is a valid reaching def for the `return $total` use (loop may have run),
+// so multiple defs are expected.
 func TestCorpusProcLocalInRVT(t *testing.T) {
 	page := corpusFile(t, "proc_local.rvt")
 	ix := index.New()
@@ -205,9 +208,13 @@ func TestCorpusProcLocalInRVT(t *testing.T) {
 
 	off := strings.Index(page, "return $total") + len("return $")
 	defs := r.Definition("proc_local.rvt", page, off)
-	if len(defs) != 1 || defs[0].File != "proc_local.rvt" ||
-		page[defs[0].NameStart:defs[0].NameEnd] != "total" {
-		t.Fatalf("rvt proc-local goto-def = %#v", defs)
+	if len(defs) == 0 {
+		t.Fatalf("rvt proc-local goto-def: want >=1 def, got none")
+	}
+	for _, d := range defs {
+		if d.File != "proc_local.rvt" || page[d.NameStart:d.NameEnd] != "total" {
+			t.Fatalf("rvt proc-local goto-def = %#v", defs)
+		}
 	}
 
 	refs := r.References("proc_local.rvt", page, off)

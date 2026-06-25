@@ -43,15 +43,65 @@ func (r *Resolver) localAt(file, src string, offset int) (name string, scope int
 	return "", 0, false
 }
 
-// localDefinition returns the declaration of (name, scope): the first (lowest
-// offset) binding in the file. Tcl locals have no declaration keyword, so the
-// earliest binding -- the parameter, or the first set/incr/foreach/etc. that
-// introduces the name -- is treated as the definition. goto-definition from any
-// occurrence (a use, or a later mutation like `lappend`/`incr`) lands here and is
-// idempotent, matching how LSPs for declaration-less languages behave. Every
-// occurrence remains discoverable via find-references. Returns nil if (name,
-// scope) has no binding.
-func (r *Resolver) localDefinition(file, src, name string, scope int) []index.Location {
+// isNameByte reports whether b is a valid TCL variable name byte ([A-Za-z0-9_]).
+func isNameByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
+// isArrayVarAt reports whether the variable reference at offset in src is an
+// array element access (e.g. $arr(key)). The reaching analysis does not track
+// array subscripts, so array accesses fall back to first-binding resolution.
+func isArrayVarAt(src string, offset int) bool {
+	i := offset
+	// Skip over the name characters (the $ was already consumed; offset is on
+	// the first name byte or somewhere within).
+	for i < len(src) && isNameByte(src[i]) {
+		i++
+	}
+	// Handle qualified names (:: segments).
+	for i+1 < len(src) && src[i] == ':' && src[i+1] == ':' {
+		i += 2
+		for i < len(src) && isNameByte(src[i]) {
+			i++
+		}
+	}
+	return i < len(src) && src[i] == '('
+}
+
+// localDefinition returns the definition site(s) for the proc-local (name,
+// scope). It first tries context-sensitive reaching definitions for the use at
+// offset: each reaching binding is origin-chased when it is a global/upvar link
+// (preserving prior behavior). Falls back to the earliest binding when reaching
+// analysis is unavailable (oversized proc, array element access, or a use with
+// no in-proc reaching def such as a bare global/upvar link before any local
+// assignment).
+func (r *Resolver) localDefinition(file, src, name string, scope, offset int) []index.Location {
+	// Precise reaching definitions for the use at offset. Each reaching binding
+	// origin-chases when it is a global/upvar link (preserving prior behavior).
+	// Array element accesses (e.g. $arr(key)) are excluded: the reaching engine
+	// tracks the base name without subscripts, so it cannot distinguish arr(a)
+	// from arr(b); first-binding gives more useful results for arrays.
+	if !isArrayVarAt(src, offset) {
+		if defs, ok := source.Reaching(file, src, offset); ok && len(defs) > 0 {
+			var out []index.Location
+			for _, d := range defs {
+				if d.Origin != "" {
+					if locs := r.lookupScoped(d.Origin, file); len(locs) > 0 {
+						out = append(out, locs...)
+						continue
+					}
+				}
+				out = append(out, index.Location{File: file, Name: d.Name, Kind: tcl.DefLocal, NameStart: d.NameStart, NameEnd: d.NameEnd})
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+	}
+
+	// Fallback: earliest binding (used when reaching-defs is unavailable —
+	// oversized proc, array element access, or a use with no in-proc reaching
+	// def such as a bare global/upvar link before any local assignment).
 	firstStart, firstEnd, firstOrigin, have := 0, 0, "", false
 	for _, d := range source.Defs(file, src) {
 		if !isLocalBinding(d.Kind) || d.Name != name || d.Scope != scope {
@@ -64,9 +114,6 @@ func (r *Resolver) localDefinition(file, src, name string, scope int) []index.Lo
 	if !have {
 		return nil
 	}
-	// Origin-chase: a global/upvar link points at a variable in another scope.
-	// Jump to that origin's definition when it exists in the workspace index;
-	// otherwise fall back to the link statement.
 	if firstOrigin != "" {
 		if locs := r.lookupScoped(firstOrigin, file); len(locs) > 0 {
 			return locs
@@ -83,7 +130,7 @@ func (r *Resolver) localDefinition(file, src, name string, scope int) []index.Lo
 // wins (a bare name is NOT unioned across namespaces).
 func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 	if name, scope, ok := r.localAt(file, src, offset); ok {
-		return r.localDefinition(file, src, name, scope)
+		return r.localDefinition(file, src, name, scope, offset)
 	}
 	ref := refAt(file, src, offset)
 	if ref == nil {
