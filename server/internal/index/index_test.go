@@ -295,3 +295,12 @@ func TestIndexFileRVTStoresRequestSymbol(t *testing.T) {
 		t.Fatalf("NameStart = %d, want %d (.rvt coord)", locs[0].NameStart, want)
 	}
 }
+
+func TestIndexClassLookup(t *testing.T) {
+	ix := New()
+	ix.IndexFile("disp.tcl", "itcl::class ::STDisplay {\n  method field {} {}\n}")
+	locs := ix.Lookup("::STDisplay")
+	if len(locs) != 1 || locs[0].Kind != tcl.DefClass || locs[0].File != "disp.tcl" {
+		t.Fatalf("want DefClass ::STDisplay indexed, got %#v", locs)
+	}
+}
