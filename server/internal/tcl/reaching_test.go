@@ -67,3 +67,19 @@ func TestReachingIfNoElseKeepsPrior(t *testing.T) {
 		t.Fatalf("want 2 (x1 fall-through + x2), got %d: %#v", len(defs), defs)
 	}
 }
+
+func TestReachingLoopCarried(t *testing.T) {
+	src := "proc f {} {\n  set x 0\n  while {$c} {\n    set y $x\n    set x 9\n  }\n  puts $x\n}"
+	defs := reachAtMarker(t, src, "$x") // the `puts $x` after the loop
+	if len(defs) != 2 {                 // x0 (zero iterations) or x9 (ran)
+		t.Fatalf("want 2 reaching defs (x0, x9), got %d: %#v", len(defs), defs)
+	}
+}
+
+func TestReachingForeachVar(t *testing.T) {
+	src := "proc f {items} {\n  foreach it $items {\n    puts $it\n  }\n}"
+	defs := reachAtMarker(t, src, "$it")
+	if len(defs) != 1 || defs[0].Name != "it" {
+		t.Fatalf("foreach var should reach its use: %#v", defs)
+	}
+}

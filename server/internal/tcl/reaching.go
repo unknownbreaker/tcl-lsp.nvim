@@ -99,12 +99,84 @@ func (a *analyzer) seq(cmds []Command, base int, in reachSet) reachSet {
 	return cur
 }
 
+const maxLoopIters = 200
+
+// loopHead reports whether command c is a loop-introducing command
+// (while, for, foreach, lmap, dict for, dict map).
+func loopHead(c Command) bool {
+	w := c.Words
+	if len(w) == 0 || w[0].Kind != WordBare {
+		return false
+	}
+	switch w[0].Text {
+	case "while", "for", "foreach", "lmap":
+		return true
+	case "dict":
+		return len(w) >= 2 && w[1].Kind == WordBare && (w[1].Text == "for" || w[1].Text == "map")
+	}
+	return false
+}
+
+// analyzeLoop iterates the loop body to a fixpoint so a value assigned in one
+// iteration reaches later iterations' uses, then joins with the entry set (the
+// loop may run zero times). Loop variables (foreach/lmap/dict-for) are gen'd at
+// body entry. `for`'s start/next scripts are folded into the iterated block; for
+// may-reach soundness, treating start as possibly-repeated only over-approximates.
+func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) reachSet {
+	bodyIn := in.clone()
+	for _, d := range localBindings(c, base) {
+		bodyIn[d.Name] = []Definition{d}
+	}
+	bodies := scriptBodies(c.Words)
+	cur := bodyIn
+	for iter := 0; iter < maxLoopIters; iter++ {
+		next := cur.clone()
+		for _, b := range bodies {
+			inner, ibase := bracedInner(b, base)
+			next = a.seq(Parse(inner), ibase, next)
+		}
+		merged := joinAll([]reachSet{cur, next})
+		if reachEqual(merged, cur) {
+			break
+		}
+		cur = merged
+	}
+	return joinAll([]reachSet{in, cur})
+}
+
+// reachEqual reports whether two reachSets contain the same bindings (by
+// variable name and NameStart/NameEnd identity).
+func reachEqual(a, b reachSet) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for name, da := range a {
+		db, ok := b[name]
+		if !ok || len(da) != len(db) {
+			return false
+		}
+		seen := map[[2]int]bool{}
+		for _, d := range da {
+			seen[[2]int{d.NameStart, d.NameEnd}] = true
+		}
+		for _, d := range db {
+			if !seen[[2]int{d.NameStart, d.NameEnd}] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // command applies one command: record any variable use at useOff against the
 // incoming set, then apply this command's bindings (kill prior, gen new).
 func (a *analyzer) command(c Command, base int, in reachSet) reachSet {
 	a.recordUses(c, base, in)
 	if isCmd(c.Words, "if") {
 		return a.analyzeIf(c, base, in)
+	}
+	if loopHead(c) {
+		return a.analyzeLoop(c, base, in)
 	}
 	binds := localBindings(c, base)
 	if len(binds) == 0 {
