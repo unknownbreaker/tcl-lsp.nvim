@@ -83,3 +83,19 @@ func TestReachingForeachVar(t *testing.T) {
 		t.Fatalf("foreach var should reach its use: %#v", defs)
 	}
 }
+
+func TestReachingEarlyReturnBranch(t *testing.T) {
+	src := "proc f {} {\n  set x 1\n  if {$c} {\n    return\n  } else {\n    set x 2\n  }\n  puts $x\n}"
+	defs := reachAtMarker(t, src, "$x") // return branch dead; else assigns x2; has else → x2 only
+	if len(defs) != 1 {
+		t.Fatalf("want 1 reaching def (x2), got %d: %#v", len(defs), defs)
+	}
+}
+
+func TestReachingBreakExit(t *testing.T) {
+	src := "proc f {} {\n  set x 0\n  while {$c} {\n    set x 1\n    if {$d} { break }\n    set x 2\n  }\n  puts $x\n}"
+	defs := reachAtMarker(t, src, "$x") // x0 (0 iters), x1 (broke), x2 (end of iter)
+	if len(defs) != 3 {
+		t.Fatalf("want 3 reaching defs (x0,x1,x2), got %d: %#v", len(defs), defs)
+	}
+}

@@ -20,7 +20,7 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 	for _, d := range paramDefs {
 		entry[d.Name] = []Definition{d}
 	}
-	a.seq(Parse(inner), innerBase, entry)
+	a.seq(Parse(inner), innerBase, entry) //nolint:errcheck — result unused; a.found/a.answer carry the answer
 	if !a.found {
 		return nil, false
 	}
@@ -82,21 +82,30 @@ func (s reachSet) clone() reachSet {
 	return out
 }
 
+type frameAcc struct{ brk, cont reachSet }
+
 type analyzer struct {
-	useOff int
-	answer []Definition
-	found  bool
+	useOff    int
+	answer    []Definition
+	found     bool
+	loopStack []*frameAcc
+	ret       reachSet
 }
 
-// seq threads the reaching set left-to-right through a command sequence and
-// returns the set at its end. (Control-flow live/stop handling is added in a
-// later task; here every command continues.)
-func (a *analyzer) seq(cmds []Command, base int, in reachSet) reachSet {
+// seq threads the reaching set left-to-right through a command sequence.
+// Returns (set at end, live). live is false when a non-local exit (return,
+// break, continue) terminates the sequence early; callers treat a non-live
+// path as contributing nothing to joins.
+func (a *analyzer) seq(cmds []Command, base int, in reachSet) (reachSet, bool) {
 	cur := in
 	for _, c := range cmds {
-		cur = a.command(c, base, cur)
+		var live bool
+		cur, live = a.command(c, base, cur)
+		if !live {
+			return cur, false
+		}
 	}
-	return cur
+	return cur, true
 }
 
 const maxLoopIters = 200
@@ -122,26 +131,43 @@ func loopHead(c Command) bool {
 // loop may run zero times). Loop variables (foreach/lmap/dict-for) are gen'd at
 // body entry. `for`'s start/next scripts are folded into the iterated block; for
 // may-reach soundness, treating start as possibly-repeated only over-approximates.
-func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) reachSet {
-	bodyIn := in.clone()
+// break/continue exits are accumulated in a per-loop frameAcc pushed onto loopStack.
+func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool) {
+	acc := &frameAcc{brk: reachSet{}, cont: reachSet{}}
+	a.loopStack = append(a.loopStack, acc)
+	defer func() { a.loopStack = a.loopStack[:len(a.loopStack)-1] }()
+
+	bodyEntry := in.clone()
 	for _, d := range localBindings(c, base) {
-		bodyIn[d.Name] = []Definition{d}
+		bodyEntry[d.Name] = []Definition{d}
 	}
 	bodies := scriptBodies(c.Words)
-	cur := bodyIn
+	cur := bodyEntry
+	normalEnd := reachSet{}
 	for iter := 0; iter < maxLoopIters; iter++ {
 		next := cur.clone()
+		live := true
 		for _, b := range bodies {
 			inner, ibase := bracedInner(b, base)
-			next = a.seq(Parse(inner), ibase, next)
+			next, live = a.seq(Parse(inner), ibase, next)
+			if !live {
+				break
+			}
 		}
-		merged := joinAll([]reachSet{cur, next})
+		if live {
+			normalEnd = next
+		} else {
+			normalEnd = reachSet{}
+		}
+		backEdge := joinAll([]reachSet{normalEnd, acc.cont})
+		merged := joinAll([]reachSet{cur, backEdge})
 		if reachEqual(merged, cur) {
 			break
 		}
 		cur = merged
 	}
-	return joinAll([]reachSet{in, cur})
+	exit := joinAll([]reachSet{in, normalEnd, acc.brk})
+	return exit, true
 }
 
 // reachEqual reports whether two reachSets contain the same bindings (by
@@ -170,38 +196,61 @@ func reachEqual(a, b reachSet) bool {
 
 // command applies one command: record any variable use at useOff against the
 // incoming set, then apply this command's bindings (kill prior, gen new).
-func (a *analyzer) command(c Command, base int, in reachSet) reachSet {
+// Returns (out set, live). live is false for non-local exits (return/break/continue).
+func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 	a.recordUses(c, base, in)
-	if isCmd(c.Words, "if") {
+	switch {
+	case isCmd(c.Words, "if"):
 		return a.analyzeIf(c, base, in)
-	}
-	if loopHead(c) {
+	case loopHead(c):
 		return a.analyzeLoop(c, base, in)
+	case isCmd(c.Words, "return"):
+		a.ret = joinAll([]reachSet{nonNil(a.ret), in})
+		return in, false
+	case isCmd(c.Words, "break"):
+		if n := len(a.loopStack); n > 0 {
+			top := a.loopStack[n-1]
+			top.brk = joinAll([]reachSet{nonNil(top.brk), in})
+		}
+		return in, false
+	case isCmd(c.Words, "continue"):
+		if n := len(a.loopStack); n > 0 {
+			top := a.loopStack[n-1]
+			top.cont = joinAll([]reachSet{nonNil(top.cont), in})
+		}
+		return in, false
 	}
 	binds := localBindings(c, base)
 	if len(binds) == 0 {
-		return in
+		return in, true
 	}
 	out := in.clone()
 	for _, d := range binds {
 		out[d.Name] = []Definition{d} // straight-line: reassign kills+gens
 	}
-	return out
+	return out, true
 }
 
 // analyzeIf threads the reaching set through each branch body of an if command
-// and joins the results. When there is no else clause, the fall-through (no
-// branch taken) path is added to the join so prior defs remain reachable.
-func (a *analyzer) analyzeIf(c Command, base int, in reachSet) reachSet {
-	var outs []reachSet
+// and joins only the live-exiting branches. When there is no else clause, the
+// fall-through (no branch taken) path is always live and added to the join.
+// Returns (joined set, anyLive): anyLive is true when at least one path is live.
+func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) {
+	var liveOuts []reachSet
+	anyLive := false
 	for _, b := range ifBodies(c.Words) {
 		inner, ibase := bracedInner(b, base)
-		outs = append(outs, a.seq(Parse(inner), ibase, in.clone()))
+		out, live := a.seq(Parse(inner), ibase, in.clone())
+		if live {
+			liveOuts = append(liveOuts, out)
+			anyLive = true
+		}
 	}
 	if !hasElse(c.Words) {
-		outs = append(outs, in) // no branch taken: fall-through path
+		liveOuts = append(liveOuts, in) // no branch taken: fall-through path
+		anyLive = true
 	}
-	return joinAll(outs)
+	return joinAll(liveOuts), anyLive
 }
 
 // hasElse reports whether the if command words include an else keyword.
@@ -236,6 +285,15 @@ func joinAll(sets []reachSet) reachSet {
 		}
 	}
 	return out
+}
+
+// nonNil returns s unchanged if non-nil, or an empty reachSet if s is nil.
+// Used to safely merge an accumulator that has not been written yet.
+func nonNil(s reachSet) reachSet {
+	if s == nil {
+		return reachSet{}
+	}
+	return s
 }
 
 // recordUses snapshots the reaching set for the variable used at useOff (a
