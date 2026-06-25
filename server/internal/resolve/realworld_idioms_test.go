@@ -152,3 +152,51 @@ func TestRealWorldRvtObjMethodShape(t *testing.T) {
 		t.Fatalf("ObjMethodAt on real .rvt = (method=%q, ok=%v), want show/true", method, ok)
 	}
 }
+
+// TestRealWorldStdisplay indexes the full ~2600-line STDisplay class — the
+// worst-case real Itcl and the class the feature was built for. A bare-only
+// parser saw almost none of its ivars (all access-modified) and far fewer
+// methods, so these bounds fail without access-modifier support.
+func TestRealWorldStdisplay(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("display.tcl", readRealworld(t, "display.tcl"))
+
+	ci := ix.Class("::STDisplay")
+	if ci == nil {
+		t.Fatal("::STDisplay not indexed")
+	}
+	if len(ci.Methods) < 100 {
+		t.Errorf("STDisplay methods = %d, want >= 100", len(ci.Methods))
+	}
+	if len(ci.Ivars) < 50 {
+		t.Errorf("STDisplay ivars = %d, want >= 50 (nearly all are access-modified)", len(ci.Ivars))
+	}
+	for _, m := range []string{"escape_cgi", "escape_url", "escape_html", "names2fields"} {
+		if _, ok := ci.Methods[m]; !ok { // protected/private methods
+			t.Errorf("access-modified method %q not indexed", m)
+		}
+	}
+	for _, v := range []string{"table", "ctable", "ct_selection", "case"} {
+		if _, ok := ci.Ivars[v]; !ok { // public/private variables
+			t.Errorf("access-modified ivar %q not indexed", v)
+		}
+	}
+
+	// The boolean subclass: inheritance edge + the three-part constructor.
+	cb := ix.Class("::STDisplayField_boolean")
+	if cb == nil {
+		t.Fatal("::STDisplayField_boolean not indexed")
+	}
+	inherits := false
+	for _, b := range cb.Inherit {
+		if b == "::STDisplayField" {
+			inherits = true
+		}
+	}
+	if !inherits {
+		t.Errorf("STDisplayField_boolean inherit = %v, want to include ::STDisplayField", cb.Inherit)
+	}
+	if _, ok := cb.Methods["constructor"]; !ok {
+		t.Errorf("STDisplayField_boolean three-part constructor not indexed")
+	}
+}

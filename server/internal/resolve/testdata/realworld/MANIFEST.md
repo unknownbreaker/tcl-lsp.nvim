@@ -12,6 +12,7 @@ Do not edit these files. Re-vendor from upstream if they need updating.
 | `rweb_content.tcl` | `mxmanghi/rivetweb @ 13abf80e825b0a6247ad60a3f96d07c52745f3db : tcl/rweb_content.tcl` | Base Itcl class: `private variable`, `public method`/`protected method` (inline + abstract-no-body), `constructor` with a default arg, `destructor`, external `::itcl::body` definitions, `$this method` calls, `::rivet::*`/`::itcl::delete` commands. |
 | `rweb_page.tcl` | `mxmanghi/rivetweb @ 13abf80e825b0a6247ad60a3f96d07c52745f3db : tcl/rweb_page.tcl` | Subclass: `inherit RWContent`, the three-part `constructor args {Base::constructor …} {body}`, `protected proc`, many `::itcl::body RWPage::m` external bodies, base-qualified `RWContent::m` calls. |
 | `display_direct.rvt` | `flightaware/speedtables @ 0fe25e1569c936e2a1bb477b7afecb8a74aad976 : ctables/demos/display_direct.rvt` | The canonical Tier-3 demo page: `set display [::STDisplay #auto …]` then `$display show` / `$display field`, plus cross-file `source` and `[u_passwd create #auto]`. |
+| `display.tcl` | `flightaware/speedtables @ 0fe25e1569c936e2a1bb477b7afecb8a74aad976 : stapi/display/display.tcl` | The full ~2600-line `STDisplay` class the feature was built for — the worst case. ~99 access-modified members (almost the entire ivar set), `$this`/`[$this …]` calls in method bodies, a three-part constructor (`STDisplayField_boolean`), and an `inherit` chain. Indexes to 113 methods / 63 ivars; pre-fix ~half was invisible (its demo line worked only because `show`/`field` are bare). |
 
 ## What these proved / now guard
 
