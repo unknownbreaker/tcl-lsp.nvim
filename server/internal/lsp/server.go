@@ -81,6 +81,7 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		}
 		s.reply(m.ID, InitializeResult{Capabilities: ServerCapabilities{
 			TextDocumentSync: 1, DefinitionProvider: true, ReferencesProvider: true,
+			DocumentSymbolProvider: true, WorkspaceSymbolProvider: true,
 		}})
 	case "initialized":
 		// Per the spec, dynamic registration happens after initialized. Register

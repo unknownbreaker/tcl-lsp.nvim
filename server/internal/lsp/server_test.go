@@ -81,6 +81,18 @@ func TestServerInitializeCapabilities(t *testing.T) {
 	}
 }
 
+func TestServerAdvertisesSymbolCapabilities(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "exit", nil, nil))
+	resp := responseByID(runServer(t, in.Bytes()), "1")
+	var res InitializeResult
+	_ = json.Unmarshal(resp.Result, &res)
+	if !res.Capabilities.DocumentSymbolProvider || !res.Capabilities.WorkspaceSymbolProvider {
+		t.Fatalf("symbol capabilities not advertised: %#v", res.Capabilities)
+	}
+}
+
 func TestServerShutdownThenExit(t *testing.T) {
 	var in bytes.Buffer
 	in.Write(frame(t, "shutdown", 2, nil))
