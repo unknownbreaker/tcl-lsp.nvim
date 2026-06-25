@@ -147,6 +147,7 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 	// nsNode maps namespace FQ -> *DocumentSymbol (kind Namespace).
 	nsNode := map[string]*DocumentSymbol{}
 	var rootNSOrder []string // top-level namespace nodes (parent == "::")
+	var allNSOrder []string  // every namespace node ever created, including synthesized intermediates
 
 	// Build a namespace node for a given FQ namespace, creating intermediate
 	// ancestors as needed. Returns the node.
@@ -160,6 +161,7 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 			Kind: SymKindNamespace,
 		}
 		nsNode[ns] = node
+		allNSOrder = append(allNSOrder, ns)
 
 		parent := parentNamespace(ns)
 		if parent == "::" {
@@ -195,7 +197,7 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		node := nsNode[fq]
 		// Re-attach updated child namespace nodes (intermediate nodes may have
 		// received children after initial insertion).
-		node.Children = rebuildNSChildren(fq, nsNode, nsChildren, nsOrder)
+		node.Children = rebuildNSChildren(fq, nsNode, nsChildren, allNSOrder)
 		node.Range = spanChildren(node.Children)
 		node.SelectionRange = node.Range
 		root = append(root, *node)
@@ -289,18 +291,24 @@ func posLess(a, b Position) bool {
 
 // rebuildNSChildren builds the full Children slice for a namespace node:
 // first its direct symbol children, then its child namespace nodes.
-func rebuildNSChildren(fq string, nsNode map[string]*DocumentSymbol, nsChildren map[string][]DocumentSymbol, nsOrder []string) []DocumentSymbol {
+//
+// allNSOrder must contain every namespace node that was created (including
+// synthesized intermediates with no direct symbols), so that chains like
+// ::a -> ::a::b -> ::a::b::c are fully linked even when intermediate levels
+// received no direct symbols of their own.
+func rebuildNSChildren(fq string, nsNode map[string]*DocumentSymbol, nsChildren map[string][]DocumentSymbol, allNSOrder []string) []DocumentSymbol {
 	var children []DocumentSymbol
 	// Direct symbol children (procs/vars/classes) of this namespace.
 	children = append(children, nsChildren[fq]...)
-	// Child namespace nodes.
-	for _, childFQ := range nsOrder {
+	// Child namespace nodes — iterate ALL created nodes, not just those that
+	// received direct symbols, so synthesized intermediate levels are included.
+	for _, childFQ := range allNSOrder {
 		if childFQ == "::" {
 			continue
 		}
 		if parentNamespace(childFQ) == fq {
 			childNode := nsNode[childFQ]
-			childNode.Children = rebuildNSChildren(childFQ, nsNode, nsChildren, nsOrder)
+			childNode.Children = rebuildNSChildren(childFQ, nsNode, nsChildren, allNSOrder)
 			childNode.Range = spanChildren(childNode.Children)
 			childNode.SelectionRange = childNode.Range
 			children = append(children, *childNode)

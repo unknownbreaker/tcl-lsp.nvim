@@ -28,7 +28,7 @@ func TestBuildDocumentSymbolsFlat(t *testing.T) {
 		t.Fatalf("::C kind = %d", byName["::C"].Kind)
 	}
 	// range must contain selectionRange
-	r := byName["::render"]
+	r := byName["render"]
 	if !posLE(r.Range.Start, r.SelectionRange.Start) || !posLE(r.SelectionRange.End, r.Range.End) {
 		t.Fatalf("range must contain selectionRange: %#v", r)
 	}
@@ -102,11 +102,28 @@ func TestBuildDocumentSymbolsGlobalNamesSimple(t *testing.T) {
 	}
 }
 
+func TestBuildDocumentSymbolsDeepNesting(t *testing.T) {
+	src := "namespace eval ::a { namespace eval ::a::b { namespace eval ::a::b::c { proc deep {} {} } } }"
+	syms := buildDocumentSymbols(tcl.FileDefs(src), src, false)
+	d := findSym(syms, "deep")
+	if d == nil {
+		t.Fatalf("deeply nested proc 'deep' was dropped: %#v", syms)
+	}
+	a := findSym(syms, "::a")
+	if a == nil {
+		t.Fatalf("::a namespace node missing: %#v", syms)
+	}
+	// intermediate ancestor must have a real (non-empty) range
+	if a.Range == (Range{}) {
+		t.Fatalf("::a namespace node has empty range: %#v", a)
+	}
+}
+
 func TestSymbolKind(t *testing.T) {
 	tests := []struct {
-		kind    tcl.DefKind
-		want    SymbolKind
-		wantOK  bool
+		kind   tcl.DefKind
+		want   SymbolKind
+		wantOK bool
 	}{
 		{tcl.DefProc, SymKindFunction, true},
 		{tcl.DefMethod, SymKindMethod, true},

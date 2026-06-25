@@ -125,10 +125,10 @@ type InitializeResult struct {
 
 // ServerCapabilities is the subset we advertise.
 type ServerCapabilities struct {
-	TextDocumentSync       int  `json:"textDocumentSync"` // 1 = full sync
-	DefinitionProvider     bool `json:"definitionProvider"`
-	ReferencesProvider     bool `json:"referencesProvider"`
-	DocumentSymbolProvider bool `json:"documentSymbolProvider"`
+	TextDocumentSync        int  `json:"textDocumentSync"` // 1 = full sync
+	DefinitionProvider      bool `json:"definitionProvider"`
+	ReferencesProvider      bool `json:"referencesProvider"`
+	DocumentSymbolProvider  bool `json:"documentSymbolProvider"`
 	WorkspaceSymbolProvider bool `json:"workspaceSymbolProvider"`
 }
 
