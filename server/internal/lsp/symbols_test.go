@@ -37,7 +37,7 @@ func TestBuildDocumentSymbolsNested(t *testing.T) {
 	src := "namespace eval ::app {\n  proc helper {} {}\n}\nitcl::class ::Disp {\n  method field {} {}\n  variable count 0\n}"
 	syms := buildDocumentSymbols(tcl.FileDefs(src), src, false)
 	app := findSym(syms, "::app")
-	if app == nil || app.Kind != SymKindNamespace || findChild(app, "::app::helper") == nil {
+	if app == nil || app.Kind != SymKindNamespace || findChild(app, "helper") == nil {
 		t.Fatalf("::app namespace node with helper child missing: %#v", syms)
 	}
 	disp := findSym(syms, "::Disp")

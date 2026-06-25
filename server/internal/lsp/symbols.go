@@ -1,7 +1,6 @@
 package lsp
 
 import (
-	"sort"
 	"strings"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
@@ -114,6 +113,9 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		// Find the namespace this class lives in.
 		d := findClassDef(defs, name)
 		ns := d.Namespace
+		if ns != "::" {
+			sym.Name = shortName(sym.Name)
+		}
 		addToNS(ns, sym)
 	}
 
@@ -132,6 +134,9 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		}
 		sym := leafSymbol(d, src)
 		sym.Kind = kind
+		if d.Namespace != "::" {
+			sym.Name = shortName(sym.Name)
+		}
 		addToNS(d.Namespace, sym)
 	}
 
@@ -158,11 +163,7 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		if parent == "::" {
 			rootNSOrder = append(rootNSOrder, ns)
 		} else {
-			parentNode := ensureNSNode(parent)
-			parentNode.Children = append(parentNode.Children, *node)
-			// node is now a copy inside parentNode.Children; update nsNode to
-			// point at the slice element so children added later propagate.
-			// We rebuild the tree after all children are added (see below).
+			ensureNSNode(parent)
 		}
 		return node
 	}
@@ -176,23 +177,6 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		for _, child := range nsChildren[ns] {
 			node.Children = append(node.Children, child)
 		}
-	}
-
-	// Compute namespace node ranges by spanning children.
-	// Process in reverse insertion order so leaves are done before parents.
-	allNSFQs := make([]string, 0, len(nsNode))
-	for fq := range nsNode {
-		allNSFQs = append(allNSFQs, fq)
-	}
-	// Sort by descending depth (more "::" = deeper) so children are computed first.
-	sort.Slice(allNSFQs, func(i, j int) bool {
-		return strings.Count(allNSFQs[i], "::") > strings.Count(allNSFQs[j], "::")
-	})
-	for _, fq := range allNSFQs {
-		node := nsNode[fq]
-		spanRange := spanChildren(node.Children)
-		node.Range = spanRange
-		node.SelectionRange = spanRange
 	}
 
 	// --- Step 4: assemble root ---
@@ -226,6 +210,17 @@ func findClassDef(defs []tcl.Definition, name string) tcl.Definition {
 		}
 	}
 	return tcl.Definition{}
+}
+
+// shortName returns the simple (display) name from a fully-qualified name:
+// the segment after the last "::". If no "::" is present the name is
+// returned unchanged. Examples: "::app::helper" -> "helper", "helper" -> "helper".
+func shortName(fq string) string {
+	idx := strings.LastIndex(fq, "::")
+	if idx < 0 {
+		return fq
+	}
+	return fq[idx+2:]
 }
 
 // parentNamespace returns the parent namespace of a FQ namespace.
