@@ -4,9 +4,9 @@ A focused Language Server for **TCL** and **RVT** (Apache Rivet templates), for
 Neovim and Vim. The server is a self-contained Go binary; Neovim and Vim clients
 drive the same binary.
 
-Scope is deliberately tight — **go-to-definition** and **find-references**, done
-well (scope-correct, cross-file, `.rvt`-aware) — rather than a broad, shallow
-feature set.
+Scope is deliberately tight — **go-to-definition**, **find-references**, and
+**document/workspace symbols**, done well (scope-correct, cross-file,
+`.rvt`-aware) — rather than a broad, shallow feature set.
 
 ## Features
 
@@ -14,6 +14,7 @@ feature set.
 | -------------------------- | :----: |
 | Go to definition           |   ✅   |
 | Find references            |   ✅   |
+| Document / workspace symbols |  ✅   |
 | Hover                      |   ❌   |
 | Completion                 |   ❌   |
 | Signature help             |   ❌   |
@@ -21,12 +22,11 @@ feature set.
 | Formatting                 |   ❌   |
 | Diagnostics                |   ❌   |
 | Code actions               |   ❌   |
-| Document / workspace symbols |  ❌   |
 | Inlay hints / semantic tokens |  ❌  |
 
 `❌` items are out of scope by design (see [Why a v2 reset](#why-a-v2-reset)).
 
-**What the two supported features actually do:**
+**What the supported features actually do:**
 
 - ✅ **Cross-file** resolution, including `.rvt` ⇄ `.tcl`.
 - ✅ **Reaching-definitions** — a `$x` jumps to the assignment(s) that actually
@@ -34,6 +34,10 @@ feature set.
   the first binding.
 - ✅ **Scope-correct** — namespaces, `namespace path`/`import`,
   `global`/`upvar`/`variable` link origin-chasing, and arrays.
+- ✅ **Symbols, index-backed** — a hierarchical outline of the current file and a
+  project-wide name search, built from the same symbol table (procs, namespace
+  vars, Itcl classes/methods/ivars); `.rvt` page symbols surface at the top
+  level.
 
 ## Requirements
 
@@ -122,9 +126,29 @@ Open a `.tcl` or `.rvt` file and use your LSP keymaps:
 ```lua
 vim.keymap.set("n", "gd", vim.lsp.buf.definition)
 vim.keymap.set("n", "grr", vim.lsp.buf.references)
+vim.keymap.set("n", "gO", vim.lsp.buf.document_symbol)             -- outline of this file
+vim.keymap.set("n", "<leader>ws", function()                       -- search the whole project
+  vim.lsp.buf.workspace_symbol(vim.fn.input("Symbol: "))
+end)
 ```
 
-(LazyVim already binds `gd` and `grr`.) In Vim: `:LspDefinition` / `:LspReferences`.
+(LazyVim already binds `gd` and `grr`, plus `<leader>ss` for document symbols and
+`<leader>sS` for workspace symbols via Telescope.) In Vim: `:LspDefinition` /
+`:LspReferences` / `:LspDocumentSymbol` / `:LspWorkspaceSymbol`.
+
+### Symbols
+
+- **Document symbols** (`<leader>ss` / `gO`) — a hierarchical outline of the
+  current file: procs, namespace variables, and Itcl classes with their
+  methods/ivars, nested by namespace and class. In `.rvt` pages the synthetic
+  `::request` wrapper is hidden, so page symbols sit at the top level.
+- **Workspace symbols** (`<leader>sS`) — a flat, project-wide search by name
+  (case-insensitive substring); each result shows its container namespace or
+  class.
+
+A live outline panel ([`aerial.nvim`](https://github.com/stevearc/aerial.nvim)) or
+breadcrumbs ([`nvim-navic`](https://github.com/SmiteshP/nvim-navic)) work
+automatically once installed — they consume the same document-symbol data.
 
 ## Why a v2 reset
 
