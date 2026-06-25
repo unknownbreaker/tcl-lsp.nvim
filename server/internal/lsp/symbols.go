@@ -134,9 +134,10 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		}
 		sym := leafSymbol(d, src)
 		sym.Kind = kind
-		if d.Kind == tcl.DefProc || d.Namespace != "::" {
-			sym.Name = shortName(sym.Name)
-		}
+		// Members (procs, namespace vars) display their simple name; the
+		// containing namespace node (or the document root) supplies the
+		// qualification. Classes (handled above) keep their declared form.
+		sym.Name = shortName(sym.Name)
 		addToNS(d.Namespace, sym)
 	}
 

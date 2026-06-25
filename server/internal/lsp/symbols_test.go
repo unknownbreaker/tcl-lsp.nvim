@@ -86,6 +86,22 @@ func TestBuildDocumentSymbolsRVTHoist(t *testing.T) {
 	}
 }
 
+func TestBuildDocumentSymbolsGlobalNamesSimple(t *testing.T) {
+	// Members (procs, namespace vars) at global scope display their simple
+	// name; a class declared as ::C keeps its qualified form.
+	src := "proc render {} {}\nset gvar 0\nitcl::class ::C {}"
+	syms := buildDocumentSymbols(tcl.FileDefs(src), src, false)
+	if findSym(syms, "render") == nil {
+		t.Fatalf("global proc should display as 'render': %#v", syms)
+	}
+	if findSym(syms, "gvar") == nil {
+		t.Fatalf("global namespace var should display as 'gvar': %#v", syms)
+	}
+	if findSym(syms, "::C") == nil {
+		t.Fatalf("global class should keep its declared form '::C': %#v", syms)
+	}
+}
+
 func TestSymbolKind(t *testing.T) {
 	tests := []struct {
 		kind    tcl.DefKind
