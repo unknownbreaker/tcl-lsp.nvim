@@ -16,21 +16,8 @@ type NamespaceInfo struct {
 // appear in the map.
 func FileNamespaces(src string) map[string]*NamespaceInfo {
 	m := map[string]*NamespaceInfo{}
-	walkNS(Parse(src), "::", m)
+	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", collectors{ns: m})
 	return m
-}
-
-func walkNS(cmds []Command, ns string, m map[string]*NamespaceInfo) {
-	for _, c := range cmds {
-		recordNSDecl(c, ns, m)
-		// Recurse the same bodies as the def/ref walkers (childBodies) so a
-		// conditional `namespace import`/`path`/`export` inside an if/catch/...
-		// is captured too. Offsets are irrelevant here (namespace decls carry
-		// names only), so base/frame are passthrough values.
-		for _, b := range childBodies(c, 0, ns, FrameNamespace, 0, "") {
-			walkNS(Parse(b.Inner), b.NS, m)
-		}
-	}
 }
 
 func recordNSDecl(c Command, ns string, m map[string]*NamespaceInfo) {

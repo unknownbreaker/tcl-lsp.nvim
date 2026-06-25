@@ -43,15 +43,8 @@ type Definition struct {
 // namespace eval and proc bodies.
 func FileDefs(src string) []Definition {
 	var out []Definition
-	walkDefs(Parse(src), 0, "::", FrameNamespace, 0, "", &out)
+	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", collectors{defs: &out})
 	return out
-}
-
-func walkDefs(cmds []Command, base int, ns string, frame FrameKind, scope int, class string, out *[]Definition) {
-	for _, c := range cmds {
-		emitDefs(c, base, ns, frame, scope, class, out)
-		recurseDefBodies(c, base, ns, frame, scope, class, out)
-	}
 }
 
 func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class string, out *[]Definition) {
@@ -237,25 +230,6 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 	}
 	if frame == FrameProc {
 		emitLoopVarDefs(w, base, ns, scope, class, out)
-	}
-}
-
-func recurseDefBodies(c Command, base int, ns string, frame FrameKind, scope int, class string, out *[]Definition) {
-	// A proc's parameters are local definitions specific to the def walker; emit
-	// them before recursing the body. Body recursion uses the shared childBodies
-	// (bodies.go) so definitions and references descend the same bodies --
-	// including control-flow ones, so a proc defined inside an if/catch/foreach
-	// (e.g. conditional definition) is indexed.
-	w := c.Words
-	if isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced {
-		_, bodyBase := bracedInner(w[len(w)-1], base)
-		emitProcParams(w[2], base, ns, bodyBase, class, out)
-	} else if _, args, body, ok := decoratedProcDef(w); ok {
-		_, bodyBase := bracedInner(body, base)
-		emitProcParams(args, base, ns, bodyBase, class, out)
-	}
-	for _, b := range childBodies(c, base, ns, frame, scope, class) {
-		walkDefs(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, b.Class, out)
 	}
 }
 

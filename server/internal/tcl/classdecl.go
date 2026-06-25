@@ -6,19 +6,8 @@ package tcl
 // names, in declaration order.
 func FileClasses(src string) map[string][]string {
 	m := map[string][]string{}
-	walkClasses(Parse(src), 0, "::", FrameNamespace, 0, "", m)
+	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", collectors{classes: m})
 	return m
-}
-
-func walkClasses(cmds []Command, base int, ns string, frame FrameKind, scope int, class string, m map[string][]string) {
-	for _, c := range cmds {
-		if frame == FrameClass && class != "" {
-			recordInherit(c, ns, class, m)
-		}
-		for _, b := range childBodies(c, base, ns, frame, scope, class) {
-			walkClasses(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, b.Class, m)
-		}
-	}
 }
 
 // recordInherit records `inherit Base1 Base2 ...` inside a class body.
