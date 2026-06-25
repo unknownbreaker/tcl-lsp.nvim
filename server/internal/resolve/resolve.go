@@ -204,6 +204,32 @@ func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 		}
 		return nil
 	}
+	// $obj method shape: a command whose head is a lone $var and whose second
+	// word (the method name) is at the cursor. Fires regardless of frame — in
+	// .rvt pages the $obj method call runs at namespace scope, not proc scope.
+	if receiverOff, methodName, ok := source.ObjMethodAt(file, src, offset); ok {
+		classes := source.ClassOf(file, src, receiverOff)
+		if len(classes) > 0 {
+			seen := map[[2]int]bool{}
+			var out []index.Location
+			for _, cls := range classes {
+				for _, loc := range r.methodInClass(cls, methodName) {
+					key := [2]int{loc.NameStart, loc.NameEnd}
+					if !seen[key] {
+						seen[key] = true
+						out = append(out, loc)
+					}
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+		// ClassOf returned nothing (unknown receiver) or method not found.
+		// Return nil: no wrong jump.
+		return nil
+	}
+
 	ref := refAt(file, src, offset)
 	if ref == nil {
 		return nil
