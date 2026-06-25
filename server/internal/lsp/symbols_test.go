@@ -3,6 +3,7 @@ package lsp
 import (
 	"testing"
 
+	"github.com/unknownbreaker/tcl-lsp/internal/source"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
 
@@ -68,6 +69,21 @@ func findChild(s *DocumentSymbol, name string) *DocumentSymbol {
 		}
 	}
 	return nil
+}
+
+func TestBuildDocumentSymbolsRVTHoist(t *testing.T) {
+	// Defs as produced for a .rvt page live in the ::request namespace.
+	defs := source.Defs("page.rvt", "<? proc render {} {} ?>")
+	syms := buildDocumentSymbols(defs, "<? proc render {} {} ?>", true)
+	if findSym(syms, "render") == nil {
+		t.Fatalf("render should be hoisted to root: %#v", syms)
+	}
+	// the ::request wrapper node must not appear at root
+	for _, s := range syms {
+		if s.Name == "::request" {
+			t.Fatalf("::request wrapper should be elided, got %#v", syms)
+		}
+	}
 }
 
 func TestSymbolKind(t *testing.T) {

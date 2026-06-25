@@ -61,9 +61,9 @@ func leafSymbol(d tcl.Definition, src string) DocumentSymbol {
 //     Namespace nodes (one per distinct non-global namespace), nested by path.
 //   - Global (::) symbols and top-level namespace nodes sit at the root.
 //
-// hoistRequest is reserved for Task 5 and is currently unused.
+// When hoistRequest is true, a root-level ::request namespace node is elided
+// and its children are promoted to the document root (used for .rvt pages).
 func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) []DocumentSymbol {
-	_ = hoistRequest // reserved for Task 5
 
 	// --- Step 1: build class nodes (with method/ivar children) ---
 
@@ -197,6 +197,25 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		node.Range = spanChildren(node.Children)
 		node.SelectionRange = node.Range
 		root = append(root, *node)
+	}
+
+	// --- Step 5: hoist ::request children (for .rvt pages) ---
+	//
+	// When hoistRequest is true, a root-level ::request namespace node (produced
+	// because .rvt pages are stitched into `namespace eval ::request { ... }`) is
+	// elided and its children are promoted to the document root in its place.
+	if hoistRequest {
+		for i, node := range root {
+			if node.Name == "::request" && node.Kind == SymKindNamespace {
+				// Splice out the ::request node; insert its children at its position.
+				hoisted := make([]DocumentSymbol, 0, len(root)-1+len(node.Children))
+				hoisted = append(hoisted, root[:i]...)
+				hoisted = append(hoisted, node.Children...)
+				hoisted = append(hoisted, root[i+1:]...)
+				root = hoisted
+				break
+			}
+		}
 	}
 
 	return root
