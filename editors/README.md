@@ -94,7 +94,7 @@ surface and also runs on Neovim). Either way:
 from your vimrc:
 
 ```vim
-source /path/to/tcl-lsp.nvim/editors/vim/tcl-lsp.vim
+source /path/to/tcl-lsp/editors/vim/tcl-lsp.vim
 ```
 
 It registers the server for `tcl`/`rvt`, finds the project root **`.git`-first**

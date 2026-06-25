@@ -4,8 +4,9 @@ Guidance for Claude Code when working in this repository.
 
 ## Project Overview
 
-tcl-lsp.nvim is a Language Server Protocol implementation for TCL/RVT, integrated
-with Neovim.
+tcl-lsp is a Language Server Protocol implementation for TCL/RVT, integrated
+with Neovim and classic Vim. (The repo was historically named `tcl-lsp.nvim`;
+it now ships clients for both editors — the Go server is editor-agnostic.)
 
 **This is a deliberate restart (v2).** A previous implementation (313 commits) grew
 too broad — many features, accumulating performance regressions that became

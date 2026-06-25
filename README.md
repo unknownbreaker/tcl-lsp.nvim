@@ -1,4 +1,4 @@
-# tcl-lsp.nvim
+# tcl-lsp
 
 A Language Server Protocol implementation for TCL/RVT, for Neovim and Vim.
 

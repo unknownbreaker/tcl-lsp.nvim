@@ -20,7 +20,7 @@ return {
   {
     -- MODE A (default): lazy.nvim manages the clone. Works on any machine with
     -- go + make. `rebuild` is now the default branch, so no branch pin needed.
-    "unknownbreaker/tcl-lsp.nvim",
+    "unknownbreaker/tcl-lsp",
 
     -- Recompile the bundled Go server whenever lazy.nvim installs OR updates the
     -- plugin. Without this, `ensure_built` only builds when the binary is missing,
@@ -62,7 +62,7 @@ return {
   -- with :TclLspRebuild (or `make watch` in server/) then :LspRestart.
   --
   -- {
-  --   dir = vim.fn.expand("~/Repos/FlightAware/2tcl-lsp.nvim"), -- your clone (repo ROOT)
+  --   dir = vim.fn.expand("~/Repos/tcl-lsp"), -- your clone (repo ROOT)
   --   name = "tcl-lsp",
   --   ft = { "tcl", "rvt" },
   --   init = function()

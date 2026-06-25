@@ -1,7 +1,7 @@
 " tcl-lsp for Vim via vim-lsp (prabirshrestha/vim-lsp).
 "
 " Classic Vimscript — works in Vim and Neovim. Source this from your vimrc:
-"     source /path/to/tcl-lsp.nvim/editors/vim/tcl-lsp.vim
+"     source /path/to/tcl-lsp/editors/vim/tcl-lsp.vim
 "
 " By default it builds the bundled Go server on first use and rebuilds it
 " whenever the sources are newer than the binary (parity with the Neovim
