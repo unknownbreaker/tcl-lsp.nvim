@@ -400,3 +400,19 @@ func TestServerReferencesUnknownDoc(t *testing.T) {
 		t.Fatalf("references on unknown doc should be null, got %s", resp.Result)
 	}
 }
+
+func TestServerDocumentSymbol(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///m.tcl", Text: "proc render {} {}\nitcl::class ::C { method field {} {} }"}}))
+	in.Write(frame(t, "textDocument/documentSymbol", 2, DocumentSymbolParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///m.tcl"}}))
+	in.Write(frame(t, "exit", nil, nil))
+	resp := responseByID(runServer(t, in.Bytes()), "2")
+	var syms []DocumentSymbol
+	_ = json.Unmarshal(resp.Result, &syms)
+	if findSym(syms, "render") == nil || findSym(syms, "::C") == nil || findSym(syms, "field") == nil {
+		t.Fatalf("document symbols = %#v", syms)
+	}
+}

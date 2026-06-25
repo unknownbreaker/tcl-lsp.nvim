@@ -21,8 +21,8 @@ func TestBuildDocumentSymbolsFlat(t *testing.T) {
 	for _, s := range syms {
 		byName[s.Name] = s
 	}
-	if byName["::render"].Kind != SymKindFunction {
-		t.Fatalf("render kind = %d", byName["::render"].Kind)
+	if byName["render"].Kind != SymKindFunction {
+		t.Fatalf("render kind = %d", byName["render"].Kind)
 	}
 	if byName["::C"].Kind != SymKindClass {
 		t.Fatalf("::C kind = %d", byName["::C"].Kind)

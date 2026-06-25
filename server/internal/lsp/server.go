@@ -9,6 +9,7 @@ import (
 
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
 	"github.com/unknownbreaker/tcl-lsp/internal/resolve"
+	"github.com/unknownbreaker/tcl-lsp/internal/source"
 )
 
 // Server is a single-goroutine LSP server: it reads and dispatches messages
@@ -128,6 +129,12 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		var p ReferenceParams
 		_ = json.Unmarshal(m.Params, &p)
 		s.reply(m.ID, s.handleReferences(p))
+	case "textDocument/documentSymbol":
+		var p DocumentSymbolParams
+		_ = json.Unmarshal(m.Params, &p)
+		path := uriToPath(p.TextDocument.URI)
+		src := s.sourceOf(path)
+		s.reply(m.ID, buildDocumentSymbols(source.Defs(path, src), src, source.IsRVT(path)))
 	case "exit":
 		return true
 	default:
