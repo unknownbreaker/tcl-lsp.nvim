@@ -401,6 +401,29 @@ func TestFileDefsItclClassQualifiedHead(t *testing.T) {
 	}
 }
 
+func TestFileDefsItclMembers(t *testing.T) {
+	src := "itcl::class ::C {\n  variable count 0\n  method field {name} { return $name }\n}"
+	var method, ivar *Definition
+	for _, d := range FileDefs(src) {
+		dd := d
+		if d.Kind == DefMethod && d.Name == "field" {
+			method = &dd
+		}
+		if d.Kind == DefIvar && d.Name == "count" {
+			ivar = &dd
+		}
+		if d.Kind == DefNamespaceVar && d.Name == "::C::count" {
+			t.Fatalf("class variable must not be a DefNamespaceVar: %#v", d)
+		}
+	}
+	if method == nil || method.Class != "::C" {
+		t.Fatalf("want DefMethod field on ::C, got %#v", FileDefs(src))
+	}
+	if ivar == nil || ivar.Class != "::C" {
+		t.Fatalf("want DefIvar count on ::C, got %#v", FileDefs(src))
+	}
+}
+
 func TestFileDefsMethodLoopVarCarriesClass(t *testing.T) {
 	src := "itcl::class ::C {\n  method m {} {\n    foreach x {1 2} { puts $x }\n  }\n}"
 	var xv *Definition

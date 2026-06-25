@@ -11,6 +11,8 @@ const (
 	DefLocal                       // a proc-local variable (param, set, upvar alias)
 	DefGlobalLink                  // a `global name` link to ::name
 	DefClass                       // an itcl::class definition
+	DefMethod                      // an itcl class method (method/constructor/destructor/proc inside a class body)
+	DefIvar                        // an itcl instance/class variable (variable/common inside a class body)
 )
 
 // Definition is a declaration site. Name is fully qualified for proc, class, and
@@ -49,6 +51,21 @@ func walkDefs(cmds []Command, base int, ns string, frame FrameKind, scope int, c
 
 func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class string, out *[]Definition) {
 	w := c.Words
+	if frame == FrameClass {
+		switch {
+		case len(w) >= 1 && (isCmd(w, "constructor") || isCmd(w, "destructor")):
+			// constructor/destructor have no name word; use the keyword itself as the name.
+			*out = append(*out, Definition{Kind: DefMethod, Name: w[0].Text, Class: class,
+				Namespace: ns, NameStart: base + w[0].Start, NameEnd: base + w[0].End, Scope: scope})
+		case len(w) >= 2 && (isCmd(w, "method") || isCmd(w, "proc")) && isPlainName(w[1]):
+			*out = append(*out, Definition{Kind: DefMethod, Name: w[1].Text, Class: class,
+				Namespace: ns, NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope})
+		case len(w) >= 2 && (isCmd(w, "variable") || isCmd(w, "common")) && isPlainName(w[1]):
+			*out = append(*out, Definition{Kind: DefIvar, Name: w[1].Text, Class: class,
+				Namespace: ns, NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope})
+		}
+		return // class-body declarations handled; skip namespace/proc rules below
+	}
 	if isCmd(w, "proc") && len(w) >= 2 && isPlainName(w[1]) {
 		name := qualifyName(w[1].Text, ns)
 		*out = append(*out, Definition{
