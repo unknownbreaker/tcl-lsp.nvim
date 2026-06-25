@@ -115,3 +115,17 @@ func TestReachingSwitchArms(t *testing.T) {
 		t.Fatalf("want 3 reaching defs (x0,x1,x2), got %d: %#v", len(defs), defs)
 	}
 }
+
+func TestReachingSizeCapFallsBack(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("proc f {} {\n")
+	for i := 0; i < 40000; i++ { // ~ > 200 KB of body
+		b.WriteString("  set x 1\n")
+	}
+	b.WriteString("  puts $x\n}")
+	src := b.String()
+	off := indexLast(src, "$x") + 1
+	if _, ok := ReachingAt(src, off); ok {
+		t.Fatalf("expected ok=false (fallback) for oversized proc body")
+	}
+}

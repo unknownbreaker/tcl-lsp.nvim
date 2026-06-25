@@ -12,6 +12,10 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 	if !found {
 		return nil, false
 	}
+	const maxReachingBytes = 200000
+	if len(inner) > maxReachingBytes {
+		return nil, false // oversized: caller falls back to first-binding
+	}
 	a := &analyzer{useOff: useOff}
 	entry := reachSet{}
 	// Seed entry set with proc params.
