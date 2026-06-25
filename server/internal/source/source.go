@@ -104,3 +104,18 @@ func Reaching(path, content string, offset int) ([]tcl.Definition, bool) {
 	}
 	return out, len(out) > 0
 }
+
+// ClassOf returns the class set for a receiver variable at offset in content,
+// in SOURCE coordinates. For .rvt the offset is mapped into the stitched ::request
+// script; no translation is needed on the result (class names are plain strings).
+func ClassOf(path, content string, offset int) []string {
+	if !IsRVT(path) {
+		return tcl.ClassOf(content, offset)
+	}
+	doc := rvt.Extract(content)
+	vOff, ok := doc.ToVirtual(offset)
+	if !ok {
+		return nil
+	}
+	return tcl.ClassOf(doc.Script, vOff)
+}

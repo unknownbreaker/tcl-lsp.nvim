@@ -2,20 +2,49 @@ package tcl
 
 import "strings"
 
+// enclosingScope returns the interior text and absolute base of the innermost
+// scope (proc or namespace) containing useOff. For procs, this is the proc body
+// (like enclosingProc). For namespaces, this is the namespace eval body. Returns
+// empty when useOff is not in any scope.
+func enclosingScope(cmds []Command, base int, ns string, frame FrameKind, scope, useOff int) (inner string, innerBase int, found bool) {
+	for _, c := range cmds {
+		for _, b := range childBodies(c, base, ns, frame, scope, "") {
+			if useOff < b.Base || useOff >= b.Base+len(b.Inner) {
+				continue
+			}
+			// Try to find a deeper (more nested) scope first.
+			if in2, base2, ok2 := enclosingScope(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, useOff); ok2 {
+				return in2, base2, true
+			}
+			// This body is the innermost one containing useOff. Accept it if it's
+			// a scope-introducing frame (proc or namespace): for procs, Scope==Base;
+			// for namespaces, Scope==0 (they don't have an enclosing scope reference).
+			if b.Frame == FrameProc && b.Scope == b.Base {
+				return b.Inner, b.Base, true
+			}
+			if b.Frame == FrameNamespace && b.Scope == 0 {
+				return b.Inner, b.Base, true
+			}
+		}
+	}
+	return "", 0, false
+}
+
 // ClassOf returns the set of fully-qualified Itcl class names the variable used
 // at receiverUseOff may hold at that point in the source, by inspecting its
 // reaching definitions for a local `set v [ClassName ...]` instantiation.
 //
 // Returns nil when the receiver has no statically-traceable class (e.g. it is a
-// proc parameter, assigned from an opaque expression, or not a proc-local var).
+// proc parameter, assigned from an opaque expression, or not a variable in a proc
+// or namespace scope).
 func ClassOf(src string, receiverUseOff int) []string {
 	defs, ok := ReachingAt(src, receiverUseOff)
 	if !ok || len(defs) == 0 {
 		return nil
 	}
 
-	// Get the enclosing proc body so we can walk its commands.
-	inner, innerBase, _, _, found := enclosingProc(Parse(src), 0, "::", FrameNamespace, 0, receiverUseOff)
+	// Get the enclosing scope (proc or namespace body) so we can walk its commands.
+	inner, innerBase, found := enclosingScope(Parse(src), 0, "::", FrameNamespace, 0, receiverUseOff)
 	if !found {
 		return nil
 	}
