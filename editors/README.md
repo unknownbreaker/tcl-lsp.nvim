@@ -2,7 +2,9 @@
 
 A Language Server for TCL/RVT providing **goto-definition** and
 **goto-references** across a workspace. Both `.tcl` and `.rvt` (Rivet)
-files are supported.
+files are supported. Proc-local goto-definition is precise (reaching-definitions:
+a `$x` jumps to the assignment(s) that actually reach it). Works in Neovim and
+classic Vim.
 
 ## 1. Build the binary
 
