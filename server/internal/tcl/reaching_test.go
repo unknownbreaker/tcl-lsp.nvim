@@ -99,3 +99,19 @@ func TestReachingBreakExit(t *testing.T) {
 		t.Fatalf("want 3 reaching defs (x0,x1,x2), got %d: %#v", len(defs), defs)
 	}
 }
+
+func TestReachingCatchConservative(t *testing.T) {
+	src := "proc f {} {\n  set x 1\n  catch {\n    set x 2\n  }\n  puts $x\n}"
+	defs := reachAtMarker(t, src, "$x") // x1 (error before set) OR x2
+	if len(defs) != 2 {
+		t.Fatalf("want 2 reaching defs (x1,x2), got %d: %#v", len(defs), defs)
+	}
+}
+
+func TestReachingSwitchArms(t *testing.T) {
+	src := "proc f {} {\n  set x 0\n  switch $k {\n    a { set x 1 }\n    b { set x 2 }\n  }\n  puts $x\n}"
+	defs := reachAtMarker(t, src, "$x") // x0 + x1 + x2 (conservative join)
+	if len(defs) != 3 {
+		t.Fatalf("want 3 reaching defs (x0,x1,x2), got %d: %#v", len(defs), defs)
+	}
+}

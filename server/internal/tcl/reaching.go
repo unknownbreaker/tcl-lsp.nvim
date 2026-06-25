@@ -194,6 +194,60 @@ func reachEqual(a, b reachSet) bool {
 	return true
 }
 
+// conservativeHead reports whether command c requires conservative may-reach
+// modeling: catch, try, and switch are alternatives or may-abort constructs
+// where precise arm/exception modeling is deferred.
+func conservativeHead(c Command) bool {
+	return isCmd(c.Words, "catch") || isCmd(c.Words, "try") || isCmd(c.Words, "switch")
+}
+
+// analyzeConservative over-approximates: the bodies may or may not run and may
+// exit at any point, so the result joins the entry set with every binding
+// generated anywhere in the bodies (and the construct's own bindings, e.g. a
+// catch result variable). Sound for may-reach; never drops a real reaching def.
+func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachSet, bool) {
+	gens := reachSet{}
+	for _, b := range scriptBodies(c.Words) {
+		inner, ibase := bracedInner(b, base)
+		collectBindings(Parse(inner), ibase, gens)
+	}
+	bodyView := joinAll([]reachSet{in, gens})
+	// Record any use at useOff inside the bodies against the conservative view.
+	for _, b := range scriptBodies(c.Words) {
+		inner, ibase := bracedInner(b, base)
+		a.seq(Parse(inner), ibase, bodyView.clone())
+	}
+	out := bodyView.clone()
+	for _, d := range localBindings(c, base) { // catch resultVar / optionsVar
+		out[d.Name] = appendDedup(out[d.Name], d)
+	}
+	return out, true
+}
+
+// collectBindings unions every local binding made anywhere in cmds (recursing
+// all child script bodies) into `into`.
+func collectBindings(cmds []Command, base int, into reachSet) {
+	for _, c := range cmds {
+		for _, d := range localBindings(c, base) {
+			into[d.Name] = appendDedup(into[d.Name], d)
+		}
+		for _, b := range childBodies(c, base, "::", FrameProc, base) {
+			collectBindings(Parse(b.Inner), b.Base, into)
+		}
+	}
+}
+
+// appendDedup appends d to list only if no existing element has the same
+// NameStart/NameEnd range (identity by binding site).
+func appendDedup(list []Definition, d Definition) []Definition {
+	for _, x := range list {
+		if x.NameStart == d.NameStart && x.NameEnd == d.NameEnd {
+			return list
+		}
+	}
+	return append(list, d)
+}
+
 // command applies one command: record any variable use at useOff against the
 // incoming set, then apply this command's bindings (kill prior, gen new).
 // Returns (out set, live). live is false for non-local exits (return/break/continue).
@@ -202,6 +256,8 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 	switch {
 	case isCmd(c.Words, "if"):
 		return a.analyzeIf(c, base, in)
+	case conservativeHead(c):
+		return a.analyzeConservative(c, base, in)
 	case loopHead(c):
 		return a.analyzeLoop(c, base, in)
 	case isCmd(c.Words, "return"):
