@@ -14,7 +14,8 @@ func posLE(a, b Position) bool {
 func TestBuildDocumentSymbolsFlat(t *testing.T) {
 	src := "proc render {} {}\nitcl::class ::C {}"
 	defs := tcl.FileDefs(src)
-	syms := buildDocumentSymbols(defs, src)
+	syms := buildDocumentSymbols(defs, src, false)
+	// flatten for lookup: global symbols are at root
 	byName := map[string]DocumentSymbol{}
 	for _, s := range syms {
 		byName[s.Name] = s
@@ -30,6 +31,43 @@ func TestBuildDocumentSymbolsFlat(t *testing.T) {
 	if !posLE(r.Range.Start, r.SelectionRange.Start) || !posLE(r.SelectionRange.End, r.Range.End) {
 		t.Fatalf("range must contain selectionRange: %#v", r)
 	}
+}
+
+func TestBuildDocumentSymbolsNested(t *testing.T) {
+	src := "namespace eval ::app {\n  proc helper {} {}\n}\nitcl::class ::Disp {\n  method field {} {}\n  variable count 0\n}"
+	syms := buildDocumentSymbols(tcl.FileDefs(src), src, false)
+	app := findSym(syms, "::app")
+	if app == nil || app.Kind != SymKindNamespace || findChild(app, "::app::helper") == nil {
+		t.Fatalf("::app namespace node with helper child missing: %#v", syms)
+	}
+	disp := findSym(syms, "::Disp")
+	if disp == nil || disp.Kind != SymKindClass {
+		t.Fatalf("::Disp class node missing: %#v", syms)
+	}
+	if findChild(disp, "field") == nil || findChild(disp, "count") == nil {
+		t.Fatalf("::Disp method/ivar children missing: %#v", disp.Children)
+	}
+}
+
+func findSym(syms []DocumentSymbol, name string) *DocumentSymbol {
+	for i := range syms {
+		if syms[i].Name == name {
+			return &syms[i]
+		}
+		if got := findSym(syms[i].Children, name); got != nil {
+			return got
+		}
+	}
+	return nil
+}
+
+func findChild(s *DocumentSymbol, name string) *DocumentSymbol {
+	for i := range s.Children {
+		if s.Children[i].Name == name {
+			return &s.Children[i]
+		}
+	}
+	return nil
 }
 
 func TestSymbolKind(t *testing.T) {

@@ -1,6 +1,11 @@
 package lsp
 
-import "github.com/unknownbreaker/tcl-lsp/internal/tcl"
+import (
+	"sort"
+	"strings"
+
+	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
+)
 
 // symbolKind maps a tcl.DefKind to an LSP SymbolKind.
 // Returns (kind, true) for symbol-worthy definitions, (0, false) for locals and links.
@@ -21,47 +26,271 @@ func symbolKind(k tcl.DefKind) (SymbolKind, bool) {
 	}
 }
 
-// buildDocumentSymbols converts a slice of tcl.Definition values into a flat
-// list of DocumentSymbol values. Locals and global links are skipped. Range is
-// the full extent of the defining command; SelectionRange is the name token.
-// If the full extent does not contain the name range (or is zero), Range falls
-// back to the name range.
-func buildDocumentSymbols(defs []tcl.Definition, src string) []DocumentSymbol {
-	var out []DocumentSymbol
+// leafSymbol builds a DocumentSymbol from a single definition, computing the
+// name SelectionRange and the full-extent Range (with containment fallback).
+func leafSymbol(d tcl.Definition, src string) DocumentSymbol {
+	selStart := offsetToPosition(src, d.NameStart)
+	selEnd := offsetToPosition(src, d.NameEnd)
+	selRange := Range{Start: selStart, End: selEnd}
+
+	var fullRange Range
+	if d.FullStart == 0 && d.FullEnd == 0 {
+		fullRange = selRange
+	} else {
+		fullStart := offsetToPosition(src, d.FullStart)
+		fullEnd := offsetToPosition(src, d.FullEnd)
+		if posContains(fullStart, fullEnd, selStart, selEnd) {
+			fullRange = Range{Start: fullStart, End: fullEnd}
+		} else {
+			fullRange = selRange
+		}
+	}
+
+	kind, _ := symbolKind(d.Kind)
+	return DocumentSymbol{
+		Name:           d.Name,
+		Kind:           kind,
+		Range:          fullRange,
+		SelectionRange: selRange,
+	}
+}
+
+// buildDocumentSymbols converts a slice of tcl.Definition values into a
+// hierarchical DocumentSymbol tree:
+//   - DefClass nodes carry their DefMethod/DefIvar defs as Children.
+//   - Procs, namespace vars, and class nodes are grouped under synthesized
+//     Namespace nodes (one per distinct non-global namespace), nested by path.
+//   - Global (::) symbols and top-level namespace nodes sit at the root.
+//
+// hoistRequest is reserved for Task 5 and is currently unused.
+func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) []DocumentSymbol {
+	_ = hoistRequest // reserved for Task 5
+
+	// --- Step 1: build class nodes (with method/ivar children) ---
+
+	// classSyms maps FQ class name -> DocumentSymbol (kind Class) with children.
+	classSyms := map[string]*DocumentSymbol{}
+	// classNames preserves insertion order for stable output.
+	var classNames []string
+
 	for _, d := range defs {
+		if d.Kind != tcl.DefClass {
+			continue
+		}
+		sym := leafSymbol(d, src)
+		classSyms[d.Name] = &sym
+		classNames = append(classNames, d.Name)
+	}
+
+	// Attach method and ivar children to their class nodes.
+	for _, d := range defs {
+		if d.Kind != tcl.DefMethod && d.Kind != tcl.DefIvar {
+			continue
+		}
+		parent, ok := classSyms[d.Class]
+		if !ok {
+			continue
+		}
+		child := leafSymbol(d, src)
+		parent.Children = append(parent.Children, child)
+	}
+
+	// --- Step 2: group top-level symbols by namespace ---
+
+	// nsChildren maps namespace FQ -> slice of DocumentSymbol children.
+	nsChildren := map[string][]DocumentSymbol{}
+	var nsOrder []string // tracks first-seen order of distinct namespaces
+
+	addToNS := func(ns string, sym DocumentSymbol) {
+		if _, exists := nsChildren[ns]; !exists {
+			nsOrder = append(nsOrder, ns)
+		}
+		nsChildren[ns] = append(nsChildren[ns], sym)
+	}
+
+	// Add class nodes (use the class's Namespace, not Name).
+	for _, name := range classNames {
+		sym := *classSyms[name]
+		// Find the namespace this class lives in.
+		d := findClassDef(defs, name)
+		ns := d.Namespace
+		addToNS(ns, sym)
+	}
+
+	// Add procs and namespace vars (that are NOT inside a class body).
+	for _, d := range defs {
+		if d.Kind != tcl.DefProc && d.Kind != tcl.DefNamespaceVar {
+			continue
+		}
+		if d.Class != "" {
+			// This proc is inside a class body (itcl inner proc); skip at top level.
+			continue
+		}
 		kind, ok := symbolKind(d.Kind)
 		if !ok {
 			continue
 		}
-
-		selStart := offsetToPosition(src, d.NameStart)
-		selEnd := offsetToPosition(src, d.NameEnd)
-		selRange := Range{Start: selStart, End: selEnd}
-
-		// Use the full extent as Range, but guard the invariant that Range must
-		// contain SelectionRange. Fall back to the name range when the full extent
-		// is zero or does not contain the name range.
-		var fullRange Range
-		if d.FullStart == 0 && d.FullEnd == 0 {
-			fullRange = selRange
-		} else {
-			fullStart := offsetToPosition(src, d.FullStart)
-			fullEnd := offsetToPosition(src, d.FullEnd)
-			if posContains(fullStart, fullEnd, selStart, selEnd) {
-				fullRange = Range{Start: fullStart, End: fullEnd}
-			} else {
-				fullRange = selRange
-			}
-		}
-
-		out = append(out, DocumentSymbol{
-			Name:           d.Name,
-			Kind:           kind,
-			Range:          fullRange,
-			SelectionRange: selRange,
-		})
+		sym := leafSymbol(d, src)
+		sym.Kind = kind
+		addToNS(d.Namespace, sym)
 	}
-	return out
+
+	// --- Step 3: build namespace tree (nested by path) ---
+
+	// nsNode maps namespace FQ -> *DocumentSymbol (kind Namespace).
+	nsNode := map[string]*DocumentSymbol{}
+	var rootNSOrder []string // top-level namespace nodes (parent == "::")
+
+	// Build a namespace node for a given FQ namespace, creating intermediate
+	// ancestors as needed. Returns the node.
+	var ensureNSNode func(ns string) *DocumentSymbol
+	ensureNSNode = func(ns string) *DocumentSymbol {
+		if node, ok := nsNode[ns]; ok {
+			return node
+		}
+		node := &DocumentSymbol{
+			Name: ns,
+			Kind: SymKindNamespace,
+		}
+		nsNode[ns] = node
+
+		parent := parentNamespace(ns)
+		if parent == "::" {
+			rootNSOrder = append(rootNSOrder, ns)
+		} else {
+			parentNode := ensureNSNode(parent)
+			parentNode.Children = append(parentNode.Children, *node)
+			// node is now a copy inside parentNode.Children; update nsNode to
+			// point at the slice element so children added later propagate.
+			// We rebuild the tree after all children are added (see below).
+		}
+		return node
+	}
+
+	// Attach direct children to namespace nodes.
+	for _, ns := range nsOrder {
+		if ns == "::" {
+			continue // global symbols go to root directly
+		}
+		node := ensureNSNode(ns)
+		for _, child := range nsChildren[ns] {
+			node.Children = append(node.Children, child)
+		}
+	}
+
+	// Compute namespace node ranges by spanning children.
+	// Process in reverse insertion order so leaves are done before parents.
+	allNSFQs := make([]string, 0, len(nsNode))
+	for fq := range nsNode {
+		allNSFQs = append(allNSFQs, fq)
+	}
+	// Sort by descending depth (more "::" = deeper) so children are computed first.
+	sort.Slice(allNSFQs, func(i, j int) bool {
+		return strings.Count(allNSFQs[i], "::") > strings.Count(allNSFQs[j], "::")
+	})
+	for _, fq := range allNSFQs {
+		node := nsNode[fq]
+		spanRange := spanChildren(node.Children)
+		node.Range = spanRange
+		node.SelectionRange = spanRange
+	}
+
+	// --- Step 4: assemble root ---
+
+	var root []DocumentSymbol
+
+	// Global symbols (Namespace == "::") go straight to root.
+	for _, sym := range nsChildren["::"] {
+		root = append(root, sym)
+	}
+
+	// Top-level namespace nodes (parent == "::").
+	for _, fq := range rootNSOrder {
+		node := nsNode[fq]
+		// Re-attach updated child namespace nodes (intermediate nodes may have
+		// received children after initial insertion).
+		node.Children = rebuildNSChildren(fq, nsNode, nsChildren, nsOrder)
+		node.Range = spanChildren(node.Children)
+		node.SelectionRange = node.Range
+		root = append(root, *node)
+	}
+
+	return root
+}
+
+// findClassDef returns the first DefClass definition matching the given FQ name.
+func findClassDef(defs []tcl.Definition, name string) tcl.Definition {
+	for _, d := range defs {
+		if d.Kind == tcl.DefClass && d.Name == name {
+			return d
+		}
+	}
+	return tcl.Definition{}
+}
+
+// parentNamespace returns the parent namespace of a FQ namespace.
+// "::a::b" -> "::a", "::a" -> "::", "::" -> "::".
+func parentNamespace(ns string) string {
+	if ns == "::" {
+		return "::"
+	}
+	// Strip trailing "::" if present.
+	trimmed := strings.TrimSuffix(ns, "::")
+	idx := strings.LastIndex(trimmed, "::")
+	if idx < 0 {
+		return "::"
+	}
+	parent := trimmed[:idx]
+	if parent == "" {
+		return "::"
+	}
+	return parent
+}
+
+// spanChildren computes the Range that spans all children's Ranges.
+// If there are no children, returns a zero Range.
+func spanChildren(children []DocumentSymbol) Range {
+	if len(children) == 0 {
+		return Range{}
+	}
+	minStart := children[0].Range.Start
+	maxEnd := children[0].Range.End
+	for _, c := range children[1:] {
+		if posLess(c.Range.Start, minStart) {
+			minStart = c.Range.Start
+		}
+		if posLess(maxEnd, c.Range.End) {
+			maxEnd = c.Range.End
+		}
+	}
+	return Range{Start: minStart, End: maxEnd}
+}
+
+// posLess reports whether position a is strictly before position b.
+func posLess(a, b Position) bool {
+	return a.Line < b.Line || (a.Line == b.Line && a.Character < b.Character)
+}
+
+// rebuildNSChildren builds the full Children slice for a namespace node:
+// first its direct symbol children, then its child namespace nodes.
+func rebuildNSChildren(fq string, nsNode map[string]*DocumentSymbol, nsChildren map[string][]DocumentSymbol, nsOrder []string) []DocumentSymbol {
+	var children []DocumentSymbol
+	// Direct symbol children (procs/vars/classes) of this namespace.
+	children = append(children, nsChildren[fq]...)
+	// Child namespace nodes.
+	for _, childFQ := range nsOrder {
+		if childFQ == "::" {
+			continue
+		}
+		if parentNamespace(childFQ) == fq {
+			childNode := nsNode[childFQ]
+			childNode.Children = rebuildNSChildren(childFQ, nsNode, nsChildren, nsOrder)
+			childNode.Range = spanChildren(childNode.Children)
+			childNode.SelectionRange = childNode.Range
+			children = append(children, *childNode)
+		}
+	}
+	return children
 }
 
 // offsetToPosition converts a byte offset in src to an LSP Position.
