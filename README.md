@@ -38,6 +38,42 @@ Scope is deliberately tight — **go-to-definition**, **find-references**, and
   project-wide name search, built from the same symbol table (procs, namespace
   vars, Itcl classes/methods/ivars); `.rvt` page symbols surface at the top
   level.
+- ✅ **Itcl ([incr Tcl]) OO** — classes, methods, instance variables, and
+  inheritance resolve, including the `$obj method` receiver call. See
+  [Itcl OO support](#itcl-oo-support).
+
+## Itcl OO support
+
+The dominant OO idiom in Rivet/speedtables-style code — `itcl::class`,
+`[::C #auto]`, `$obj method` — resolves end-to-end:
+
+- **Classes** — `itcl::class ::C { … }` (and `::itcl::class`) are resolvable
+  symbols. Goto-definition on an instantiation (`[::STDisplay #auto]`,
+  `::STDisplay create x`, `C objName`) jumps to the class; find-references lists
+  every instantiation and use.
+- **Members** — `method`, `constructor`, `destructor`, class-level `proc`, and
+  `variable`/`common` instance variables — from both inline class blocks and
+  external `itcl::body ::C::m { … }` definitions (merged as sites for one member).
+- **Inheritance** — `inherit` chains are walked (simple `inherit`-order, cycle-
+  and diamond-safe), so an inherited method or ivar resolves to its base-class site.
+- **Three resolution tiers:**
+  1. **Class names** in command position.
+  2. **Intra-class** — a bare `method`, `$this method`, or `$ivar` inside a method
+     body resolves to the member, including inherited ones.
+  3. **`$obj method`** — `set d [::STDisplay #auto]; $d field` types `$d` via the
+     reaching-definitions engine and resolves `field` on its class. Instantiation
+     forms recognized: `#auto`, `new`, `create name`, `objName`, and bare `[::C …]`.
+- Classes, methods, and ivars also appear in the **document/workspace symbol**
+  outlines, and all of the above works across `.tcl` and `.rvt`.
+
+**Boundaries (graceful — it returns nothing rather than jump wrong):**
+
+- **TclOO** (`oo::class`, `oo::define`) is not supported yet — Itcl only.
+- Receivers whose class is not *locally* known — a method parameter, a factory
+  return value, an ivar assigned in a different method — stay unresolved (Itcl has
+  no type annotations to recover the class from).
+- Simple `inherit`-order MRO, not full C3 linearization; no dynamic dispatch,
+  `configure`/`cget`, mixins, or `rename`/`interp alias` on classes.
 
 ## Requirements
 
@@ -157,8 +193,8 @@ were impossible to untangle. v2 inverts the approach: understand TCL's tricky
 scope rules first, write them down, then build the minimum that works — which is
 why heavier analysis (e.g. the reaching-definitions dataflow) runs only when
 needed and stays off the goto-def hot path. Research lives in `research/`, designs
-and plans in `docs/`. Deferred work (e.g. Itcl/TclOO `$obj method` type-tracking)
-is tracked in [`docs/BACKLOG.md`](docs/BACKLOG.md).
+and plans in `docs/`. Deferred work (e.g. TclOO `oo::class` support) is tracked in
+[`docs/BACKLOG.md`](docs/BACKLOG.md).
 
 ## Recovering the old prototype
 
