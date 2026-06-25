@@ -39,15 +39,15 @@ type ClassInfo struct {
 // plan) must serialize access (e.g. an RWMutex: shared for Lookup/Files/Source,
 // exclusive for IndexFile/RemoveFile).
 type Index struct {
-	defsByName        map[string][]Location                    // FQ name -> all definition sites
-	fileDefs          map[string][]string                      // file -> FQ names it defines (for removal)
-	src               map[string]string                        // file -> source text
-	fileNS            map[string]map[string]*tcl.NamespaceInfo // file -> (ns name -> decls)
-	fileRefs          map[string][]tcl.ContextRef              // file -> precomputed reference sites
-	nsCache           map[string]nsMerged                      // memoized merged path/imports per ns
-	classes           map[string]*ClassInfo                    // classFQ -> aggregated class info
-	fileClassKeys     map[string][]string                      // file -> class FQs it contributed to
-	fileClassInherit  map[string]map[string][]string           // file -> classFQ -> inherit edges from that file
+	defsByName       map[string][]Location                    // FQ name -> all definition sites
+	fileDefs         map[string][]string                      // file -> FQ names it defines (for removal)
+	src              map[string]string                        // file -> source text
+	fileNS           map[string]map[string]*tcl.NamespaceInfo // file -> (ns name -> decls)
+	fileRefs         map[string][]tcl.ContextRef              // file -> precomputed reference sites
+	nsCache          map[string]nsMerged                      // memoized merged path/imports per ns
+	classes          map[string]*ClassInfo                    // classFQ -> aggregated class info
+	fileClassKeys    map[string][]string                      // file -> class FQs it contributed to
+	fileClassInherit map[string]map[string][]string           // file -> classFQ -> inherit edges from that file
 }
 
 // nsMerged is the merged namespace-path and import set for one namespace, cached
@@ -79,19 +79,23 @@ func New() *Index {
 func (ix *Index) IndexFile(path, content string) {
 	ix.RemoveFile(path)
 	ix.src[path] = content
-	ix.fileNS[path] = source.Namespaces(path, content)
+	// One parse produces all four analyses (defs, refs, namespaces, classes);
+	// see source.IndexUnit. Calling source.Defs/Refs/Namespaces/Classes
+	// separately would re-parse (and, for .rvt, re-Extract) the file four times.
+	unit := source.IndexUnit(path, content)
+	ix.fileNS[path] = unit.Namespaces
 	// Precompute reference sites once here so a references request iterates
 	// stored data instead of re-parsing every workspace file (the dominant cost
 	// on large repos). Resolution stays request-time (it depends on cross-file
 	// namespace state); only the parse is hoisted.
-	if refs := source.Refs(path, content); len(refs) > 0 {
-		ix.fileRefs[path] = refs
+	if len(unit.Refs) > 0 {
+		ix.fileRefs[path] = unit.Refs
 	}
 
 	// Track which class FQs this file touches (for RemoveFile bookkeeping).
 	classKeysSeen := map[string]bool{}
 
-	for _, d := range source.Defs(path, content) {
+	for _, d := range unit.Defs {
 		loc := Location{File: path, Name: d.Name, Kind: d.Kind, NameStart: d.NameStart, NameEnd: d.NameEnd}
 		switch d.Kind {
 		case tcl.DefProc, tcl.DefNamespaceVar, tcl.DefClass:
@@ -118,7 +122,7 @@ func (ix *Index) IndexFile(path, content string) {
 	}
 
 	// Merge inherit edges from FileClasses.
-	for classFQ, bases := range source.Classes(path, content) {
+	for classFQ, bases := range unit.Classes {
 		ci := ix.ensureClass(classFQ)
 		classKeysSeen[classFQ] = true
 		// Track this file's contribution for precise removal.
@@ -342,7 +346,7 @@ func (ix *Index) Namespace(ns string) (path []string, imports []string) {
 
 // SymbolEntry is a flattened workspace symbol suitable for workspace/symbol responses.
 type SymbolEntry struct {
-	Name      string      // simple name (last :: segment)
+	Name      string // simple name (last :: segment)
 	Kind      tcl.DefKind
 	File      string
 	NameStart int
