@@ -768,3 +768,34 @@ func TestDefinitionLocalReachingLatestStraightLine(t *testing.T) {
 		t.Fatalf("want the latest binding (set x 2), got %#v", defs)
 	}
 }
+
+func TestDefinitionItclClassInstantiation(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("disp.tcl", "itcl::class ::STDisplay {\n  method field {} {}\n}")
+	r := New(ix)
+	src := "set d [::STDisplay #auto]"
+	off := strings.Index(src, "::STDisplay") // cursor on the class in the instantiation
+	locs := r.Definition("use.tcl", src, off)
+	if len(locs) != 1 || locs[0].File != "disp.tcl" || locs[0].Name != "::STDisplay" {
+		t.Fatalf("instantiation goto-def = %#v", locs)
+	}
+}
+
+func TestReferencesItclClass(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("disp.tcl", "itcl::class ::STDisplay {\n  method field {} {}\n}")
+	ix.IndexFile("a.tcl", "set d [::STDisplay #auto]")
+	r := New(ix)
+	defSrc := ix.Source("disp.tcl")
+	defOff := strings.Index(defSrc, "::STDisplay") // cursor on the class name at its definition
+	refs := r.References("disp.tcl", defSrc, defOff)
+	var inA bool
+	for _, l := range refs {
+		if l.File == "a.tcl" {
+			inA = true
+		}
+	}
+	if !inA {
+		t.Fatalf("class references should include the a.tcl instantiation: %#v", refs)
+	}
+}

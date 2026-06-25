@@ -10,9 +10,10 @@ const (
 	DefNamespaceVar                // a namespace variable (variable / qualified set / ns-top set)
 	DefLocal                       // a proc-local variable (param, set, upvar alias)
 	DefGlobalLink                  // a `global name` link to ::name
+	DefClass                       // an itcl::class definition
 )
 
-// Definition is a declaration site. Name is fully qualified for proc and
+// Definition is a declaration site. Name is fully qualified for proc, class, and
 // namespace-variable kinds; for locals it is the bare local name. NameStart and
 // NameEnd are the absolute byte range of the declared name token.
 type Definition struct {
@@ -145,6 +146,17 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 				})
 			}
 		}
+	}
+	// w[0]=itcl::class  w[1]=ClassName  w[2]=class body (required, hence len >= 3)
+	if (isCmd(w, "itcl::class") || isCmd(w, "::itcl::class")) && len(w) >= 3 && isPlainName(w[1]) {
+		*out = append(*out, Definition{
+			Kind:      DefClass,
+			Name:      qualifyName(w[1].Text, ns),
+			Namespace: ns,
+			NameStart: base + w[1].Start,
+			NameEnd:   base + w[1].End,
+			Scope:     scope,
+		})
 	}
 	if frame == FrameProc {
 		emitLoopVarDefs(w, base, ns, scope, out)

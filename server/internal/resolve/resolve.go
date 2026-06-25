@@ -356,7 +356,7 @@ func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
 // Returns "" if there is no resolvable symbol.
 func (r *Resolver) targetFQ(file, src string, offset int) string {
 	for _, d := range source.Defs(file, src) {
-		if (d.Kind == tcl.DefProc || d.Kind == tcl.DefNamespaceVar) &&
+		if (d.Kind == tcl.DefProc || d.Kind == tcl.DefNamespaceVar || d.Kind == tcl.DefClass) &&
 			offset >= d.NameStart && offset < d.NameEnd {
 			return d.Name
 		}

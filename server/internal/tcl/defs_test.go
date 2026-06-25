@@ -369,3 +369,34 @@ func TestFileDefsCombined(t *testing.T) {
 		t.Fatalf("square name slice = %q", src[sq.NameStart:sq.NameEnd])
 	}
 }
+
+func TestFileDefsItclClass(t *testing.T) {
+	src := "itcl::class ::STDisplay {\n  method field {} {}\n}"
+	var got *Definition
+	for _, d := range FileDefs(src) {
+		if d.Kind == DefClass {
+			dd := d
+			got = &dd
+		}
+	}
+	if got == nil || got.Name != "::STDisplay" {
+		t.Fatalf("want DefClass ::STDisplay, got %#v", FileDefs(src))
+	}
+	if src[got.NameStart:got.NameEnd] != "::STDisplay" {
+		t.Fatalf("name range slices %q, want ::STDisplay", src[got.NameStart:got.NameEnd])
+	}
+}
+
+func TestFileDefsItclClassQualifiedHead(t *testing.T) {
+	// `::itcl::class` (leading ::) must also be recognized.
+	defs := FileDefs("::itcl::class ::Foo {}")
+	found := false
+	for _, d := range defs {
+		if d.Kind == DefClass && d.Name == "::Foo" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("::itcl::class not recognized: %#v", defs)
+	}
+}

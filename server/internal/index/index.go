@@ -73,7 +73,7 @@ func (ix *Index) IndexFile(path, content string) {
 		ix.fileRefs[path] = refs
 	}
 	for _, d := range source.Defs(path, content) {
-		if d.Kind != tcl.DefProc && d.Kind != tcl.DefNamespaceVar {
+		if d.Kind != tcl.DefProc && d.Kind != tcl.DefNamespaceVar && d.Kind != tcl.DefClass {
 			continue
 		}
 		ix.defsByName[d.Name] = append(ix.defsByName[d.Name], Location{
