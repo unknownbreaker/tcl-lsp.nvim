@@ -142,7 +142,7 @@ func TestDefinitionProcLocalUndefinedIsNil(t *testing.T) {
 	}
 }
 
-func TestDefinitionProcLocalJumpsToDeclarationNotMutation(t *testing.T) {
+func TestDefinitionProcLocalJumpsToReachingDefNotEarliestBinding(t *testing.T) {
 	r := New(index.New())
 	// Declared once with `set`, later mutated with a build-up command (lappend).
 	// Under reaching-defs semantics:

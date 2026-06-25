@@ -170,7 +170,11 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 		}
 		cur = merged
 	}
-	exit := joinAll([]reachSet{in, normalEnd, acc.brk})
+	// cur is the fixpoint set at the loop header: it already subsumes `in`,
+	// `normalEnd`, and all `acc.cont` back-edge contributions, so it covers
+	// every path that may reach post-loop — including iterations that ended
+	// via `continue`. acc.brk adds paths that exited via `break`.
+	exit := joinAll([]reachSet{cur, acc.brk})
 	return exit, true
 }
 
@@ -209,17 +213,45 @@ func conservativeHead(c Command) bool {
 // exit at any point, so the result joins the entry set with every binding
 // generated anywhere in the bodies (and the construct's own bindings, e.g. a
 // catch result variable). Sound for may-reach; never drops a real reaching def.
+//
+// Known graceful-degradation limits (no code change needed — these fall back to
+// first-binding at the resolver): (a) a $x use directly inside a switch arm body
+// is found via the conservative bodyView pass, but the reaching answer comes from
+// the over-approximated union rather than a precise reaching set; (b) try...on/trap
+// handler var-list names (the varList argument to on/trap) are not modeled as
+// bindings and are not tracked by reaching-defs.
 func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachSet, bool) {
 	gens := reachSet{}
 	for _, b := range scriptBodies(c.Words) {
 		inner, ibase := bracedInner(b, base)
 		collectBindings(Parse(inner), ibase, gens)
 	}
+	// For inline-form switch (`switch ?opts? string pat body pat body ...`),
+	// scriptBodies returns only the last braced word (the default arm, by the
+	// trailing-brace heuristic). Collect bindings and record uses from EVERY
+	// braced word in c.Words[2:] so no arm is silently dropped.
+	if isCmd(c.Words, "switch") {
+		for _, w := range c.Words[2:] {
+			if w.Kind == WordBraced {
+				inner, ibase := bracedInner(w, base)
+				collectBindings(Parse(inner), ibase, gens)
+			}
+		}
+	}
 	bodyView := joinAll([]reachSet{in, gens})
 	// Record any use at useOff inside the bodies against the conservative view.
 	for _, b := range scriptBodies(c.Words) {
 		inner, ibase := bracedInner(b, base)
 		a.seq(Parse(inner), ibase, bodyView.clone())
+	}
+	// For inline switch, also record uses inside each arm body.
+	if isCmd(c.Words, "switch") {
+		for _, w := range c.Words[2:] {
+			if w.Kind == WordBraced {
+				inner, ibase := bracedInner(w, base)
+				a.seq(Parse(inner), ibase, bodyView.clone())
+			}
+		}
 	}
 	out := bodyView.clone()
 	for _, d := range localBindings(c, base) { // catch resultVar / optionsVar

@@ -116,6 +116,22 @@ func TestReachingSwitchArms(t *testing.T) {
 	}
 }
 
+func TestReachingContinueExit(t *testing.T) {
+	src := "proc f {} {\n  set x 0\n  while {$c} {\n    set x 1\n    continue\n  }\n  puts $x\n}"
+	defs := reachAtMarker(t, src, "$x") // x0 (0 iters) AND x1 (iteration completed via continue)
+	if len(defs) != 2 {
+		t.Fatalf("want 2 reaching defs (x0, x1) — continue must not drop x1, got %d: %#v", len(defs), defs)
+	}
+}
+
+func TestReachingSwitchInlineArms(t *testing.T) {
+	src := "proc f {} {\n  set x 0\n  switch $k a { set x 1 } b { set x 2 }\n  puts $x\n}"
+	defs := reachAtMarker(t, src, "$x") // x0 + x1 + x2 (no arm dropped)
+	if len(defs) != 3 {
+		t.Fatalf("want 3 reaching defs (x0,x1,x2) — inline switch must not drop arms, got %d: %#v", len(defs), defs)
+	}
+}
+
 func TestReachingSizeCapFallsBack(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("proc f {} {\n")
