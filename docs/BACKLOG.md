@@ -62,6 +62,7 @@ crash), all noted in code comments:
 3. **`try ... on e {varList} {body}` handler var-list names** aren't emitted as
    local bindings by `localBindings`, so `$e` there falls back to first-binding.
 
-Also deferred from the design: **OO (`$obj method`) type-tracking** (the original
-motivation), which would consume this reaching engine plus a class/method symbol
-layer — its own future spec.
+The OO (`$obj method`) type-tracking this engine was built to enable has since
+**shipped** — Itcl classes, methods, ivars, inheritance, and the `$obj method`
+receiver call all resolve (see the README's "Itcl OO support"). **TclOO
+(`oo::class`)** remains the deferred OO dialect.
