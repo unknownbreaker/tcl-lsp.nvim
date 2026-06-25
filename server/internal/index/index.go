@@ -24,18 +24,30 @@ type Location struct {
 	NameEnd   int
 }
 
+// ClassInfo aggregates per-class member and inheritance information collected
+// across all indexed files.
+type ClassInfo struct {
+	DefSites []Location            // all `itcl::class` declaration sites
+	Methods  map[string][]Location // method name -> definition sites (inline + itcl::body)
+	Ivars    map[string][]Location // ivar name -> declaration sites
+	Inherit  []string              // fully-qualified base class names (deduplicated)
+}
+
 // Index holds workspace-visible definitions (procs and namespace variables)
 // keyed by fully-qualified name, plus each file's source for later analysis.
 // Index is not safe for concurrent use; the LSP server (protocol layer, a later
 // plan) must serialize access (e.g. an RWMutex: shared for Lookup/Files/Source,
 // exclusive for IndexFile/RemoveFile).
 type Index struct {
-	defsByName map[string][]Location                    // FQ name -> all definition sites
-	fileDefs   map[string][]string                      // file -> FQ names it defines (for removal)
-	src        map[string]string                        // file -> source text
-	fileNS     map[string]map[string]*tcl.NamespaceInfo // file -> (ns name -> decls)
-	fileRefs   map[string][]tcl.ContextRef              // file -> precomputed reference sites
-	nsCache    map[string]nsMerged                      // memoized merged path/imports per ns
+	defsByName        map[string][]Location                    // FQ name -> all definition sites
+	fileDefs          map[string][]string                      // file -> FQ names it defines (for removal)
+	src               map[string]string                        // file -> source text
+	fileNS            map[string]map[string]*tcl.NamespaceInfo // file -> (ns name -> decls)
+	fileRefs          map[string][]tcl.ContextRef              // file -> precomputed reference sites
+	nsCache           map[string]nsMerged                      // memoized merged path/imports per ns
+	classes           map[string]*ClassInfo                    // classFQ -> aggregated class info
+	fileClassKeys     map[string][]string                      // file -> class FQs it contributed to
+	fileClassInherit  map[string]map[string][]string           // file -> classFQ -> inherit edges from that file
 }
 
 // nsMerged is the merged namespace-path and import set for one namespace, cached
@@ -49,12 +61,15 @@ type nsMerged struct {
 // New returns an empty Index.
 func New() *Index {
 	return &Index{
-		defsByName: map[string][]Location{},
-		fileDefs:   map[string][]string{},
-		src:        map[string]string{},
-		fileNS:     map[string]map[string]*tcl.NamespaceInfo{},
-		fileRefs:   map[string][]tcl.ContextRef{},
-		nsCache:    map[string]nsMerged{},
+		defsByName:       map[string][]Location{},
+		fileDefs:         map[string][]string{},
+		src:              map[string]string{},
+		fileNS:           map[string]map[string]*tcl.NamespaceInfo{},
+		fileRefs:         map[string][]tcl.ContextRef{},
+		nsCache:          map[string]nsMerged{},
+		classes:          map[string]*ClassInfo{},
+		fileClassKeys:    map[string][]string{},
+		fileClassInherit: map[string]map[string][]string{},
 	}
 }
 
@@ -72,15 +87,78 @@ func (ix *Index) IndexFile(path, content string) {
 	if refs := source.Refs(path, content); len(refs) > 0 {
 		ix.fileRefs[path] = refs
 	}
+
+	// Track which class FQs this file touches (for RemoveFile bookkeeping).
+	classKeysSeen := map[string]bool{}
+
 	for _, d := range source.Defs(path, content) {
-		if d.Kind != tcl.DefProc && d.Kind != tcl.DefNamespaceVar && d.Kind != tcl.DefClass {
-			continue
+		loc := Location{File: path, Name: d.Name, Kind: d.Kind, NameStart: d.NameStart, NameEnd: d.NameEnd}
+		switch d.Kind {
+		case tcl.DefProc, tcl.DefNamespaceVar, tcl.DefClass:
+			ix.defsByName[d.Name] = append(ix.defsByName[d.Name], loc)
+			ix.fileDefs[path] = append(ix.fileDefs[path], d.Name)
+			if d.Kind == tcl.DefClass {
+				ci := ix.ensureClass(d.Name)
+				ci.DefSites = append(ci.DefSites, loc)
+				classKeysSeen[d.Name] = true
+			}
+		case tcl.DefMethod:
+			if d.Class != "" {
+				ci := ix.ensureClass(d.Class)
+				ci.Methods[d.Name] = append(ci.Methods[d.Name], loc)
+				classKeysSeen[d.Class] = true
+			}
+		case tcl.DefIvar:
+			if d.Class != "" {
+				ci := ix.ensureClass(d.Class)
+				ci.Ivars[d.Name] = append(ci.Ivars[d.Name], loc)
+				classKeysSeen[d.Class] = true
+			}
 		}
-		ix.defsByName[d.Name] = append(ix.defsByName[d.Name], Location{
-			File: path, Name: d.Name, Kind: d.Kind, NameStart: d.NameStart, NameEnd: d.NameEnd,
-		})
-		ix.fileDefs[path] = append(ix.fileDefs[path], d.Name)
 	}
+
+	// Merge inherit edges from FileClasses.
+	for classFQ, bases := range source.Classes(path, content) {
+		ci := ix.ensureClass(classFQ)
+		classKeysSeen[classFQ] = true
+		// Track this file's contribution for precise removal.
+		if ix.fileClassInherit[path] == nil {
+			ix.fileClassInherit[path] = map[string][]string{}
+		}
+		var newEdges []string
+		for _, base := range bases {
+			already := false
+			for _, existing := range ci.Inherit {
+				if existing == base {
+					already = true
+					break
+				}
+			}
+			if !already {
+				ci.Inherit = append(ci.Inherit, base)
+				newEdges = append(newEdges, base)
+			}
+		}
+		if len(newEdges) > 0 {
+			ix.fileClassInherit[path][classFQ] = append(ix.fileClassInherit[path][classFQ], newEdges...)
+		}
+	}
+
+	// Record the set of class keys this file contributed.
+	for fq := range classKeysSeen {
+		ix.fileClassKeys[path] = append(ix.fileClassKeys[path], fq)
+	}
+}
+
+// ensureClass returns the ClassInfo for fq, creating it if absent.
+func (ix *Index) ensureClass(fq string) *ClassInfo {
+	if ix.classes[fq] == nil {
+		ix.classes[fq] = &ClassInfo{
+			Methods: map[string][]Location{},
+			Ivars:   map[string][]Location{},
+		}
+	}
+	return ix.classes[fq]
 }
 
 // RemoveFile drops all definitions and stored source contributed by path.
@@ -102,6 +180,60 @@ func (ix *Index) RemoveFile(path string) {
 		}
 	}
 	delete(ix.fileDefs, path)
+
+	// Remove this file's class contributions (DefSites, Methods, Ivars, Inherit).
+	inheritContribs := ix.fileClassInherit[path] // may be nil
+	for _, fq := range ix.fileClassKeys[path] {
+		ci := ix.classes[fq]
+		if ci == nil {
+			continue
+		}
+		// Filter DefSites.
+		ci.DefSites = filterLocs(ci.DefSites, path)
+		// Filter Methods.
+		for name, locs := range ci.Methods {
+			filtered := filterLocs(locs, path)
+			if len(filtered) == 0 {
+				delete(ci.Methods, name)
+			} else {
+				ci.Methods[name] = filtered
+			}
+		}
+		// Filter Ivars.
+		for name, locs := range ci.Ivars {
+			filtered := filterLocs(locs, path)
+			if len(filtered) == 0 {
+				delete(ci.Ivars, name)
+			} else {
+				ci.Ivars[name] = filtered
+			}
+		}
+		// Remove inherit edges that this file contributed.
+		if edges, ok := inheritContribs[fq]; ok && len(edges) > 0 {
+			edgeSet := make(map[string]bool, len(edges))
+			for _, e := range edges {
+				edgeSet[e] = true
+			}
+			kept := ci.Inherit[:0]
+			for _, base := range ci.Inherit {
+				if !edgeSet[base] {
+					kept = append(kept, base)
+				}
+			}
+			if len(kept) == 0 {
+				ci.Inherit = nil
+			} else {
+				ci.Inherit = kept
+			}
+		}
+		// Drop class entry entirely when no contributions remain.
+		if len(ci.DefSites) == 0 && len(ci.Methods) == 0 && len(ci.Ivars) == 0 && len(ci.Inherit) == 0 {
+			delete(ix.classes, fq)
+		}
+	}
+	delete(ix.fileClassKeys, path)
+	delete(ix.fileClassInherit, path)
+
 	delete(ix.src, path)
 	delete(ix.fileNS, path)
 	delete(ix.fileRefs, path)
@@ -110,6 +242,24 @@ func (ix *Index) RemoveFile(path string) {
 	// first, so this covers re-index too. Reads never happen mid-mutation (the
 	// server serializes index access), so lazy rebuild is safe.
 	clear(ix.nsCache)
+}
+
+// filterLocs returns locs with all entries from excludeFile removed.
+// It reuses the slice's backing array (safe because Lookup returns copies).
+func filterLocs(locs []Location, excludeFile string) []Location {
+	kept := locs[:0]
+	for _, l := range locs {
+		if l.File != excludeFile {
+			kept = append(kept, l)
+		}
+	}
+	return kept
+}
+
+// Class returns the aggregated ClassInfo for a fully-qualified class name, or
+// nil if the class has not been indexed.
+func (ix *Index) Class(fq string) *ClassInfo {
+	return ix.classes[fq]
 }
 
 // FileRefs returns the precomputed reference sites for path (nil if the file is

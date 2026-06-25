@@ -65,6 +65,16 @@ func Namespaces(path, content string) map[string]*tcl.NamespaceInfo {
 	return tcl.FileNamespaces(rvt.Extract(content).Script)
 }
 
+// Classes returns per-class inherit edges for content (classFQ -> []baseFQ).
+// Names only (no offsets), so no translation is required; for .rvt the stitched
+// script is parsed directly.
+func Classes(path, content string) map[string][]string {
+	if !IsRVT(path) {
+		return tcl.FileClasses(content)
+	}
+	return tcl.FileClasses(rvt.Extract(content).Script)
+}
+
 // Reaching returns the local bindings that may reach the variable use at byte
 // offset in content, in SOURCE coordinates. For .rvt the offset is mapped into the
 // stitched ::request script and each result range is translated back to the .rvt;
