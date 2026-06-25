@@ -1,5 +1,7 @@
 package tcl
 
+import "strings"
+
 // This file is the single source of truth for two things every tree walker in
 // this package needs: (1) which braced words of a command are *script bodies*
 // (vs. data or expressions), and (2) the namespace/frame each body executes in.
@@ -47,6 +49,17 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 		// frame carrying the enclosing class name.
 		inner, innerBase := bracedInner(w[len(w)-1], base)
 		return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: class}}
+	case (isCmd(w, "itcl::body") || isCmd(w, "::itcl::body")) && len(w) >= 4 && w[len(w)-1].Kind == WordBraced:
+		// itcl::body ::Class::method args body — the body is a method scope; extract
+		// the class from the qualified name (split on last ::) so locals/calls inside
+		// resolve with the correct class context.
+		full := w[1].Text
+		if i := strings.LastIndex(full, "::"); i > 0 {
+			classFQ := qualifyName(full[:i], ns)
+			inner, innerBase := bracedInner(w[len(w)-1], base)
+			return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: classFQ}}
+		}
+		return nil
 	default:
 		// A decorated proc definition (`CACHE_PROC proc name args body`): its body
 		// is a proc scope, exactly like a plain proc.

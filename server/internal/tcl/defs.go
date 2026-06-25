@@ -188,6 +188,28 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 			Class:     class,
 		})
 	}
+	// w[0]=itcl::body  w[1]=::Class::method  w[2]=args  w[3]=body
+	// External method body definitions: `itcl::body ::C::m {args} {body}`.
+	// Split the qualified name on the last :: to get the class and method name.
+	if (isCmd(w, "itcl::body") || isCmd(w, "::itcl::body")) && len(w) >= 2 && isPlainName(w[1]) {
+		full := w[1].Text
+		if i := strings.LastIndex(full, "::"); i > 0 {
+			classFQ := qualifyName(full[:i], ns)
+			methodSeg := full[i+2:]
+			if methodSeg != "" {
+				segStart := w[1].Start + i + 2
+				*out = append(*out, Definition{
+					Kind:      DefMethod,
+					Name:      methodSeg,
+					Class:     classFQ,
+					Namespace: ns,
+					NameStart: base + segStart,
+					NameEnd:   base + w[1].End,
+					Scope:     scope,
+				})
+			}
+		}
+	}
 	if frame == FrameProc {
 		emitLoopVarDefs(w, base, ns, scope, class, out)
 	}

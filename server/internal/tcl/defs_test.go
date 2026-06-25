@@ -437,3 +437,17 @@ func TestFileDefsMethodLoopVarCarriesClass(t *testing.T) {
 		t.Fatalf("foreach var in a method body should carry Class ::C, got %#v", xv)
 	}
 }
+
+func TestFileDefsItclBody(t *testing.T) {
+	src := "itcl::body ::C::field {name} { return $name }"
+	var m *Definition
+	for _, d := range FileDefs(src) {
+		dd := d
+		if d.Kind == DefMethod && d.Name == "field" {
+			m = &dd
+		}
+	}
+	if m == nil || m.Class != "::C" {
+		t.Fatalf("want external DefMethod field on ::C, got %#v", FileDefs(src))
+	}
+}
