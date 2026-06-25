@@ -21,6 +21,32 @@ type bodyScope struct {
 	Class string    // fully-qualified itcl class name, or "" when not inside a class
 }
 
+// memberWords strips a leading Itcl access modifier (`public`/`protected`/
+// `private`) from a class-body command's words when it directly precedes a
+// modifiable member keyword (`method`/`proc`/`variable`/`common`), returning the
+// effective declaration words. Returns w unchanged otherwise. Only meaningful at
+// FrameClass; the precise keyword guard avoids mis-stripping an unrelated command
+// whose first word happens to be `public`/`private`/`protected`.
+func memberWords(w []Word) []Word {
+	if len(w) >= 2 && w[0].Kind == WordBare && isAccessModifier(w[0].Text) &&
+		w[1].Kind == WordBare && isModifiableMember(w[1].Text) {
+		return w[1:]
+	}
+	return w
+}
+
+func isAccessModifier(s string) bool {
+	return s == "public" || s == "protected" || s == "private"
+}
+
+func isModifiableMember(s string) bool {
+	switch s {
+	case "method", "proc", "variable", "common":
+		return true
+	}
+	return false
+}
+
 // childBodies returns the script bodies of c that walkers should recurse into,
 // each tagged with the scope it runs in. `namespace eval` and `proc` introduce a
 // new scope; control-flow and custom-command script bodies run in the enclosing
@@ -28,6 +54,12 @@ type bodyScope struct {
 // enclosing class body, or "" when not inside a class.
 func childBodies(c Command, base int, ns string, frame FrameKind, scope int, class string) []bodyScope {
 	w := c.Words
+	// Inside a class body, a member may carry a leading access modifier
+	// (`public method foo {…}`); strip it so the keyword and body are matched
+	// the same as the bare form. Confined to FrameClass, where modifiers are valid.
+	if frame == FrameClass {
+		w = memberWords(w)
+	}
 	switch {
 	case isCmd(w, "namespace") && len(w) >= 4 && w[1].Text == "eval" && w[len(w)-1].Kind == WordBraced:
 		// Body is the last word (Tcl's `namespace eval name script` form; for
@@ -48,7 +80,15 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 		// method/constructor/destructor inside a class body — each runs as a proc
 		// frame carrying the enclosing class name.
 		inner, innerBase := bracedInner(w[len(w)-1], base)
-		return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: class}}
+		out := []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: class}}
+		// A constructor may carry an optional init block before the body
+		// (`constructor args {Base::constructor …} {body}`) that chains the base
+		// class; walk it too so the chained call is found as a reference.
+		if isCmd(w, "constructor") && len(w) >= 4 && w[len(w)-2].Kind == WordBraced {
+			initInner, initBase := bracedInner(w[len(w)-2], base)
+			out = append(out, bodyScope{Inner: initInner, Base: initBase, NS: ns, Frame: FrameProc, Scope: initBase, Class: class})
+		}
+		return out
 	case (isCmd(w, "itcl::body") || isCmd(w, "::itcl::body")) && len(w) >= 4 && w[len(w)-1].Kind == WordBraced:
 		// itcl::body ::Class::method args body — the body is a method scope; extract
 		// the class from the qualified name (split on last ::) so locals/calls inside
@@ -221,7 +261,7 @@ func ifConditions(w []Word) []Word {
 var dataBraceCommands = map[string]bool{
 	"expr": true, "set": true, "list": true, "lappend": true, "lset": true,
 	"append": true, "incr": true, "array": true, "string": true,
-	"global": true, "variable": true, "return": true,
+	"global": true, "variable": true, "common": true, "return": true,
 }
 
 // ifBodies returns the braced body words of an if command, excluding the
