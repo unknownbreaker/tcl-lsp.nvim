@@ -103,6 +103,9 @@ func (a *analyzer) seq(cmds []Command, base int, in reachSet) reachSet {
 // incoming set, then apply this command's bindings (kill prior, gen new).
 func (a *analyzer) command(c Command, base int, in reachSet) reachSet {
 	a.recordUses(c, base, in)
+	if isCmd(c.Words, "if") {
+		return a.analyzeIf(c, base, in)
+	}
 	binds := localBindings(c, base)
 	if len(binds) == 0 {
 		return in
@@ -110,6 +113,55 @@ func (a *analyzer) command(c Command, base int, in reachSet) reachSet {
 	out := in.clone()
 	for _, d := range binds {
 		out[d.Name] = []Definition{d} // straight-line: reassign kills+gens
+	}
+	return out
+}
+
+// analyzeIf threads the reaching set through each branch body of an if command
+// and joins the results. When there is no else clause, the fall-through (no
+// branch taken) path is added to the join so prior defs remain reachable.
+func (a *analyzer) analyzeIf(c Command, base int, in reachSet) reachSet {
+	var outs []reachSet
+	for _, b := range ifBodies(c.Words) {
+		inner, ibase := bracedInner(b, base)
+		outs = append(outs, a.seq(Parse(inner), ibase, in.clone()))
+	}
+	if !hasElse(c.Words) {
+		outs = append(outs, in) // no branch taken: fall-through path
+	}
+	return joinAll(outs)
+}
+
+// hasElse reports whether the if command words include an else keyword.
+func hasElse(w []Word) bool {
+	for _, x := range w {
+		if x.Kind == WordBare && x.Text == "else" {
+			return true
+		}
+	}
+	return false
+}
+
+// joinAll unions reaching sets per variable, deduplicating bindings by
+// name-range (NameStart/NameEnd pair).
+func joinAll(sets []reachSet) reachSet {
+	out := reachSet{}
+	type key struct{ s, e int }
+	seen := map[string]map[key]bool{}
+	for _, s := range sets {
+		for name, defs := range s {
+			if seen[name] == nil {
+				seen[name] = map[key]bool{}
+			}
+			for _, d := range defs {
+				k := key{d.NameStart, d.NameEnd}
+				if seen[name][k] {
+					continue
+				}
+				seen[name][k] = true
+				out[name] = append(out[name], d)
+			}
+		}
 	}
 	return out
 }

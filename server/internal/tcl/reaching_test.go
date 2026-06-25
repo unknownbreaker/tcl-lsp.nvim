@@ -51,3 +51,19 @@ func TestReachingParamReaches(t *testing.T) {
 		t.Fatalf("param should reach: %#v", defs)
 	}
 }
+
+func TestReachingIfElseJoin(t *testing.T) {
+	src := "proc f {} {\n  set x 1\n  if {$c} {\n    set x 2\n  } else {\n    set x 3\n  }\n  puts $x\n}"
+	defs := reachAtMarker(t, src, "$x")
+	if len(defs) != 2 { // both branches reassign; set x 1 is dead
+		t.Fatalf("want 2 reaching defs (x2, x3), got %d: %#v", len(defs), defs)
+	}
+}
+
+func TestReachingIfNoElseKeepsPrior(t *testing.T) {
+	src := "proc f {} {\n  set x 1\n  if {$c} {\n    set x 2\n  }\n  puts $x\n}"
+	defs := reachAtMarker(t, src, "$x")
+	if len(defs) != 2 { // fall-through keeps x1; if-branch adds x2
+		t.Fatalf("want 2 (x1 fall-through + x2), got %d: %#v", len(defs), defs)
+	}
+}
