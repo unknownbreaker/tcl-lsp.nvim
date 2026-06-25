@@ -135,6 +135,10 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		path := uriToPath(p.TextDocument.URI)
 		src := s.sourceOf(path)
 		s.reply(m.ID, buildDocumentSymbols(source.Defs(path, src), src, source.IsRVT(path)))
+	case "workspace/symbol":
+		var p WorkspaceSymbolParams
+		_ = json.Unmarshal(m.Params, &p)
+		s.reply(m.ID, buildWorkspaceSymbols(s.ix.AllSymbols(), p.Query, s.sourceOf))
 	case "exit":
 		return true
 	default:

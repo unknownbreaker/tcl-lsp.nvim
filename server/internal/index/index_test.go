@@ -321,3 +321,18 @@ func TestIndexClassTable(t *testing.T) {
 		t.Fatalf("Derived inherit = %#v, want [::Base]", ci.Inherit)
 	}
 }
+
+func TestIndexAllSymbols(t *testing.T) {
+	ix := New()
+	ix.IndexFile("a.tcl", "namespace eval ::app { proc run {} {} }\nitcl::class ::C { method field {} {} }")
+	var names = map[string]SymbolEntry{}
+	for _, e := range ix.AllSymbols() {
+		names[e.Name] = e
+	}
+	if e, ok := names["run"]; !ok || e.Container != "::app" {
+		t.Fatalf("run symbol = %#v", names)
+	}
+	if e, ok := names["field"]; !ok || e.Kind != tcl.DefMethod || e.Container != "::C" {
+		t.Fatalf("field method symbol = %#v", names)
+	}
+}

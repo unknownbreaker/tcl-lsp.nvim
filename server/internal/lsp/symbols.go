@@ -3,6 +3,7 @@ package lsp
 import (
 	"strings"
 
+	"github.com/unknownbreaker/tcl-lsp/internal/index"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
 
@@ -322,4 +323,35 @@ func posContains(outerStart, outerEnd, innerStart, innerEnd Position) bool {
 	endOK := outerEnd.Line > innerEnd.Line ||
 		(outerEnd.Line == innerEnd.Line && outerEnd.Character >= innerEnd.Character)
 	return startOK && endOK
+}
+
+// buildWorkspaceSymbols filters entries by case-insensitive substring match on
+// Name against query (empty query keeps all), then converts each to a
+// SymbolInformation using sourceOf to compute byte-offset positions.
+func buildWorkspaceSymbols(entries []index.SymbolEntry, query string, sourceOf func(string) string) []SymbolInformation {
+	lq := strings.ToLower(query)
+	var out []SymbolInformation
+	for _, e := range entries {
+		if lq != "" && !strings.Contains(strings.ToLower(e.Name), lq) {
+			continue
+		}
+		kind, ok := symbolKind(e.Kind)
+		if !ok {
+			continue
+		}
+		src := sourceOf(e.File)
+		out = append(out, SymbolInformation{
+			Name: e.Name,
+			Kind: kind,
+			Location: Location{
+				URI: pathToURI(e.File),
+				Range: Range{
+					Start: offsetToPosition(src, e.NameStart),
+					End:   offsetToPosition(src, e.NameEnd),
+				},
+			},
+			ContainerName: e.Container,
+		})
+	}
+	return out
 }

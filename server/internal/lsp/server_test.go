@@ -401,6 +401,21 @@ func TestServerReferencesUnknownDoc(t *testing.T) {
 	}
 }
 
+func TestServerWorkspaceSymbol(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///a.tcl", Text: "proc render {} {}"}}))
+	in.Write(frame(t, "workspace/symbol", 2, WorkspaceSymbolParams{Query: "rend"}))
+	in.Write(frame(t, "exit", nil, nil))
+	resp := responseByID(runServer(t, in.Bytes()), "2")
+	var syms []SymbolInformation
+	_ = json.Unmarshal(resp.Result, &syms)
+	if len(syms) != 1 || syms[0].Name != "render" || syms[0].Location.URI != "file:///a.tcl" {
+		t.Fatalf("workspace symbols = %#v", syms)
+	}
+}
+
 func TestServerDocumentSymbol(t *testing.T) {
 	var in bytes.Buffer
 	in.Write(frame(t, "initialize", 1, InitializeParams{}))
