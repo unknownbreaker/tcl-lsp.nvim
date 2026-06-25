@@ -14,15 +14,20 @@ intractable. That work is preserved on the `v1` branch (its tip) and at the
 `archive-v1` tag (an earlier checkpoint in the same history); the `main` branch
 now holds v2. Recover any piece with `git checkout v1 -- <path>`.
 
-## Current Phase: Phase A + Phase B shipped
+## Current Phase: Phase A + Phase B shipped, plus document/workspace symbols
 
 **goto-definition** and **goto-reference** are implemented for both `.tcl` files
 (Phase A) and `.rvt` Rivet templates (Phase B), including cross-file resolution
-between `.rvt` and `.tcl`. The implementation lives under `server/` (Go LSP server
+between `.rvt` and `.tcl`. **Document symbols** (`textDocument/documentSymbol`,
+hierarchical) and **workspace symbols** (`workspace/symbol`) are also implemented,
+serializing the index's existing symbol data (procs, namespace vars, Itcl
+classes/methods/ivars). The implementation lives under `server/` (Go LSP server
 with stdio/JSON-RPC framing). Research lives in `research/`; plans in `docs/plans/`.
 
-Scope remains tight: only those two features. Do not propose or scaffold additional
-LSP features (completion, hover, formatting, diagnostics, rename, etc.).
+Scope is deliberately limited to those features. Document and workspace symbols
+were a considered, index-backed addition; the remaining LSP features (completion,
+hover, formatting, diagnostics, rename, etc.) remain out of scope — do not propose
+or scaffold them.
 
 ## Working Agreements
 
