@@ -69,3 +69,51 @@ func TestCommonBracedValueNotWalked(t *testing.T) {
 		}
 	}
 }
+
+// TestSignatureOnlyMethodArgListNotWalked: a forward-declared (signature-only)
+// method has no body — its trailing brace is the parameter list, which must NOT
+// be walked as a script. The method is still indexed; a real body is still
+// walked.
+func TestSignatureOnlyMethodArgListNotWalked(t *testing.T) {
+	src := "::itcl::class ::C {\n" +
+		"  public method add_metadata {field value}\n" + // signature only, body via itcl::body
+		"  public method run {x} { real_call $x }\n" + // has a body
+		"  method send {}\n" + // signature only, empty args
+		"}\n" +
+		"::itcl::body ::C::add_metadata {field value} { dict set meta $field $value }"
+
+	methods := map[string]bool{}
+	var bogus []string
+	var sawReal, sawItclBody bool
+	for _, d := range FileDefs(src) {
+		if d.Kind == DefMethod {
+			methods[d.Name] = true
+		}
+	}
+	for _, r := range FileRefs(src) {
+		switch name := src[r.Ref.Start:r.Ref.End]; {
+		case r.Ref.Kind == RefCommand && (name == "field" || name == "value"):
+			bogus = append(bogus, name) // a parameter name walked as a command
+		case name == "real_call":
+			sawReal = true // inline method body still walked
+		case name == "dict":
+			sawItclBody = true // external itcl::body still walked
+		}
+	}
+
+	// Signature-only declarations are still indexed (goto-def/symbols preserved).
+	for _, m := range []string{"add_metadata", "run", "send"} {
+		if !methods[m] {
+			t.Errorf("method %q not indexed", m)
+		}
+	}
+	if len(bogus) != 0 {
+		t.Errorf("parameter list walked as a script body: bogus command refs %v", bogus)
+	}
+	if !sawReal {
+		t.Errorf("inline method body not walked (real_call missing) — regression")
+	}
+	if !sawItclBody {
+		t.Errorf("external itcl::body not walked (dict missing) — regression")
+	}
+}
