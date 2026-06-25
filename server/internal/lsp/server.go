@@ -9,6 +9,7 @@ import (
 
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
 	"github.com/unknownbreaker/tcl-lsp/internal/resolve"
+	"github.com/unknownbreaker/tcl-lsp/internal/source"
 )
 
 // Server is a single-goroutine LSP server: it reads and dispatches messages
@@ -81,6 +82,7 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		}
 		s.reply(m.ID, InitializeResult{Capabilities: ServerCapabilities{
 			TextDocumentSync: 1, DefinitionProvider: true, ReferencesProvider: true,
+			DocumentSymbolProvider: true, WorkspaceSymbolProvider: true,
 		}})
 	case "initialized":
 		// Per the spec, dynamic registration happens after initialized. Register
@@ -127,6 +129,16 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		var p ReferenceParams
 		_ = json.Unmarshal(m.Params, &p)
 		s.reply(m.ID, s.handleReferences(p))
+	case "textDocument/documentSymbol":
+		var p DocumentSymbolParams
+		_ = json.Unmarshal(m.Params, &p)
+		path := uriToPath(p.TextDocument.URI)
+		src := s.sourceOf(path)
+		s.reply(m.ID, buildDocumentSymbols(source.Defs(path, src), src, source.IsRVT(path)))
+	case "workspace/symbol":
+		var p WorkspaceSymbolParams
+		_ = json.Unmarshal(m.Params, &p)
+		s.reply(m.ID, buildWorkspaceSymbols(s.ix.AllSymbols(), p.Query, s.sourceOf))
 	case "exit":
 		return true
 	default:

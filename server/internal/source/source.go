@@ -30,6 +30,12 @@ func Defs(path, content string) []tcl.Definition {
 			continue
 		}
 		d.NameStart, d.NameEnd = s, s+(d.NameEnd-d.NameStart)
+		if fs := doc.ToSource(d.FullStart); fs >= 0 {
+			d.FullEnd = fs + (d.FullEnd - d.FullStart)
+			d.FullStart = fs
+		} else {
+			d.FullStart, d.FullEnd = d.NameStart, d.NameEnd // fall back to name range
+		}
 		out = append(out, d)
 	}
 	return out

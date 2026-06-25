@@ -59,6 +59,46 @@ type TextDocumentPositionParams struct {
 	Position     Position               `json:"position"`
 }
 
+// SymbolKind is the kind of a symbol (LSP SymbolKind).
+type SymbolKind int
+
+// SymbolKind constants from the LSP spec.
+const (
+	SymKindNamespace SymbolKind = 3
+	SymKindClass     SymbolKind = 5
+	SymKindMethod    SymbolKind = 6
+	SymKindField     SymbolKind = 8
+	SymKindFunction  SymbolKind = 12
+	SymKindVariable  SymbolKind = 13
+)
+
+// DocumentSymbol is a symbol in a document (part of the document symbols response).
+type DocumentSymbol struct {
+	Name           string           `json:"name"`
+	Kind           SymbolKind       `json:"kind"`
+	Range          Range            `json:"range"`
+	SelectionRange Range            `json:"selectionRange"`
+	Children       []DocumentSymbol `json:"children,omitempty"`
+}
+
+// SymbolInformation is a symbol in the workspace (part of the workspace symbols response).
+type SymbolInformation struct {
+	Name          string     `json:"name"`
+	Kind          SymbolKind `json:"kind"`
+	Location      Location   `json:"location"`
+	ContainerName string     `json:"containerName,omitempty"`
+}
+
+// DocumentSymbolParams is a document/documentSymbol request.
+type DocumentSymbolParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+// WorkspaceSymbolParams is a workspace/symbol request.
+type WorkspaceSymbolParams struct {
+	Query string `json:"query"`
+}
+
 // ReferenceContext carries the references request's options.
 type ReferenceContext struct {
 	// IncludeDeclaration asks the server to include the symbol's declaration
@@ -85,9 +125,11 @@ type InitializeResult struct {
 
 // ServerCapabilities is the subset we advertise.
 type ServerCapabilities struct {
-	TextDocumentSync   int  `json:"textDocumentSync"` // 1 = full sync
-	DefinitionProvider bool `json:"definitionProvider"`
-	ReferencesProvider bool `json:"referencesProvider"`
+	TextDocumentSync        int  `json:"textDocumentSync"` // 1 = full sync
+	DefinitionProvider      bool `json:"definitionProvider"`
+	ReferencesProvider      bool `json:"referencesProvider"`
+	DocumentSymbolProvider  bool `json:"documentSymbolProvider"`
+	WorkspaceSymbolProvider bool `json:"workspaceSymbolProvider"`
 }
 
 // Dynamic capability registration (server -> client). After `initialized` the

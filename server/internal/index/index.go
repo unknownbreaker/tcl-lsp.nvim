@@ -340,6 +340,101 @@ func (ix *Index) Namespace(ns string) (path []string, imports []string) {
 	return path, imports
 }
 
+// SymbolEntry is a flattened workspace symbol suitable for workspace/symbol responses.
+type SymbolEntry struct {
+	Name      string      // simple name (last :: segment)
+	Kind      tcl.DefKind
+	File      string
+	NameStart int
+	NameEnd   int
+	Container string // enclosing namespace FQ (procs/vars/classes) or class FQ (methods/ivars)
+}
+
+// splitFQName splits a fully-qualified TCL name into its simple (last segment)
+// and container parts. Examples:
+//
+//	"::app::run" -> ("run", "::app")
+//	"::render"   -> ("render", "::")
+//	"::C"        -> ("C", "::")
+func splitFQName(fq string) (simple, container string) {
+	idx := strings.LastIndex(fq, "::")
+	if idx < 0 {
+		return fq, "::"
+	}
+	simple = fq[idx+2:]
+	prefix := fq[:idx]
+	if prefix == "" {
+		container = "::"
+	} else {
+		container = prefix
+	}
+	return simple, container
+}
+
+// AllSymbols returns a flattened slice of every indexed symbol: procs,
+// namespace vars, and classes (from defsByName), plus methods and ivars (from
+// the classes table). The result is sorted by (File, NameStart) for
+// deterministic output regardless of map-iteration order.
+func (ix *Index) AllSymbols() []SymbolEntry {
+	var out []SymbolEntry
+
+	// Procs, namespace vars, and classes from defsByName.
+	for _, locs := range ix.defsByName {
+		for _, loc := range locs {
+			switch loc.Kind {
+			case tcl.DefProc, tcl.DefNamespaceVar, tcl.DefClass:
+				simple, container := splitFQName(loc.Name)
+				out = append(out, SymbolEntry{
+					Name:      simple,
+					Kind:      loc.Kind,
+					File:      loc.File,
+					NameStart: loc.NameStart,
+					NameEnd:   loc.NameEnd,
+					Container: container,
+				})
+			}
+		}
+	}
+
+	// Methods and ivars from the classes table.
+	for classFQ, ci := range ix.classes {
+		for _, locs := range ci.Methods {
+			for _, loc := range locs {
+				out = append(out, SymbolEntry{
+					Name:      loc.Name, // already bare
+					Kind:      tcl.DefMethod,
+					File:      loc.File,
+					NameStart: loc.NameStart,
+					NameEnd:   loc.NameEnd,
+					Container: classFQ,
+				})
+			}
+		}
+		for _, locs := range ci.Ivars {
+			for _, loc := range locs {
+				out = append(out, SymbolEntry{
+					Name:      loc.Name, // already bare
+					Kind:      tcl.DefIvar,
+					File:      loc.File,
+					NameStart: loc.NameStart,
+					NameEnd:   loc.NameEnd,
+					Container: classFQ,
+				})
+			}
+		}
+	}
+
+	// Sort by (File, NameStart) for deterministic output.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].File != out[j].File {
+			return out[i].File < out[j].File
+		}
+		return out[i].NameStart < out[j].NameStart
+	})
+
+	return out
+}
+
 // IndexDir walks root and indexes every *.tcl and *.rvt file found (recursively). A
 // per-entry read error is recorded and the walk continues, so one unreadable
 // file or directory cannot truncate the whole workspace index. The `.git`

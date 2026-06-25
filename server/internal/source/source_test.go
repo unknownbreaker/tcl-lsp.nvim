@@ -71,3 +71,32 @@ func TestRefsTCLPassthrough(t *testing.T) {
 		t.Fatal("tcl Refs passthrough failed: expected `hello` command ref")
 	}
 }
+
+func TestDefsRVTFullExtentInSourceCoords(t *testing.T) {
+	// The proc command starts at "proc" and ends after the closing brace.
+	// FullStart and FullEnd must be in .rvt source coordinates and must
+	// contain the name range.
+	src := "<? proc greet {} {} ?>"
+	wantProcOff := strings.Index(src, "proc")
+
+	var found bool
+	for _, d := range Defs("page.rvt", src) {
+		if d.Name != "::request::greet" {
+			continue
+		}
+		found = true
+		if d.FullStart != wantProcOff {
+			t.Fatalf("FullStart = %d, want %d (offset of 'proc' in .rvt)", d.FullStart, wantProcOff)
+		}
+		if d.FullEnd <= d.FullStart {
+			t.Fatalf("FullEnd %d must be > FullStart %d", d.FullEnd, d.FullStart)
+		}
+		if d.FullStart > d.NameStart || d.FullEnd < d.NameEnd {
+			t.Fatalf("full range [%d,%d) must contain name range [%d,%d)",
+				d.FullStart, d.FullEnd, d.NameStart, d.NameEnd)
+		}
+	}
+	if !found {
+		t.Fatalf("::request::greet not found in %#v", Defs("page.rvt", src))
+	}
+}

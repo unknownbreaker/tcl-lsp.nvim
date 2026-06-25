@@ -81,6 +81,18 @@ func TestServerInitializeCapabilities(t *testing.T) {
 	}
 }
 
+func TestServerAdvertisesSymbolCapabilities(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "exit", nil, nil))
+	resp := responseByID(runServer(t, in.Bytes()), "1")
+	var res InitializeResult
+	_ = json.Unmarshal(resp.Result, &res)
+	if !res.Capabilities.DocumentSymbolProvider || !res.Capabilities.WorkspaceSymbolProvider {
+		t.Fatalf("symbol capabilities not advertised: %#v", res.Capabilities)
+	}
+}
+
 func TestServerShutdownThenExit(t *testing.T) {
 	var in bytes.Buffer
 	in.Write(frame(t, "shutdown", 2, nil))
@@ -386,5 +398,36 @@ func TestServerReferencesUnknownDoc(t *testing.T) {
 	}
 	if string(resp.Result) != "null" {
 		t.Fatalf("references on unknown doc should be null, got %s", resp.Result)
+	}
+}
+
+func TestServerWorkspaceSymbol(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///a.tcl", Text: "proc render {} {}"}}))
+	in.Write(frame(t, "workspace/symbol", 2, WorkspaceSymbolParams{Query: "rend"}))
+	in.Write(frame(t, "exit", nil, nil))
+	resp := responseByID(runServer(t, in.Bytes()), "2")
+	var syms []SymbolInformation
+	_ = json.Unmarshal(resp.Result, &syms)
+	if len(syms) != 1 || syms[0].Name != "render" || syms[0].Location.URI != "file:///a.tcl" {
+		t.Fatalf("workspace symbols = %#v", syms)
+	}
+}
+
+func TestServerDocumentSymbol(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///m.tcl", Text: "proc render {} {}\nitcl::class ::C { method field {} {} }"}}))
+	in.Write(frame(t, "textDocument/documentSymbol", 2, DocumentSymbolParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///m.tcl"}}))
+	in.Write(frame(t, "exit", nil, nil))
+	resp := responseByID(runServer(t, in.Bytes()), "2")
+	var syms []DocumentSymbol
+	_ = json.Unmarshal(resp.Result, &syms)
+	if findSym(syms, "render") == nil || findSym(syms, "::C") == nil || findSym(syms, "field") == nil {
+		t.Fatalf("document symbols = %#v", syms)
 	}
 }
