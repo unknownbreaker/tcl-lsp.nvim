@@ -820,3 +820,21 @@ func TestDefinitionIntraClassMethod(t *testing.T) {
 		t.Fatalf("inherited method `helper` = %#v", locs)
 	}
 }
+
+func TestDefinitionIvar(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("c.tcl",
+		"itcl::class ::Base { variable shared 0 }\n"+
+			"itcl::class ::Derived {\n  inherit ::Base\n  variable count 0\n"+
+			"  method run {} {\n    return [list $count $shared]\n  }\n}")
+	r := New(ix)
+	src := ix.Source("c.tcl")
+	offCount := strings.Index(src, "$count") + 1
+	if locs := r.Definition("c.tcl", src, offCount); len(locs) != 1 || locs[0].Name != "count" {
+		t.Fatalf("ivar $count = %#v", locs)
+	}
+	offShared := strings.Index(src, "$shared") + 1
+	if locs := r.Definition("c.tcl", src, offShared); len(locs) != 1 || locs[0].Name != "shared" {
+		t.Fatalf("inherited ivar $shared = %#v", locs)
+	}
+}
