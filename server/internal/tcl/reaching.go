@@ -20,7 +20,7 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 	entry := reachSet{}
 	// Seed entry set with proc params.
 	var paramDefs []Definition
-	emitProcParams(argsWord, argsBase, "::", innerBase, &paramDefs)
+	emitProcParams(argsWord, argsBase, "::", innerBase, "", &paramDefs)
 	for _, d := range paramDefs {
 		entry[d.Name] = []Definition{d}
 	}
@@ -38,7 +38,7 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 // enclosing scope).
 func enclosingProc(cmds []Command, base int, ns string, frame FrameKind, scope, useOff int) (inner string, innerBase int, argsWord Word, argsBase int, found bool) {
 	for _, c := range cmds {
-		for _, b := range childBodies(c, base, ns, frame, scope) {
+		for _, b := range childBodies(c, base, ns, frame, scope, "") {
 			if useOff < b.Base || useOff >= b.Base+len(b.Inner) {
 				continue
 			}
@@ -267,7 +267,7 @@ func collectBindings(cmds []Command, base int, into reachSet) {
 		for _, d := range localBindings(c, base) {
 			into[d.Name] = appendDedup(into[d.Name], d)
 		}
-		for _, b := range childBodies(c, base, "::", FrameProc, base) {
+		for _, b := range childBodies(c, base, "::", FrameProc, base, "") {
 			collectBindings(Parse(b.Inner), b.Base, into)
 		}
 	}

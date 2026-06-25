@@ -27,24 +27,27 @@ type Definition struct {
 	// (e.g. `global config` -> "::config"), or "" when there is none or it is
 	// not statically known. Used by goto-definition to chase past the link.
 	Origin string
+	// Class is the fully-qualified itcl class name this definition belongs to,
+	// or "" when not inside a class body.
+	Class string
 }
 
 // FileDefs parses src and returns the definitions it declares, recursing into
 // namespace eval and proc bodies.
 func FileDefs(src string) []Definition {
 	var out []Definition
-	walkDefs(Parse(src), 0, "::", FrameNamespace, 0, &out)
+	walkDefs(Parse(src), 0, "::", FrameNamespace, 0, "", &out)
 	return out
 }
 
-func walkDefs(cmds []Command, base int, ns string, frame FrameKind, scope int, out *[]Definition) {
+func walkDefs(cmds []Command, base int, ns string, frame FrameKind, scope int, class string, out *[]Definition) {
 	for _, c := range cmds {
-		emitDefs(c, base, ns, frame, scope, out)
-		recurseDefBodies(c, base, ns, frame, scope, out)
+		emitDefs(c, base, ns, frame, scope, class, out)
+		recurseDefBodies(c, base, ns, frame, scope, class, out)
 	}
 }
 
-func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[]Definition) {
+func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class string, out *[]Definition) {
 	w := c.Words
 	if isCmd(w, "proc") && len(w) >= 2 && isPlainName(w[1]) {
 		name := qualifyName(w[1].Text, ns)
@@ -55,6 +58,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 			NameStart: base + w[1].Start,
 			NameEnd:   base + w[1].End,
 			Scope:     scope,
+			Class:     class,
 		})
 	}
 	// A proc defined through a decorator macro (`CACHE_PROC proc name args body`).
@@ -66,6 +70,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 			NameStart: base + name.Start,
 			NameEnd:   base + name.End,
 			Scope:     scope,
+			Class:     class,
 		})
 	}
 	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) {
@@ -76,11 +81,13 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 			NameStart: base + w[1].Start,
 			NameEnd:   base + w[1].End,
 			Scope:     scope,
+			Class:     class,
 		})
 		if frame == FrameProc {
 			*out = append(*out, Definition{
 				Kind: DefLocal, Name: w[1].Text, Namespace: ns,
 				NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
+				Class: class,
 			})
 		}
 	}
@@ -93,6 +100,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 				NameStart: base + s,
 				NameEnd:   base + e,
 				Scope:     scope,
+				Class:     class,
 			})
 		}
 	}
@@ -101,6 +109,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 			*out = append(*out, Definition{
 				Kind: DefLocal, Name: name, Namespace: ns,
 				NameStart: base + s, NameEnd: base + e, Scope: scope,
+				Class: class,
 			})
 		}
 	}
@@ -111,6 +120,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 				*out = append(*out, Definition{
 					Kind: DefLocal, Name: name, Namespace: ns,
 					NameStart: base + s, NameEnd: base + e, Scope: scope,
+					Class: class,
 				})
 			}
 		}
@@ -122,6 +132,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 					Kind: DefGlobalLink, Name: gw.Text, Namespace: ns,
 					NameStart: base + gw.Start, NameEnd: base + gw.End, Scope: scope,
 					Origin: globalOrigin(gw.Text),
+					Class:  class,
 				})
 			}
 		}
@@ -143,6 +154,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 					Kind: DefLocal, Name: alias.Text, Namespace: ns,
 					NameStart: base + alias.Start, NameEnd: base + alias.End, Scope: scope,
 					Origin: upvarOrigin(level, args[i-1]),
+					Class:  class,
 				})
 			}
 		}
@@ -156,6 +168,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 			NameStart: base + w[1].Start,
 			NameEnd:   base + w[1].End,
 			Scope:     scope,
+			Class:     class,
 		})
 	}
 	if frame == FrameProc {
@@ -163,7 +176,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, out *[
 	}
 }
 
-func recurseDefBodies(c Command, base int, ns string, frame FrameKind, scope int, out *[]Definition) {
+func recurseDefBodies(c Command, base int, ns string, frame FrameKind, scope int, class string, out *[]Definition) {
 	// A proc's parameters are local definitions specific to the def walker; emit
 	// them before recursing the body. Body recursion uses the shared childBodies
 	// (bodies.go) so definitions and references descend the same bodies --
@@ -172,13 +185,13 @@ func recurseDefBodies(c Command, base int, ns string, frame FrameKind, scope int
 	w := c.Words
 	if isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced {
 		_, bodyBase := bracedInner(w[len(w)-1], base)
-		emitProcParams(w[2], base, ns, bodyBase, out)
+		emitProcParams(w[2], base, ns, bodyBase, class, out)
 	} else if _, args, body, ok := decoratedProcDef(w); ok {
 		_, bodyBase := bracedInner(body, base)
-		emitProcParams(args, base, ns, bodyBase, out)
+		emitProcParams(args, base, ns, bodyBase, class, out)
 	}
-	for _, b := range childBodies(c, base, ns, frame, scope) {
-		walkDefs(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, out)
+	for _, b := range childBodies(c, base, ns, frame, scope, class) {
+		walkDefs(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, b.Class, out)
 	}
 }
 
@@ -266,7 +279,7 @@ func isUpvarLevel(w Word) bool {
 }
 
 // emitProcParams emits a DefLocal for each parameter name in a proc args word.
-func emitProcParams(argsWord Word, base int, ns string, scope int, out *[]Definition) {
+func emitProcParams(argsWord Word, base int, ns string, scope int, class string, out *[]Definition) {
 	inner, innerBase := argsWord, base
 	text := inner.Text
 	start := innerBase + inner.Start
@@ -278,6 +291,7 @@ func emitProcParams(argsWord Word, base int, ns string, scope int, out *[]Defini
 		*out = append(*out, Definition{
 			Kind: DefLocal, Name: p.Name, Namespace: ns,
 			NameStart: p.Start, NameEnd: p.End, Scope: scope,
+			Class: class,
 		})
 	}
 }

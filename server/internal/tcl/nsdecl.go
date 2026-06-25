@@ -27,7 +27,7 @@ func walkNS(cmds []Command, ns string, m map[string]*NamespaceInfo) {
 		// conditional `namespace import`/`path`/`export` inside an if/catch/...
 		// is captured too. Offsets are irrelevant here (namespace decls carry
 		// names only), so base/frame are passthrough values.
-		for _, b := range childBodies(c, 0, ns, FrameNamespace, 0) {
+		for _, b := range childBodies(c, 0, ns, FrameNamespace, 0, "") {
 			walkNS(Parse(b.Inner), b.NS, m)
 		}
 	}
