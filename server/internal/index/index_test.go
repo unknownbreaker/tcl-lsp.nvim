@@ -304,3 +304,20 @@ func TestIndexClassLookup(t *testing.T) {
 		t.Fatalf("want DefClass ::STDisplay indexed, got %#v", locs)
 	}
 }
+
+func TestIndexClassTable(t *testing.T) {
+	ix := New()
+	ix.IndexFile("c.tcl",
+		"itcl::class ::Base { method common {} {} }\n"+
+			"itcl::class ::Derived {\n  inherit ::Base\n  method field {} {}\n}")
+	ci := ix.Class("::Derived")
+	if ci == nil {
+		t.Fatal("::Derived not in class table")
+	}
+	if len(ci.Methods["field"]) != 1 {
+		t.Fatalf("Derived.field method site missing: %#v", ci.Methods)
+	}
+	if len(ci.Inherit) != 1 || ci.Inherit[0] != "::Base" {
+		t.Fatalf("Derived inherit = %#v, want [::Base]", ci.Inherit)
+	}
+}

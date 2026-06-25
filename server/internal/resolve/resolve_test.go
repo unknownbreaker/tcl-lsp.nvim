@@ -799,3 +799,123 @@ func TestReferencesItclClass(t *testing.T) {
 		t.Fatalf("class references should include the a.tcl instantiation: %#v", refs)
 	}
 }
+
+func TestDefinitionIntraClassMethod(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("c.tcl",
+		"itcl::class ::Base { method helper {} {} }\n"+
+			"itcl::class ::Derived {\n  inherit ::Base\n"+
+			"  method run {} {\n    helper\n    field\n  }\n"+
+			"  method field {} {}\n}")
+	r := New(ix)
+	src := ix.Source("c.tcl")
+	// bare `field` call inside run() -> Derived's own method
+	offField := strings.Index(src, "    field") + len("    ")
+	if locs := r.Definition("c.tcl", src, offField); len(locs) != 1 || locs[0].Name != "field" {
+		t.Fatalf("intra-class method `field` = %#v", locs)
+	}
+	// bare `helper` call -> inherited from ::Base (MRO)
+	offHelper := strings.Index(src, "    helper") + len("    ")
+	if locs := r.Definition("c.tcl", src, offHelper); len(locs) != 1 || locs[0].Name != "helper" {
+		t.Fatalf("inherited method `helper` = %#v", locs)
+	}
+}
+
+func TestDefinitionIvar(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("c.tcl",
+		"itcl::class ::Base { variable shared 0 }\n"+
+			"itcl::class ::Derived {\n  inherit ::Base\n  variable count 0\n"+
+			"  method run {} {\n    return [list $count $shared]\n  }\n}")
+	r := New(ix)
+	src := ix.Source("c.tcl")
+	offCount := strings.Index(src, "$count") + 1
+	if locs := r.Definition("c.tcl", src, offCount); len(locs) != 1 || locs[0].Name != "count" {
+		t.Fatalf("ivar $count = %#v", locs)
+	}
+	offShared := strings.Index(src, "$shared") + 1
+	if locs := r.Definition("c.tcl", src, offShared); len(locs) != 1 || locs[0].Name != "shared" {
+		t.Fatalf("inherited ivar $shared = %#v", locs)
+	}
+}
+
+// TestDefinitionMROTerminatesOnCycleAndDiamond verifies that the MRO walk
+// (methodInClass) neither hangs nor returns false positives when the class graph
+// contains a cycle, and that a diamond graph resolves to exactly one site.
+func TestDefinitionMROTerminatesOnCycleAndDiamond(t *testing.T) {
+	// Cycle: ::A inherits ::B, ::B inherits ::A. A call to a non-existent
+	// method inside ::A must return nil without looping.
+	ixCycle := index.New()
+	ixCycle.IndexFile("cycle.tcl",
+		"itcl::class ::A {\n  inherit ::B\n  method run {} {\n    missing\n  }\n}\n"+
+			"itcl::class ::B {\n  inherit ::A\n}")
+	rCycle := New(ixCycle)
+	src := ixCycle.Source("cycle.tcl")
+	offMissing := strings.Index(src, "    missing") + len("    ")
+	locs := rCycle.Definition("cycle.tcl", src, offMissing)
+	if len(locs) != 0 {
+		t.Fatalf("cycle: non-existent method must return nil, got %#v", locs)
+	}
+
+	// Diamond: D inherits B and C, both inherit A. Method `shared` is defined
+	// only on A. goto-def must resolve to exactly one site (A's definition),
+	// not two (once via B and once via C).
+	ixDiamond := index.New()
+	ixDiamond.IndexFile("diamond.tcl",
+		"itcl::class ::A {\n  method shared {} {}\n}\n"+
+			"itcl::class ::B {\n  inherit ::A\n}\n"+
+			"itcl::class ::C {\n  inherit ::A\n}\n"+
+			"itcl::class ::D {\n  inherit ::B\n  inherit ::C\n"+
+			"  method run {} {\n    shared\n  }\n}")
+	rDiamond := New(ixDiamond)
+	dsrc := ixDiamond.Source("diamond.tcl")
+	offShared := strings.Index(dsrc, "    shared") + len("    ")
+	dlocs := rDiamond.Definition("diamond.tcl", dsrc, offShared)
+	if len(dlocs) != 1 || dlocs[0].Name != "shared" {
+		t.Fatalf("diamond: expected exactly 1 site on ::A, got %#v", dlocs)
+	}
+}
+
+// TestDefinitionGlobalProcFallsThrough verifies that a bare command call inside
+// a class method body resolves to a global proc when no class method by that
+// name exists on the class or any base (fall-through past the class-member step).
+func TestDefinitionGlobalProcFallsThrough(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("lib.tcl", "proc helper {} {}")
+	ix.IndexFile("c.tcl",
+		"itcl::class ::C {\n  method run {} {\n    helper\n  }\n}")
+	r := New(ix)
+	src := ix.Source("c.tcl")
+	offHelper := strings.Index(src, "    helper") + len("    ")
+	locs := r.Definition("c.tcl", src, offHelper)
+	if len(locs) != 1 || locs[0].Name != "::helper" || locs[0].File != "lib.tcl" {
+		t.Fatalf("global proc fall-through = %#v", locs)
+	}
+}
+
+// TestDefinitionProcLocalShadowsIvar verifies that when a method body contains
+// a local binding (set count 5) whose name matches a class instance variable
+// (variable count), goto-def on the use resolves to the LOCAL binding, not the
+// ivar declaration.
+func TestDefinitionProcLocalShadowsIvar(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("c.tcl",
+		"itcl::class ::C {\n  variable count 0\n"+
+			"  method run {} {\n    set count 5\n    return $count\n  }\n}")
+	r := New(ix)
+	src := ix.Source("c.tcl")
+	// The use is in `return $count`; there is also a local `set count 5` in the
+	// same method body. The local must win over the class ivar.
+	offUse := strings.Index(src, "return $count") + len("return $")
+	locs := r.Definition("c.tcl", src, offUse)
+	if len(locs) != 1 {
+		t.Fatalf("proc-local shadows ivar: want 1 location, got %#v", locs)
+	}
+	// The result must point at the `set count` binding, not the `variable count`
+	// ivar declaration.
+	wantStart := strings.Index(src, "set count 5") + len("set ")
+	if locs[0].NameStart != wantStart {
+		t.Fatalf("proc-local shadows ivar: want set count at %d, got NameStart=%d (%#v)",
+			wantStart, locs[0].NameStart, locs)
+	}
+}

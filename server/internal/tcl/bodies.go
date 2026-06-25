@@ -1,5 +1,7 @@
 package tcl
 
+import "strings"
+
 // This file is the single source of truth for two things every tree walker in
 // this package needs: (1) which braced words of a command are *script bodies*
 // (vs. data or expressions), and (2) the namespace/frame each body executes in.
@@ -16,39 +18,61 @@ type bodyScope struct {
 	NS    string    // namespace the body runs in
 	Frame FrameKind // frame kind the body runs in
 	Scope int       // enclosing proc body's interior offset; 0 at namespace frame
+	Class string    // fully-qualified itcl class name, or "" when not inside a class
 }
 
 // childBodies returns the script bodies of c that walkers should recurse into,
 // each tagged with the scope it runs in. `namespace eval` and `proc` introduce a
 // new scope; control-flow and custom-command script bodies run in the enclosing
-// namespace and frame.
-func childBodies(c Command, base int, ns string, frame FrameKind, scope int) []bodyScope {
+// namespace and frame. class is the fully-qualified itcl class name of the
+// enclosing class body, or "" when not inside a class.
+func childBodies(c Command, base int, ns string, frame FrameKind, scope int, class string) []bodyScope {
 	w := c.Words
 	switch {
 	case isCmd(w, "namespace") && len(w) >= 4 && w[1].Text == "eval" && w[len(w)-1].Kind == WordBraced:
 		// Body is the last word (Tcl's `namespace eval name script` form; for
 		// multi-arg scripts Tcl concatenates, and we recurse the final braced word).
 		inner, innerBase := bracedInner(w[len(w)-1], base)
-		return []bodyScope{{Inner: inner, Base: innerBase, NS: qualifyNamespace(w[2].Text, ns), Frame: FrameNamespace, Scope: 0}}
+		return []bodyScope{{Inner: inner, Base: innerBase, NS: qualifyNamespace(w[2].Text, ns), Frame: FrameNamespace, Scope: 0, Class: class}}
 	case isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced:
 		// The proc body runs in the namespace where the proc is defined. For a
 		// qualified proc name (proc ::a::b {} {...}) the body runs in ::a, not the
 		// current namespace; that refinement is not yet modeled, so we use ns.
 		inner, innerBase := bracedInner(w[len(w)-1], base)
-		return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase}}
+		return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: class}}
+	case (isCmd(w, "itcl::class") || isCmd(w, "::itcl::class")) && len(w) >= 3 && w[len(w)-1].Kind == WordBraced:
+		// itcl::class NAME BODY — the body is a member-declaration scope.
+		inner, innerBase := bracedInner(w[len(w)-1], base)
+		return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameClass, Scope: 0, Class: qualifyName(w[1].Text, ns)}}
+	case frame == FrameClass && (isCmd(w, "method") || isCmd(w, "constructor") || isCmd(w, "destructor")) && w[len(w)-1].Kind == WordBraced:
+		// method/constructor/destructor inside a class body — each runs as a proc
+		// frame carrying the enclosing class name.
+		inner, innerBase := bracedInner(w[len(w)-1], base)
+		return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: class}}
+	case (isCmd(w, "itcl::body") || isCmd(w, "::itcl::body")) && len(w) >= 4 && w[len(w)-1].Kind == WordBraced:
+		// itcl::body ::Class::method args body — the body is a method scope; extract
+		// the class from the qualified name (split on last ::) so locals/calls inside
+		// resolve with the correct class context.
+		full := w[1].Text
+		if i := strings.LastIndex(full, "::"); i > 0 {
+			classFQ := qualifyName(full[:i], ns)
+			inner, innerBase := bracedInner(w[len(w)-1], base)
+			return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: classFQ}}
+		}
+		return nil
 	default:
 		// A decorated proc definition (`CACHE_PROC proc name args body`): its body
 		// is a proc scope, exactly like a plain proc.
 		if _, _, body, ok := decoratedProcDef(w); ok {
 			inner, innerBase := bracedInner(body, base)
-			return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase}}
+			return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: class}}
 		}
 		// Control-flow (if/while/for/foreach/catch/try) and custom-command script
 		// bodies run in the enclosing namespace and frame -- no new scope.
 		var out []bodyScope
 		for _, body := range scriptBodies(w) {
 			inner, innerBase := bracedInner(body, base)
-			out = append(out, bodyScope{Inner: inner, Base: innerBase, NS: ns, Frame: frame, Scope: scope})
+			out = append(out, bodyScope{Inner: inner, Base: innerBase, NS: ns, Frame: frame, Scope: scope, Class: class})
 		}
 		return out
 	}
