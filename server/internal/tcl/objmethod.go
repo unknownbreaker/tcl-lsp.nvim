@@ -17,27 +17,30 @@ package tcl
 // Returns (0, "", false) when offset does not sit on the second word of such a
 // command.
 func ObjMethodAt(src string, offset int) (receiverOff int, methodName string, ok bool) {
-	return objMethodInCmds(Parse(src), 0, offset)
+	return objMethodInCmds(Parse(src), 0, "::", FrameNamespace, 0, "", offset)
 }
 
 // objMethodInCmds walks a sequence of commands (with absolute base offset) and
 // their nested script bodies and [command substitution] spans looking for the
-// "$var method" shape at the given offset.
-func objMethodInCmds(cmds []Command, base int, offset int) (int, string, bool) {
+// "$var method" shape at the given offset. The scope context (ns/frame/scope/
+// class) is threaded so childBodies descends into method bodies (a method body
+// is only entered when frame == FrameClass) — otherwise a `$obj method` call
+// inside a method body, the dominant real-world form, is never detected.
+func objMethodInCmds(cmds []Command, base int, ns string, frame FrameKind, scope int, class string, offset int) (int, string, bool) {
 	for _, c := range cmds {
 		// Check the shape at this command level.
 		if ro, mn, found := objMethodAtCmd(c, base, offset); found {
 			return ro, mn, true
 		}
-		// Recurse into braced script bodies (proc bodies, if/foreach/etc.).
-		for _, b := range childBodies(c, base, "::", FrameNamespace, 0, "") {
-			if ro, mn, found := objMethodInCmds(Parse(b.Inner), b.Base, offset); found {
+		// Recurse into braced script bodies (proc/method bodies, if/foreach/etc.).
+		for _, b := range childBodies(c, base, ns, frame, scope, class) {
+			if ro, mn, found := objMethodInCmds(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, b.Class, offset); found {
 				return ro, mn, true
 			}
 		}
 		// Recurse into [command substitution] spans within each word.
 		for _, w := range c.Words {
-			if ro, mn, found := objMethodInSubsts(w, offset); found {
+			if ro, mn, found := objMethodInSubsts(w, base, ns, frame, scope, class, offset); found {
 				return ro, mn, true
 			}
 		}
@@ -94,12 +97,16 @@ func objMethodAtCmd(c Command, base int, offset int) (receiverOff int, methodNam
 
 // objMethodInSubsts recurses into [command substitution] spans within word w,
 // looking for the "$var method" shape at offset. Returns on first match.
-func objMethodInSubsts(w Word, offset int) (int, string, bool) {
+func objMethodInSubsts(w Word, cmdBase int, ns string, frame FrameKind, scope int, class string, offset int) (int, string, bool) {
 	if w.Kind == WordBraced {
 		return 0, "", false // braces suppress substitution
 	}
 	text := w.Text
-	base := w.Start
+	// w.Start is relative to the script fragment this word was parsed from;
+	// cmdBase is that fragment's absolute offset. Both are needed so the inner
+	// command's offsets land in absolute source coordinates (the bug that hid
+	// `[$obj method]` calls inside method bodies, where cmdBase != 0).
+	base := cmdBase + w.Start
 	i := 0
 	for i < len(text) {
 		c := text[i]
@@ -114,7 +121,7 @@ func objMethodInSubsts(w Word, offset int) (int, string, bool) {
 			}
 			inner := text[i+1 : innerEnd]
 			innerBase := base + i + 1
-			if ro, mn, found := objMethodInCmds(Parse(inner), innerBase, offset); found {
+			if ro, mn, found := objMethodInCmds(Parse(inner), innerBase, ns, frame, scope, class, offset); found {
 				return ro, mn, true
 			}
 			i = end

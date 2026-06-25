@@ -1,0 +1,24 @@
+<?
+package require ctable
+package require st_display
+
+# Simple demo
+
+source passwd_table.tcl
+
+set pwtab [u_passwd create #auto]
+
+load_pwfile $pwtab /etc/passwd
+
+set display [::STDisplay #auto -table $pwtab -readonly 1 -details 0]
+
+#$display field username -text "User Name"
+#$display field uid	-text UID
+#$display field gid	-text GID
+#$display field fullname -text "Full Name"
+#$display field home
+#$display field shell
+
+$display show
+?>
+

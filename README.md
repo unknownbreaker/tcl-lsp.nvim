@@ -52,8 +52,10 @@ The dominant OO idiom in Rivet/speedtables-style code — `itcl::class`,
   `::STDisplay create x`, `C objName`) jumps to the class; find-references lists
   every instantiation and use.
 - **Members** — `method`, `constructor`, `destructor`, class-level `proc`, and
-  `variable`/`common` instance variables — from both inline class blocks and
-  external `itcl::body ::C::m { … }` definitions (merged as sites for one member).
+  `variable`/`common` instance variables, **with or without a `public`/
+  `protected`/`private` modifier** (the usual real-world form) — from both inline
+  class blocks and external `itcl::body ::C::m { … }` definitions (merged as sites
+  for one member).
 - **Inheritance** — `inherit` chains are walked (simple `inherit`-order, cycle-
   and diamond-safe), so an inherited method or ivar resolves to its base-class site.
 - **Three resolution tiers:**
@@ -63,6 +65,8 @@ The dominant OO idiom in Rivet/speedtables-style code — `itcl::class`,
   3. **`$obj method`** — `set d [::STDisplay #auto]; $d field` types `$d` via the
      reaching-definitions engine and resolves `field` on its class. Instantiation
      forms recognized: `#auto`, `new`, `create name`, `objName`, and bare `[::C …]`.
+     The `$obj method` shape is detected both as a statement and bracketed for its
+     value (`[$obj method]`), including inside method bodies.
 - Classes, methods, and ivars also appear in the **document/workspace symbol**
   outlines, and all of the above works across `.tcl` and `.rvt`.
 
@@ -74,6 +78,13 @@ The dominant OO idiom in Rivet/speedtables-style code — `itcl::class`,
   no type annotations to recover the class from).
 - Simple `inherit`-order MRO, not full C3 linearization; no dynamic dispatch,
   `configure`/`cget`, mixins, or `rename`/`interp alias` on classes.
+- Protection *blocks* (`public { … }` grouping several declarations) are not yet
+  parsed — declare members individually (`public method …`), which is what real
+  code overwhelmingly does.
+
+The behavior here is pinned against verbatim excerpts of real Itcl/Rivet code
+(`flightaware/speedtables`, `mxmanghi/rivetweb`, `apache/tcl-rivet`); see
+[`research/07-realworld-itcl-survey.md`](research/07-realworld-itcl-survey.md).
 
 ## Requirements
 

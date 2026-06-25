@@ -55,19 +55,25 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 		cmdEnd = base + w[len(w)-1].End
 	}
 	if frame == FrameClass {
+		// Real Itcl declares members with an access modifier far more often than
+		// not (`public method`, `protected method`, `private variable`,
+		// `private common`, ...). Strip a leading modifier so the keyword that
+		// follows is matched; FullStart/FullEnd still span the whole command
+		// (starting at the modifier).
+		mw := memberWords(w)
 		switch {
-		case len(w) >= 1 && (isCmd(w, "constructor") || isCmd(w, "destructor")):
+		case len(mw) >= 1 && (isCmd(mw, "constructor") || isCmd(mw, "destructor")):
 			// constructor/destructor have no name word; use the keyword itself as the name.
-			*out = append(*out, Definition{Kind: DefMethod, Name: w[0].Text, Class: class,
-				Namespace: ns, NameStart: base + w[0].Start, NameEnd: base + w[0].End, Scope: scope,
+			*out = append(*out, Definition{Kind: DefMethod, Name: mw[0].Text, Class: class,
+				Namespace: ns, NameStart: base + mw[0].Start, NameEnd: base + mw[0].End, Scope: scope,
 				FullStart: cmdStart, FullEnd: cmdEnd})
-		case len(w) >= 2 && (isCmd(w, "method") || isCmd(w, "proc")) && isPlainName(w[1]):
-			*out = append(*out, Definition{Kind: DefMethod, Name: w[1].Text, Class: class,
-				Namespace: ns, NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
+		case len(mw) >= 2 && (isCmd(mw, "method") || isCmd(mw, "proc")) && isPlainName(mw[1]):
+			*out = append(*out, Definition{Kind: DefMethod, Name: mw[1].Text, Class: class,
+				Namespace: ns, NameStart: base + mw[1].Start, NameEnd: base + mw[1].End, Scope: scope,
 				FullStart: cmdStart, FullEnd: cmdEnd})
-		case len(w) >= 2 && (isCmd(w, "variable") || isCmd(w, "common")) && isPlainName(w[1]):
-			*out = append(*out, Definition{Kind: DefIvar, Name: w[1].Text, Class: class,
-				Namespace: ns, NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
+		case len(mw) >= 2 && (isCmd(mw, "variable") || isCmd(mw, "common")) && isPlainName(mw[1]):
+			*out = append(*out, Definition{Kind: DefIvar, Name: mw[1].Text, Class: class,
+				Namespace: ns, NameStart: base + mw[1].Start, NameEnd: base + mw[1].End, Scope: scope,
 				FullStart: cmdStart, FullEnd: cmdEnd})
 		}
 		return // class-body declarations handled; skip namespace/proc rules below

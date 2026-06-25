@@ -209,11 +209,21 @@ func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 	// .rvt pages the $obj method call runs at namespace scope, not proc scope.
 	if receiverOff, methodName, ok := source.ObjMethodAt(file, src, offset); ok {
 		classes := source.ClassOf(file, src, receiverOff)
+		// `$this method`: the receiver is the implicit self, which ClassOf cannot
+		// type (there is no `set this [...]` instantiation). Inside a method body,
+		// resolve the method on the enclosing class directly (and its bases). This
+		// is the dominant intra-class call form in real Itcl code.
+		if len(classes) == 0 {
+			if rref := refAt(file, src, receiverOff); rref != nil &&
+				rref.Ref.Name == "this" && rref.Frame == tcl.FrameProc && rref.Class != "" {
+				classes = []string{rref.Class}
+			}
+		}
 		if len(classes) > 0 {
 			type locKey struct {
-				File       string
-				NameStart  int
-				NameEnd    int
+				File      string
+				NameStart int
+				NameEnd   int
 			}
 			seen := map[locKey]bool{}
 			var out []index.Location
