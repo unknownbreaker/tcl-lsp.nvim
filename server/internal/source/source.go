@@ -126,6 +126,30 @@ func Classes(path, content string) map[string][]string {
 	return tcl.FileClasses(rvt.Extract(content).Script)
 }
 
+// Folds returns the foldable braced script bodies in content, in SOURCE
+// coordinates. For .tcl the parsed offsets are already source offsets. For .rvt
+// both endpoints are translated from the stitched script back to the .rvt; a fold
+// is dropped if either endpoint maps outside a real region (-1) — which discards
+// the synthetic ::request wrapper body. A fold whose endpoints land in different
+// regions (a construct opened in one <? ?> block and closed in a later one)
+// survives and spans the intervening markup.
+func Folds(path, content string) []tcl.FoldRange {
+	if !IsRVT(path) {
+		return tcl.FileFolds(content)
+	}
+	doc := rvt.Extract(content)
+	var out []tcl.FoldRange
+	for _, f := range tcl.FileFolds(doc.Script) {
+		open := doc.ToSource(f.Open)
+		closing := doc.ToSource(f.Close)
+		if open < 0 || closing < 0 {
+			continue
+		}
+		out = append(out, tcl.FoldRange{Open: open, Close: closing})
+	}
+	return out
+}
+
 // Reaching returns the local bindings that may reach the variable use at byte
 // offset in content, in SOURCE coordinates. For .rvt the offset is mapped into the
 // stitched ::request script and each result range is translated back to the .rvt;

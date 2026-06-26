@@ -40,8 +40,8 @@ func (s *scanner) scan() []Token {
 	for s.pos < len(s.src) {
 		c := s.src[s.pos]
 		switch {
-		case c == ' ' || c == '\t':
-			s.pos++
+		case c == ' ' || c == '\t' || c == '\r':
+			s.pos++ // '\r' (incl. the CR of a CRLF) is inter-word whitespace
 		case c == '\\' && s.pos+1 < len(s.src) && s.src[s.pos+1] == '\n':
 			s.pos += 2 // line continuation acts as whitespace
 		case c == '\n':
@@ -143,8 +143,8 @@ func (s *scanner) scanBare() {
 			s.pos += 2
 		case c == '[':
 			s.scanBracket()
-		case c == ' ' || c == '\t' || c == '\n' || c == ';':
-			return
+		case c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ';':
+			return // '\r' terminates a bareword (CRLF parses like LF)
 		default:
 			s.pos++
 		}

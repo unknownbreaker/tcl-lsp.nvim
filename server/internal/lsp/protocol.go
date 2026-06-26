@@ -100,6 +100,19 @@ type WorkspaceSymbolParams struct {
 	Query string `json:"query"`
 }
 
+// FoldingRangeParams is a textDocument/foldingRange request.
+type FoldingRangeParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+// FoldingRange is one foldable region, reported by line. We emit only the line
+// fields (no kind / character columns), so the editor folds whole-line block
+// regions — the common case for braced TCL bodies.
+type FoldingRange struct {
+	StartLine int `json:"startLine"`
+	EndLine   int `json:"endLine"`
+}
+
 // CallHierarchyItem identifies a callable in the call hierarchy (a proc or
 // method, or a file for top-level/page-level call sites). The SelectionRange (the
 // name token) doubles as the re-resolution anchor for incoming/outgoing calls.
@@ -215,6 +228,7 @@ type ServerCapabilities struct {
 	DocumentSymbolProvider  bool `json:"documentSymbolProvider"`
 	WorkspaceSymbolProvider bool `json:"workspaceSymbolProvider"`
 	CallHierarchyProvider   bool `json:"callHierarchyProvider"`
+	FoldingRangeProvider    bool `json:"foldingRangeProvider"`
 }
 
 // Dynamic capability registration (server -> client). After `initialized` the

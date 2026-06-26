@@ -14,6 +14,7 @@ Scope is deliberately tight — a few features done well (scope-correct, cross-f
 | Find references              | ✅ |
 | Document / workspace symbols | ✅ |
 | Call hierarchy               | ✅ |
+| Code folding                 | ✅ |
 | Itcl ([incr Tcl]) OO         | ✅ |
 
 Not supported, out of scope by design (see [Why a v2 reset](#why-a-v2-reset)):
@@ -103,6 +104,19 @@ connect. Use the keymaps you configured above, or your editor's defaults:
   and `.rvt`. The built-ins fill the quickfix list; `lspsaga.nvim`
   (`:Lspsaga incoming_calls`) gives a drill-down tree. Traces bare and qualified
   calls; explicit `$obj method` edges aren't traced yet.
+- **Code folding** — fold ranges for proc/method/namespace/class and control-flow
+  bodies, plus the TCL inside `.rvt` `<? ?>` blocks (folds where tree-sitter
+  struggles with the mixed HTML/TCL). Not automatic — opt a buffer in with
+  Neovim 0.11+'s LSP foldexpr:
+  ```lua
+  vim.api.nvim_create_autocmd("LspAttach", {
+    callback = function(a)
+      if vim.lsp.get_client_by_id(a.data.client_id).name == "tcl_lsp" then
+        vim.wo.foldmethod, vim.wo.foldexpr = "expr", "v:lua.vim.lsp.foldexpr()"
+      end
+    end,
+  })
+  ```
 
 **Indexing feedback.** On first connect the server indexes the whole project (a few
 seconds on a big repo), reported via LSP work-done progress: an `Indexing TCL

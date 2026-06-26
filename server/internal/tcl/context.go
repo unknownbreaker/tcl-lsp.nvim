@@ -56,7 +56,8 @@ func bracedInner(w Word, base int) (string, int) {
 	if len(t) >= 2 && t[0] == '{' && t[len(t)-1] == '}' {
 		return t[1 : len(t)-1], base + w.Start + 1
 	}
-	// The scanner guarantees WordBraced words are "{...}", so callers that pass a
-	// braced word never reach this fallback; it is defensive only.
-	return "", base + w.Start
+	// A tolerant scan can still emit a lone "{" for an unterminated brace (a file
+	// mid-edit). Point Base just past it, keeping the invariant "Base is the first
+	// interior byte" so offset math (Base-1 == the '{') holds for every caller.
+	return "", base + w.Start + 1
 }
