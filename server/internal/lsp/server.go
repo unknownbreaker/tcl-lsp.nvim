@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -73,18 +74,17 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		if root == "" && p.RootURI != "" {
 			root = uriToPath(p.RootURI)
 		}
-		if root != "" {
-			// Best-effort: IndexDir continues past unreadable entries and returns
-			// an aggregated error, which we log (stderr) rather than fail on.
-			if err := s.ix.IndexDir(root); err != nil {
-				log.Printf("workspace index (%s): %v", root, err)
-			}
-		}
+		// Reply first so the client finishes initializing, THEN index — wrapped in
+		// $/progress so the (possibly multi-second) workspace index shows an
+		// "indexing…/ready" indicator. The single-goroutine loop processes no
+		// feature request until indexWorkspace returns, so the index is still ready
+		// before the first goto-def/references/etc.
 		s.reply(m.ID, InitializeResult{Capabilities: ServerCapabilities{
 			TextDocumentSync: 1, DefinitionProvider: true, ReferencesProvider: true,
 			DocumentSymbolProvider: true, WorkspaceSymbolProvider: true,
 			CallHierarchyProvider: true,
 		}})
+		s.indexWorkspace(root, p.Capabilities.Window.WorkDoneProgress)
 	case "initialized":
 		// Per the spec, dynamic registration happens after initialized. Register
 		// for file watching so the client reports on-disk .tcl/.rvt changes; this
@@ -186,6 +186,57 @@ func (s *Server) reply(id json.RawMessage, result any) {
 func (s *Server) setDoc(uri, text string) {
 	s.docs[uri] = text
 	s.ix.IndexFile(uriToPath(uri), text)
+}
+
+// indexWorkspace builds the workspace index for root, reporting it via $/progress
+// when the client supports work-done progress. It runs synchronously inside the
+// initialize handler (after the reply), so by the time the loop reads the first
+// feature request the index is complete.
+func (s *Server) indexWorkspace(root string, progress bool) {
+	if root == "" {
+		return
+	}
+	const token = "tcl-lsp/index"
+	if progress {
+		s.progressCreate(token)
+		s.progressBegin(token, "Indexing TCL workspace")
+	}
+	// Best-effort: IndexDir continues past unreadable entries and returns an
+	// aggregated error, which we log (stderr) rather than fail on.
+	if err := s.ix.IndexDir(root); err != nil {
+		log.Printf("workspace index (%s): %v", root, err)
+	}
+	if progress {
+		s.progressEnd(token, fmt.Sprintf("Indexed %d files", len(s.ix.Files())))
+	}
+}
+
+// progressCreate registers a progress token with the client (a server-initiated
+// request). Its reply is ignored by the response guard in dispatch. Sent before
+// the $/progress notifications; the client processes messages in order, so the
+// token is registered by the time it handles the `begin`.
+func (s *Server) progressCreate(token string) {
+	s.nextID++
+	id, _ := json.Marshal(s.nextID)
+	params, _ := json.Marshal(WorkDoneProgressCreateParams{Token: token})
+	if err := s.conn.Write(&Message{ID: id, Method: "window/workDoneProgress/create", Params: params}); err != nil {
+		log.Printf("progress create: %v", err)
+	}
+}
+
+func (s *Server) progressNotify(token string, value any) {
+	params, _ := json.Marshal(ProgressParams{Token: token, Value: value})
+	if err := s.conn.Write(&Message{Method: "$/progress", Params: params}); err != nil {
+		log.Printf("progress: %v", err)
+	}
+}
+
+func (s *Server) progressBegin(token, title string) {
+	s.progressNotify(token, WorkDoneProgressBegin{Kind: "begin", Title: title})
+}
+
+func (s *Server) progressEnd(token, message string) {
+	s.progressNotify(token, WorkDoneProgressEnd{Kind: "end", Message: message})
 }
 
 // registerFileWatchers asks the client to watch all workspace .tcl/.rvt files

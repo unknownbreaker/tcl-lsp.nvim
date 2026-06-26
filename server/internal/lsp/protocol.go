@@ -157,8 +157,42 @@ type ReferenceParams struct {
 
 // InitializeParams is the subset of initialize we use.
 type InitializeParams struct {
-	RootURI  string `json:"rootUri"`
-	RootPath string `json:"rootPath"`
+	RootURI      string             `json:"rootUri"`
+	RootPath     string             `json:"rootPath"`
+	Capabilities ClientCapabilities `json:"capabilities"`
+}
+
+// ClientCapabilities is the subset of client capabilities we read.
+// Window.WorkDoneProgress gates whether the initial workspace index is reported
+// via $/progress (a client that doesn't support it just gets no feedback).
+type ClientCapabilities struct {
+	Window struct {
+		WorkDoneProgress bool `json:"workDoneProgress"`
+	} `json:"window"`
+}
+
+// WorkDoneProgressCreateParams is the window/workDoneProgress/create request: the
+// server asks the client to register a progress token before reporting on it.
+type WorkDoneProgressCreateParams struct {
+	Token string `json:"token"`
+}
+
+// ProgressParams is the $/progress notification: a token plus a begin/end value.
+type ProgressParams struct {
+	Token string `json:"token"`
+	Value any    `json:"value"`
+}
+
+// WorkDoneProgressBegin starts a progress run (a titled spinner).
+type WorkDoneProgressBegin struct {
+	Kind  string `json:"kind"` // always "begin"
+	Title string `json:"title"`
+}
+
+// WorkDoneProgressEnd ends a progress run, optionally with a final message.
+type WorkDoneProgressEnd struct {
+	Kind    string `json:"kind"` // always "end"
+	Message string `json:"message,omitempty"`
 }
 
 // InitializeResult advertises server capabilities.
