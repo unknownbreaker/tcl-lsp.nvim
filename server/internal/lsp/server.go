@@ -83,7 +83,7 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		s.reply(m.ID, InitializeResult{Capabilities: ServerCapabilities{
 			TextDocumentSync: 1, DefinitionProvider: true, ReferencesProvider: true,
 			DocumentSymbolProvider: true, WorkspaceSymbolProvider: true,
-			CallHierarchyProvider: true,
+			CallHierarchyProvider: true, FoldingRangeProvider: true,
 		}})
 		s.indexWorkspace(root, p.Capabilities.Window.WorkDoneProgress)
 	case "initialized":
@@ -141,6 +141,12 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		var p WorkspaceSymbolParams
 		_ = json.Unmarshal(m.Params, &p)
 		s.reply(m.ID, buildWorkspaceSymbols(s.ix.AllSymbols(), p.Query, s.sourceOf))
+	case "textDocument/foldingRange":
+		var p FoldingRangeParams
+		_ = json.Unmarshal(m.Params, &p)
+		path := uriToPath(p.TextDocument.URI)
+		src := s.sourceOf(path)
+		s.reply(m.ID, buildFoldingRanges(source.Folds(path, src), src))
 	case "textDocument/prepareCallHierarchy":
 		var p CallHierarchyPrepareParams
 		_ = json.Unmarshal(m.Params, &p)
