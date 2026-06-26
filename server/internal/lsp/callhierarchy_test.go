@@ -118,6 +118,38 @@ func TestCallHierarchyItcl(t *testing.T) {
 	}
 }
 
+// TestCallHierarchyNestedOutgoing: a call inside a proc nested in the anchor's
+// body belongs to the nested proc, not the anchor — outgoing must agree with
+// incoming's innermost-enclosing attribution.
+func TestCallHierarchyNestedOutgoing(t *testing.T) {
+	src := "proc target {} {}\nproc outer {} {\n  proc inner {} {\n    target\n  }\n}"
+	s := newCHServer(map[string]string{"file:///n.tcl": src})
+
+	outer := s.prepareCallHierarchy(CallHierarchyPrepareParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///n.tcl"},
+		Position:     posOf(src, "outer {}"),
+	})
+	for _, c := range s.outgoingCalls(CallHierarchyOutgoingCallsParams{Item: outer[0]}) {
+		if c.To.Name == "target" {
+			t.Errorf("outgoing(outer) wrongly includes target (called by nested inner)")
+		}
+	}
+
+	inner := s.prepareCallHierarchy(CallHierarchyPrepareParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///n.tcl"},
+		Position:     posOf(src, "inner {}"),
+	})
+	var hasTarget bool
+	for _, c := range s.outgoingCalls(CallHierarchyOutgoingCallsParams{Item: inner[0]}) {
+		if c.To.Name == "target" {
+			hasTarget = true
+		}
+	}
+	if !hasTarget {
+		t.Errorf("outgoing(inner) should include target")
+	}
+}
+
 func TestServerAdvertisesCallHierarchy(t *testing.T) {
 	var in bytes.Buffer
 	in.Write(frame(t, "initialize", 1, InitializeParams{}))

@@ -221,10 +221,11 @@ func (s *Server) outgoingCalls(p CallHierarchyOutgoingCallsParams) []CallHierarc
 		return nil
 	}
 	src := s.sourceOf(a.file)
+	defs := source.Defs(a.file, src)
 
 	// Find the anchor's body span among the file's definitions.
 	var span tcl.Definition
-	for _, d := range source.Defs(a.file, src) {
+	for _, d := range defs {
 		if d.Kind == a.kind && d.NameStart == a.nameStart && d.Name == a.name {
 			span = d
 			break
@@ -243,6 +244,13 @@ func (s *Server) outgoingCalls(p CallHierarchyOutgoingCallsParams) []CallHierarc
 
 	for _, r := range source.Refs(a.file, src) {
 		if r.Ref.Kind != tcl.RefCommand || r.Ref.Start < span.FullStart || r.Ref.Start >= span.FullEnd {
+			continue
+		}
+		// Attribute the call to its INNERMOST enclosing def and keep it only when
+		// that is the anchor itself — calls inside a proc/method nested in the
+		// anchor's body belong to the nested callable, not the anchor (this keeps
+		// outgoing symmetric with incoming's enclosingDef grouping).
+		if d, found := enclosingDef(defs, r.Ref.Start); !found || d.NameStart != a.nameStart || d.Kind != a.kind {
 			continue
 		}
 		for _, l := range s.res.Definition(a.file, src, r.Ref.Start) {
