@@ -206,10 +206,33 @@ automatically once installed — they consume the same document-symbol data.
 ### Call hierarchy
 
 With the cursor on a proc or method, `vim.lsp.buf.incoming_calls()` lists who
-calls it and `vim.lsp.buf.outgoing_calls()` lists what it calls; both expand into
-a tree. LazyVim binds these to `<leader>ci` / `<leader>co`. In Vim with vim-lsp:
-`:LspCallHierarchyIncoming` / `:LspCallHierarchyOutgoing`. Works across files and
-`.rvt` pages; method-to-method edges resolve through the Itcl class chain.
+calls it and `vim.lsp.buf.outgoing_calls()` lists what it calls. These aren't
+bound by default (not even in LazyVim) — map them yourself, scoped to buffers
+where an LSP is attached:
+
+```lua
+vim.api.nvim_create_autocmd("LspAttach", {
+  callback = function(args)
+    vim.keymap.set("n", "<leader>ci", vim.lsp.buf.incoming_calls,
+      { buffer = args.buf, desc = "Incoming calls" })
+    vim.keymap.set("n", "<leader>co", vim.lsp.buf.outgoing_calls,
+      { buffer = args.buf, desc = "Outgoing calls" })
+  end,
+})
+```
+
+The `desc` makes which-key list them automatically. The built-in functions
+populate the **quickfix list** (flat, one level). For an expandable drill-down
+tree — the way call hierarchy is most useful — use
+[`lspsaga.nvim`](https://github.com/nvimdev/lspsaga.nvim)
+(`:Lspsaga incoming_calls` / `:Lspsaga outgoing_calls`). In Vim with vim-lsp:
+`:LspCallHierarchyIncoming` / `:LspCallHierarchyOutgoing`.
+
+Works across files and `.rvt` pages; method-to-method edges resolve through the
+Itcl class chain (for bare and qualified calls — explicit `$obj method` /
+`$this method` edges aren't traced yet).
+
+## Why a v2 reset
 
 v1 (313 commits) tried to do too much and accumulated performance regressions that
 were impossible to untangle. v2 inverts the approach: understand TCL's tricky
