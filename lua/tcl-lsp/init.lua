@@ -36,7 +36,54 @@ local defaults = {
   root_markers = { ".git", "pkgIndex.tcl" },
   cmd = nil, -- override the server binary (string or list); nil = bundled binary
   auto_build = true, -- build the bundled Go server on first use if missing
+  -- Buffer-local keymaps, set on LspAttach for tcl/rvt buffers only. Two forms,
+  -- both optional (default: none, so existing keymaps are never clobbered):
+  --   keymaps = { incoming_calls = "<leader>ci", definition = "gd", ... }
+  --     a named LSP action -> the key that triggers it (the plugin owns the
+  --     function). Set an action to false to leave it unbound.
+  --   keys = { { "<leader>cx", fn, desc = "...", mode = "n" }, ... }
+  --     a lazy.nvim-style escape hatch to bind arbitrary keys to any function.
+  keymaps = {},
+  keys = {},
 }
+
+-- action_fns maps a `keymaps` action name to the vim.lsp.buf function it triggers.
+local action_fns = {
+  definition = vim.lsp.buf.definition,
+  declaration = vim.lsp.buf.declaration,
+  type_definition = vim.lsp.buf.type_definition,
+  references = vim.lsp.buf.references,
+  document_symbol = vim.lsp.buf.document_symbol,
+  workspace_symbol = function()
+    vim.lsp.buf.workspace_symbol()
+  end,
+  incoming_calls = vim.lsp.buf.incoming_calls,
+  outgoing_calls = vim.lsp.buf.outgoing_calls,
+  hover = vim.lsp.buf.hover,
+}
+
+-- _keymap_specs flattens the `keymaps` (named action -> lhs) and `keys`
+-- (lazy-style specs) options into a list of { mode, lhs, rhs, desc } to set
+-- buffer-local, plus the list of unknown action names to warn about. Pure (no
+-- editor state); exposed on M for testing.
+function M._keymap_specs(keymaps, keys)
+  local specs, unknown = {}, {}
+  for action, lhs in pairs(keymaps or {}) do
+    local fn = action_fns[action]
+    if not fn then
+      table.insert(unknown, action)
+    elseif lhs then
+      table.insert(specs, { mode = "n", lhs = lhs, rhs = fn, desc = "tcl-lsp: " .. action })
+    end
+  end
+  for _, spec in ipairs(keys or {}) do
+    local lhs, rhs = spec[1], spec[2]
+    if lhs and rhs then
+      table.insert(specs, { mode = spec.mode or "n", lhs = lhs, rhs = rhs, desc = spec.desc })
+    end
+  end
+  return specs, unknown
+end
 
 function M.setup(opts)
   opts = vim.tbl_deep_extend("force", defaults, opts or {})
@@ -60,6 +107,28 @@ function M.setup(opts)
     root_markers = opts.root_markers,
   })
   vim.lsp.enable("tcl_lsp")
+
+  -- Apply user keymaps buffer-local when our server attaches, so they exist only
+  -- in tcl/rvt buffers and never leak into other filetypes. Specs are static, so
+  -- build them (and warn about typos) once here, then set them per buffer.
+  local specs, unknown = M._keymap_specs(opts.keymaps, opts.keys)
+  for _, action in ipairs(unknown) do
+    vim.notify("tcl-lsp: unknown keymap action '" .. action .. "'", vim.log.levels.WARN)
+  end
+  if #specs > 0 then
+    vim.api.nvim_create_autocmd("LspAttach", {
+      group = vim.api.nvim_create_augroup("TclLspKeymaps", { clear = true }),
+      callback = function(args)
+        local client = vim.lsp.get_client_by_id(args.data.client_id)
+        if not client or client.name ~= "tcl_lsp" then
+          return -- only bind for our server, not other LSPs on the buffer
+        end
+        for _, s in ipairs(specs) do
+          vim.keymap.set(s.mode, s.lhs, s.rhs, { buffer = args.buf, desc = s.desc })
+        end
+      end,
+    })
+  end
 
   -- Rebuild after pulling new server code, then :LspRestart to load it.
   vim.api.nvim_create_user_command("TclLspRebuild", function()
