@@ -83,6 +83,7 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		s.reply(m.ID, InitializeResult{Capabilities: ServerCapabilities{
 			TextDocumentSync: 1, DefinitionProvider: true, ReferencesProvider: true,
 			DocumentSymbolProvider: true, WorkspaceSymbolProvider: true,
+			CallHierarchyProvider: true,
 		}})
 	case "initialized":
 		// Per the spec, dynamic registration happens after initialized. Register
@@ -139,6 +140,18 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		var p WorkspaceSymbolParams
 		_ = json.Unmarshal(m.Params, &p)
 		s.reply(m.ID, buildWorkspaceSymbols(s.ix.AllSymbols(), p.Query, s.sourceOf))
+	case "textDocument/prepareCallHierarchy":
+		var p CallHierarchyPrepareParams
+		_ = json.Unmarshal(m.Params, &p)
+		s.reply(m.ID, s.prepareCallHierarchy(p))
+	case "callHierarchy/incomingCalls":
+		var p CallHierarchyIncomingCallsParams
+		_ = json.Unmarshal(m.Params, &p)
+		s.reply(m.ID, s.incomingCalls(p))
+	case "callHierarchy/outgoingCalls":
+		var p CallHierarchyOutgoingCallsParams
+		_ = json.Unmarshal(m.Params, &p)
+		s.reply(m.ID, s.outgoingCalls(p))
 	case "exit":
 		return true
 	default:
