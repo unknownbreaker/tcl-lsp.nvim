@@ -150,6 +150,29 @@ func TestIndexDir(t *testing.T) {
 	}
 }
 
+func TestIndexDirProgress(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.tcl", "proc a {} {}")
+	writeFile(t, dir, "b.rvt", "<? proc b {} {} ?>")
+	writeFile(t, dir, "readme.md", "not tcl")
+
+	var counts []int
+	ix := New()
+	if err := ix.IndexDirProgress(dir, func(n int) { counts = append(counts, n) }); err != nil {
+		t.Fatalf("IndexDirProgress error: %v", err)
+	}
+	// One callback per indexed file (the .md is skipped, so no callback), with a
+	// monotonic running count ending at the file total.
+	if len(counts) != 2 || counts[len(counts)-1] != 2 {
+		t.Fatalf("progress callbacks = %v, want a running count ending at 2", counts)
+	}
+	for i, n := range counts {
+		if n != i+1 {
+			t.Fatalf("running count not monotonic from 1: %v", counts)
+		}
+	}
+}
+
 func TestIndexDirContinuesPastUnreadableFile(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("chmod-based permission test is unreliable as root")

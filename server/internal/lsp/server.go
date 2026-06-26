@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
 	"github.com/unknownbreaker/tcl-lsp/internal/resolve"
@@ -197,13 +198,26 @@ func (s *Server) indexWorkspace(root string, progress bool) {
 		return
 	}
 	const token = "tcl-lsp/index"
+	var onFile func(int)
 	if progress {
 		s.progressCreate(token)
 		s.progressBegin(token, "Indexing TCL workspace")
+		// Report the running count, throttled to ~20/sec (50ms) so the number
+		// animates briskly without flooding the client (a counter is unreadable
+		// faster than that anyway). Always report the first file so feedback is
+		// immediate regardless of how fast indexing runs.
+		var last time.Time
+		onFile = func(n int) {
+			now := time.Now()
+			if n == 1 || now.Sub(last) >= 50*time.Millisecond {
+				last = now
+				s.progressReport(token, fmt.Sprintf("%d files", n))
+			}
+		}
 	}
 	// Best-effort: IndexDir continues past unreadable entries and returns an
 	// aggregated error, which we log (stderr) rather than fail on.
-	if err := s.ix.IndexDir(root); err != nil {
+	if err := s.ix.IndexDirProgress(root, onFile); err != nil {
 		log.Printf("workspace index (%s): %v", root, err)
 	}
 	if progress {
@@ -233,6 +247,10 @@ func (s *Server) progressNotify(token string, value any) {
 
 func (s *Server) progressBegin(token, title string) {
 	s.progressNotify(token, WorkDoneProgressBegin{Kind: "begin", Title: title})
+}
+
+func (s *Server) progressReport(token, message string) {
+	s.progressNotify(token, WorkDoneProgressReport{Kind: "report", Message: message})
 }
 
 func (s *Server) progressEnd(token, message string) {
