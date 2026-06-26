@@ -189,6 +189,13 @@ type WorkDoneProgressBegin struct {
 	Title string `json:"title"`
 }
 
+// WorkDoneProgressReport updates an in-progress run with a new message (here, the
+// running file count).
+type WorkDoneProgressReport struct {
+	Kind    string `json:"kind"` // always "report"
+	Message string `json:"message,omitempty"`
+}
+
 // WorkDoneProgressEnd ends a progress run, optionally with a final message.
 type WorkDoneProgressEnd struct {
 	Kind    string `json:"kind"` // always "end"

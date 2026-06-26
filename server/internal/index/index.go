@@ -444,7 +444,16 @@ func (ix *Index) AllSymbols() []SymbolEntry {
 // file or directory cannot truncate the whole workspace index. The `.git`
 // directory is skipped. The returned error aggregates any failures (nil if none).
 func (ix *Index) IndexDir(root string) error {
+	return ix.IndexDirProgress(root, nil)
+}
+
+// IndexDirProgress is IndexDir with an optional per-file callback: progress(n) is
+// invoked with the running count after each file is indexed (pass nil to skip).
+// The callback runs synchronously in the walk, so a caller that reports it to a
+// client should throttle (this layer does not).
+func (ix *Index) IndexDirProgress(root string, progress func(indexed int)) error {
 	var errs []error
+	indexed := 0
 	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			// Unreadable entry: record and keep walking the rest of the tree.
@@ -466,6 +475,10 @@ func (ix *Index) IndexDir(root string) error {
 			return nil
 		}
 		ix.IndexFile(p, string(b))
+		indexed++
+		if progress != nil {
+			progress(indexed)
+		}
 		return nil
 	})
 	if walkErr != nil {

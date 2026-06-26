@@ -24,7 +24,7 @@ func TestServerIndexProgress(t *testing.T) {
 	}))
 	in.Write(frame(t, "exit", nil, nil))
 
-	var created, begin, end bool
+	var created, begin, report, end bool
 	for _, m := range runServer(t, in.Bytes()) {
 		if m.Method == "window/workDoneProgress/create" {
 			created = true
@@ -38,13 +38,15 @@ func TestServerIndexProgress(t *testing.T) {
 			switch pp.Value["kind"] {
 			case "begin":
 				begin = true
+			case "report":
+				report = true // the running count (first file always reports)
 			case "end":
 				end = true
 			}
 		}
 	}
-	if !created || !begin || !end {
-		t.Fatalf("index progress not reported: create=%v begin=%v end=%v", created, begin, end)
+	if !created || !begin || !report || !end {
+		t.Fatalf("index progress not reported: create=%v begin=%v report=%v end=%v", created, begin, report, end)
 	}
 }
 
