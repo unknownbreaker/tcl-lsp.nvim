@@ -1,173 +1,74 @@
 # tcl-lsp
 
 A focused Language Server for **TCL** and **RVT** (Apache Rivet templates), for
-Neovim and Vim. The server is a self-contained Go binary; Neovim and Vim clients
-drive the same binary.
+Neovim and Vim. One self-contained Go binary; the Neovim and Vim clients drive it.
 
-Scope is deliberately tight — **go-to-definition**, **find-references**, and
-**document/workspace symbols**, done well (scope-correct, cross-file,
-`.rvt`-aware) — rather than a broad, shallow feature set.
+Scope is deliberately tight — a few features done well (scope-correct, cross-file,
+`.rvt`-aware, Itcl-aware) rather than a broad, shallow set.
 
 ## Features
 
-| LSP feature                | Status |
-| -------------------------- | :----: |
-| Go to definition           |   ✅   |
-| Find references            |   ✅   |
-| Document / workspace symbols |  ✅   |
-| Call hierarchy             |   ✅   |
-| Hover                      |   ❌   |
-| Completion                 |   ❌   |
-| Signature help             |   ❌   |
-| Rename                     |   ❌   |
-| Formatting                 |   ❌   |
-| Diagnostics                |   ❌   |
-| Code actions               |   ❌   |
-| Inlay hints / semantic tokens |  ❌  |
+| LSP feature                  |    |
+| ---------------------------- | :-: |
+| Go to definition             | ✅ |
+| Find references              | ✅ |
+| Document / workspace symbols | ✅ |
+| Call hierarchy               | ✅ |
+| Itcl ([incr Tcl]) OO         | ✅ |
 
-`❌` items are out of scope by design (see [Why a v2 reset](#why-a-v2-reset)).
+Not supported, out of scope by design (see [Why a v2 reset](#why-a-v2-reset)):
+hover, completion, signature help, rename, formatting, diagnostics, code actions,
+inlay hints, semantic tokens.
 
-**What the supported features actually do:**
+What the supported features bring that a regex/ctags tool can't:
 
-- ✅ **Cross-file** resolution, including `.rvt` ⇄ `.tcl`.
-- ✅ **Reaching-definitions** — a `$x` jumps to the assignment(s) that actually
-  reach it (through loops, conditionals, `break`/`continue`/`return`), not just
-  the first binding.
-- ✅ **Scope-correct** — namespaces, `namespace path`/`import`,
-  `global`/`upvar`/`variable` link origin-chasing, and arrays.
-- ✅ **Symbols, index-backed** — a hierarchical outline of the current file and a
-  project-wide name search, built from the same symbol table (procs, namespace
-  vars, Itcl classes/methods/ivars); `.rvt` page symbols surface at the top
-  level.
-- ✅ **Itcl ([incr Tcl]) OO** — classes, methods, instance variables, and
-  inheritance resolve, including the `$obj method` receiver call. See
-  [Itcl OO support](#itcl-oo-support).
-- ✅ **Call hierarchy** — incoming ("who calls this?") and outgoing ("what does
-  this call?") for procs and methods, across files and `.rvt` pages. Built on
-  references + goto-def, so it inherits the same contract: complete for
-  command-position calls (bare and qualified), best-effort for explicit
-  `$obj method` / `$this method` calls, which aren't yet traced.
+- **Cross-file & `.rvt`-aware** — resolution flows `.rvt` ⇄ `.tcl`.
+- **Reaching-definitions** — `$x` jumps to the assignment(s) that actually reach
+  it (through loops, conditionals, `break`/`return`), not just the first binding.
+- **Scope-correct** — namespaces, `namespace path`/`import`, `global`/`upvar`/
+  `variable` link-chasing, and arrays.
+- **Itcl OO** — classes, methods, ivars, inheritance, and the `$obj method`
+  receiver call. See [Itcl OO support](#itcl-oo-support).
 
-## Itcl OO support
+## Install (Neovim ≥ 0.11)
 
-The dominant OO idiom in Rivet/speedtables-style code — `itcl::class`,
-`[::C #auto]`, `$obj method` — resolves end-to-end:
-
-- **Classes** — `itcl::class ::C { … }` (and `::itcl::class`) are resolvable
-  symbols. Goto-definition on an instantiation (`[::STDisplay #auto]`,
-  `::STDisplay create x`, `C objName`) jumps to the class; find-references lists
-  every instantiation and use.
-- **Members** — `method`, `constructor`, `destructor`, class-level `proc`, and
-  `variable`/`common` instance variables, **with or without a `public`/
-  `protected`/`private` modifier** (the usual real-world form) — from both inline
-  class blocks and external `itcl::body ::C::m { … }` definitions (merged as sites
-  for one member).
-- **Inheritance** — `inherit` chains are walked (simple `inherit`-order, cycle-
-  and diamond-safe), so an inherited method or ivar resolves to its base-class site.
-- **Three resolution tiers:**
-  1. **Class names** in command position.
-  2. **Intra-class** — a bare `method`, `$this method`, or `$ivar` inside a method
-     body resolves to the member, including inherited ones.
-  3. **`$obj method`** — `set d [::STDisplay #auto]; $d field` types `$d` via the
-     reaching-definitions engine and resolves `field` on its class. Instantiation
-     forms recognized: `#auto`, `new`, `create name`, `objName`, and bare `[::C …]`.
-     The `$obj method` shape is detected both as a statement and bracketed for its
-     value (`[$obj method]`), including inside method bodies.
-- Classes, methods, and ivars also appear in the **document/workspace symbol**
-  outlines, and all of the above works across `.tcl` and `.rvt`.
-
-**Boundaries (graceful — it returns nothing rather than jump wrong):**
-
-- **TclOO** (`oo::class`, `oo::define`) is not supported yet — Itcl only.
-- Receivers whose class is not *locally* known — a method parameter, a factory
-  return value, an ivar assigned in a different method — stay unresolved (Itcl has
-  no type annotations to recover the class from).
-- Simple `inherit`-order MRO, not full C3 linearization; no dynamic dispatch,
-  `configure`/`cget`, mixins, or `rename`/`interp alias` on classes.
-- Protection *blocks* (`public { … }` grouping several declarations) are not yet
-  parsed — declare members individually (`public method …`), which is what real
-  code overwhelmingly does.
-
-The behavior here is pinned against verbatim excerpts of real Itcl/Rivet code
-(`flightaware/speedtables`, `mxmanghi/rivetweb`, `apache/tcl-rivet`); see
-[`research/07-realworld-itcl-survey.md`](research/07-realworld-itcl-survey.md).
-
-## Requirements
-
-- **Neovim ≥ 0.11** (uses the native `vim.lsp.config`/`vim.lsp.enable`), **or**
-  classic **Vim** with [vim-lsp] or [coc.nvim] — see [`editors/README.md`](editors/README.md).
-- **`go` + `make`** to build the bundled server. It builds automatically on first
-  use and rebuilds when its sources change; no manual step, no binary to install.
-
-[vim-lsp]: https://github.com/prabirshrestha/vim-lsp
-[coc.nvim]: https://github.com/neoclide/coc.nvim
-
-## Installation (Neovim)
-
-The plugin loads on `tcl`/`rvt` filetypes, builds the bundled Go server via the
-manager's build hook, and calls `require("tcl-lsp").setup(opts)`.
-
-### [lazy.nvim](https://github.com/folke/lazy.nvim)
+Needs `go` + `make` on PATH — the server is built from source and auto-rebuilds
+when its sources change, so there's no manual step and no binary to install.
 
 ```lua
+-- lazy.nvim
 {
   "unknownbreaker/tcl-lsp",
   ft = { "tcl", "rvt" },
   build = "make -C server build",
   init = function()
-    -- map .rvt before any file opens, so the `ft` trigger can fire
-    vim.filetype.add({ extension = { tcl = "tcl", rvt = "rvt" } })
+    vim.filetype.add({ extension = { tcl = "tcl", rvt = "rvt" } }) -- map .rvt before load
   end,
-  opts = {}, -- calls require("tcl-lsp").setup({})
+  opts = {}, -- calls require("tcl-lsp").setup(opts) — see Configuration below
 }
 ```
 
-A fully-commented spec (including a dev/local-clone variant) lives at
-[`editors/nvim/tcl-lsp.lua`](editors/nvim/tcl-lsp.lua).
+A fully-commented spec (and a dev/local-clone variant) lives at
+[`editors/nvim/tcl-lsp.lua`](editors/nvim/tcl-lsp.lua). For **packer**,
+**vim-plug**, and **Vim** (vim-lsp / coc.nvim), see
+[`editors/README.md`](editors/README.md).
 
-### [packer.nvim](https://github.com/wbthomason/packer.nvim)
+## Configuration
 
-```lua
-use({
-  "unknownbreaker/tcl-lsp",
-  run = "make -C server build",
-  config = function()
-    require("tcl-lsp").setup({})
-  end,
-})
-```
-
-### [vim-plug](https://github.com/junegunn/vim-plug)
-
-```vim
-Plug 'unknownbreaker/tcl-lsp', { 'do': 'make -C server build' }
-```
-
-Then, after `plug#end()`:
-
-```lua
-require("tcl-lsp").setup({})
-```
-
-> `.rvt` filetype detection ships in `ftdetect/rvt.vim`, so packer/vim-plug pick
-> it up automatically. With lazy.nvim's filetype lazy-loading, the `init` hook
-> above sets it before load.
-
-### Configuration
-
-`setup()` takes an optional table; defaults shown:
+Pass options to `setup()` — through lazy.nvim's `opts`, or by calling
+`require("tcl-lsp").setup({ … })` directly. Everything is optional; defaults shown.
 
 ```lua
 require("tcl-lsp").setup({
-  filetypes    = { "tcl", "rvt" },        -- buffers the server attaches to
+  filetypes    = { "tcl", "rvt" },           -- buffers the server attaches to
   root_markers = { ".git", "pkgIndex.tcl" }, -- project root (order = priority; .git first)
-  cmd          = nil,                     -- override the server binary; nil = bundled
-  auto_build   = true,                    -- build the bundled server when missing/stale
+  cmd          = nil,                        -- override the server binary; nil = bundled
+  auto_build   = true,                       -- build the bundled server when missing/stale
 
-  -- Optional keymaps, set buffer-local when the server attaches (so they exist
-  -- only in tcl/rvt buffers and never clobber your other keymaps). Default: none.
+  -- Keymaps, set buffer-local on attach (only in tcl/rvt buffers; they never
+  -- clobber your other maps). Default: none. The two forms mix freely.
   keymaps = {
-    -- a named LSP action -> the key that triggers it (the plugin owns the fn)
+    -- a named action -> the key that triggers it (the plugin owns the function)
     definition      = "gd",
     references      = "grr",
     document_symbol = "gO",
@@ -183,95 +84,71 @@ require("tcl-lsp").setup({
 })
 ```
 
-Each `keymaps` entry gets a `desc`, so which-key (if installed) lists them
-automatically — no which-key configuration required.
-
-## Installation (Vim)
-
-Vim has no built-in LSP client; use **vim-lsp** or **coc.nvim**. Full recipes
-(including the `.git`-first root config) are in
-[`editors/README.md`](editors/README.md).
+Each `keymaps` entry carries a `desc`, so which-key (if installed) lists it
+automatically — no which-key config needed. Leave `keymaps` unset and your
+editor's existing LSP maps (LazyVim's `gd`/`grr`/`<leader>ss`…) keep working.
 
 ## Usage
 
-On the first connection the server indexes the whole project subtree, which can
-take a few seconds on a large repo. It reports this with LSP work-done progress —
-an `Indexing TCL workspace` spinner with a live file count, then `Indexed N
-files` when ready — so if your statusline shows LSP progress (`fidget.nvim` or
-`noice.nvim`, both default in LazyVim) you'll see it; until it finishes,
-goto-def/references wait on the index. Clients without a progress UI just see a
-brief startup delay.
+Open a `.tcl`/`.rvt` file; the server attaches and indexes the project on first
+connect. Use the keymaps you configured above, or your editor's defaults:
 
-Open a `.tcl` or `.rvt` file and use your LSP keymaps:
+- **Go-to-definition / references** — `gd` / `grr` (LazyVim defaults). Vim:
+  `:LspDefinition` / `:LspReferences`.
+- **Symbols** — a document outline (procs, namespace vars, Itcl classes + members;
+  `.rvt` page symbols hoisted to the top) and a project-wide name search. LazyVim:
+  `<leader>ss` / `<leader>sS`. An outline panel (`aerial.nvim`) or breadcrumbs
+  (`nvim-navic`) pick it up automatically.
+- **Call hierarchy** — incoming/outgoing calls for procs and methods, across files
+  and `.rvt`. The built-ins fill the quickfix list; `lspsaga.nvim`
+  (`:Lspsaga incoming_calls`) gives a drill-down tree. Traces bare and qualified
+  calls; explicit `$obj method` edges aren't traced yet.
 
-```lua
-vim.keymap.set("n", "gd", vim.lsp.buf.definition)
-vim.keymap.set("n", "grr", vim.lsp.buf.references)
-vim.keymap.set("n", "gO", vim.lsp.buf.document_symbol)             -- outline of this file
-vim.keymap.set("n", "<leader>ws", function()                       -- search the whole project
-  vim.lsp.buf.workspace_symbol(vim.fn.input("Symbol: "))
-end)
-```
+**Indexing feedback.** On first connect the server indexes the whole project (a few
+seconds on a big repo), reported via LSP work-done progress: an `Indexing TCL
+workspace` spinner with a live file count, then `Indexed N files`. Statuslines that
+render LSP progress (`fidget.nvim` / `noice.nvim`, both default in LazyVim; coc's
+`coc#status()`) show it; others just see a brief startup pause while goto-def and
+references wait on the index.
 
-(LazyVim already binds `gd` and `grr`, plus `<leader>ss` for document symbols and
-`<leader>sS` for workspace symbols via Telescope.) In Vim: `:LspDefinition` /
-`:LspReferences` / `:LspDocumentSymbol` / `:LspWorkspaceSymbol`.
+## Itcl OO support
 
-### Symbols
+The dominant Rivet/speedtables idiom — `itcl::class`, `[::C #auto]`, `$obj method`
+— resolves end-to-end:
 
-- **Document symbols** (`<leader>ss` / `gO`) — a hierarchical outline of the
-  current file: procs, namespace variables, and Itcl classes with their
-  methods/ivars, nested by namespace and class. In `.rvt` pages the synthetic
-  `::request` wrapper is hidden, so page symbols sit at the top level.
-- **Workspace symbols** (`<leader>sS`) — a flat, project-wide search by name
-  (case-insensitive substring); each result shows its container namespace or
-  class.
+- **Classes**, **methods/ivars** (inline and external `itcl::body`, with or without
+  `public`/`protected`/`private` modifiers — the usual real-world form), and
+  **`inherit`** chains all resolve and appear in the symbol outlines.
+- **`$obj method`** is receiver-typed: `set d [::STDisplay #auto]; $d field` types
+  `$d` and resolves `field` on its class (including inherited), as a statement or
+  bracketed (`[$obj method]`).
 
-A live outline panel ([`aerial.nvim`](https://github.com/stevearc/aerial.nvim)) or
-breadcrumbs ([`nvim-navic`](https://github.com/SmiteshP/nvim-navic)) work
-automatically once installed — they consume the same document-symbol data.
+Graceful boundaries (returns nothing rather than jump wrong): **TclOO**
+(`oo::class`) is not supported — Itcl only; receivers with no locally-known class
+(a parameter, a factory return, a cross-method ivar) stay unresolved; simple
+`inherit`-order MRO, no C3 / dynamic dispatch / mixins; `public { … }` protection
+*blocks* aren't parsed (declare members individually).
 
-### Call hierarchy
-
-With the cursor on a proc or method, incoming calls list who calls it and
-outgoing calls list what it calls. They aren't bound by default — the simplest
-way to map them is the plugin's [`keymaps`](#configuration) option:
-
-```lua
-require("tcl-lsp").setup({
-  keymaps = { incoming_calls = "<leader>ci", outgoing_calls = "<leader>co" },
-})
-```
-
-(Or map `vim.lsp.buf.incoming_calls` / `vim.lsp.buf.outgoing_calls` yourself in an
-`LspAttach` autocmd.) The built-in functions populate the **quickfix list** (flat,
-one level). For an expandable drill-down tree — the way call hierarchy is most
-useful — use [`lspsaga.nvim`](https://github.com/nvimdev/lspsaga.nvim)
-(`:Lspsaga incoming_calls` / `:Lspsaga outgoing_calls`), bound via the `keys`
-escape hatch. In Vim with vim-lsp: `:LspCallHierarchyIncoming` /
-`:LspCallHierarchyOutgoing`.
-
-Works across files and `.rvt` pages; method-to-method edges resolve through the
-Itcl class chain (for bare and qualified calls — explicit `$obj method` /
-`$this method` edges aren't traced yet).
+Pinned against verbatim real Itcl/Rivet code (`flightaware/speedtables`,
+`mxmanghi/rivetweb`, `apache/tcl-rivet`); see
+[`research/07-realworld-itcl-survey.md`](research/07-realworld-itcl-survey.md).
 
 ## Why a v2 reset
 
 v1 (313 commits) tried to do too much and accumulated performance regressions that
-were impossible to untangle. v2 inverts the approach: understand TCL's tricky
-scope rules first, write them down, then build the minimum that works — which is
-why heavier analysis (e.g. the reaching-definitions dataflow) runs only when
-needed and stays off the goto-def hot path. Research lives in `research/`, designs
-and plans in `docs/`. Deferred work (e.g. TclOO `oo::class` support) is tracked in
-[`docs/BACKLOG.md`](docs/BACKLOG.md).
+were impossible to untangle. v2 inverts the approach: understand TCL's scope rules
+first, write them down, then build the minimum that works — which is why heavier
+analysis (the reaching-definitions dataflow) runs only when needed, off the
+goto-def hot path. Research lives in `research/`, designs and plans in `docs/`, and
+deferred work (e.g. TclOO) in [`docs/BACKLOG.md`](docs/BACKLOG.md).
 
 ## Recovering the old prototype
 
-The full v1 history is preserved on the `v1` branch (its tip) and at the
-`archive-v1` tag (an earlier checkpoint).
+The full v1 history is on the `v1` branch (its tip) and the `archive-v1` tag (an
+earlier checkpoint):
 
 ```bash
 git checkout v1 -- <path>     # pull a v1 file back as reference
-git checkout v1               # the full old tree lives on this branch
-git checkout archive-v1       # ...or an earlier v1 checkpoint (tag)
+git checkout v1               # the full old tree
+git checkout archive-v1       # ...or an earlier checkpoint (tag)
 ```
