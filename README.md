@@ -194,6 +194,13 @@ Vim has no built-in LSP client; use **vim-lsp** or **coc.nvim**. Full recipes
 
 ## Usage
 
+On the first connection the server indexes the whole project subtree, which can
+take a few seconds on a large repo. It reports this with LSP work-done progress —
+an `Indexing TCL workspace` spinner, then `Indexed N files` when ready — so if
+your statusline shows LSP progress (`fidget.nvim` or `noice.nvim`, both default
+in LazyVim) you'll see it; until it finishes, goto-def/references wait on the
+index. Clients without a progress UI just see a brief startup delay.
+
 Open a `.tcl` or `.rvt` file and use your LSP keymaps:
 
 ```lua
