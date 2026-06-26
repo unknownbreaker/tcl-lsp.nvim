@@ -15,6 +15,7 @@ Scope is deliberately tight — **go-to-definition**, **find-references**, and
 | Go to definition           |   ✅   |
 | Find references            |   ✅   |
 | Document / workspace symbols |  ✅   |
+| Call hierarchy             |   ✅   |
 | Hover                      |   ❌   |
 | Completion                 |   ❌   |
 | Signature help             |   ❌   |
@@ -41,6 +42,11 @@ Scope is deliberately tight — **go-to-definition**, **find-references**, and
 - ✅ **Itcl ([incr Tcl]) OO** — classes, methods, instance variables, and
   inheritance resolve, including the `$obj method` receiver call. See
   [Itcl OO support](#itcl-oo-support).
+- ✅ **Call hierarchy** — incoming ("who calls this?") and outgoing ("what does
+  this call?") for procs and methods, across files and `.rvt` pages. Built on
+  references + goto-def, so it inherits the same contract: complete for
+  command-position calls (bare and qualified), best-effort for explicit
+  `$obj method` / `$this method` calls, which aren't yet traced.
 
 ## Itcl OO support
 
@@ -197,7 +203,13 @@ A live outline panel ([`aerial.nvim`](https://github.com/stevearc/aerial.nvim)) 
 breadcrumbs ([`nvim-navic`](https://github.com/SmiteshP/nvim-navic)) work
 automatically once installed — they consume the same document-symbol data.
 
-## Why a v2 reset
+### Call hierarchy
+
+With the cursor on a proc or method, `vim.lsp.buf.incoming_calls()` lists who
+calls it and `vim.lsp.buf.outgoing_calls()` lists what it calls; both expand into
+a tree. LazyVim binds these to `<leader>ci` / `<leader>co`. In Vim with vim-lsp:
+`:LspCallHierarchyIncoming` / `:LspCallHierarchyOutgoing`. Works across files and
+`.rvt` pages; method-to-method edges resolve through the Itcl class chain.
 
 v1 (313 commits) tried to do too much and accumulated performance regressions that
 were impossible to untangle. v2 inverts the approach: understand TCL's tricky

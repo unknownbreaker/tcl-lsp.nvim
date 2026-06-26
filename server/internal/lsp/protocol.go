@@ -64,6 +64,7 @@ type SymbolKind int
 
 // SymbolKind constants from the LSP spec.
 const (
+	SymKindFile      SymbolKind = 1
 	SymKindNamespace SymbolKind = 3
 	SymKindClass     SymbolKind = 5
 	SymKindMethod    SymbolKind = 6
@@ -99,6 +100,48 @@ type WorkspaceSymbolParams struct {
 	Query string `json:"query"`
 }
 
+// CallHierarchyItem identifies a callable in the call hierarchy (a proc or
+// method, or a file for top-level/page-level call sites). The SelectionRange (the
+// name token) doubles as the re-resolution anchor for incoming/outgoing calls.
+type CallHierarchyItem struct {
+	Name           string     `json:"name"`
+	Kind           SymbolKind `json:"kind"`
+	Detail         string     `json:"detail,omitempty"` // fully-qualified name / container
+	URI            string     `json:"uri"`
+	Range          Range      `json:"range"`
+	SelectionRange Range      `json:"selectionRange"`
+}
+
+// CallHierarchyPrepareParams is a textDocument/prepareCallHierarchy request.
+type CallHierarchyPrepareParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+}
+
+// CallHierarchyIncomingCallsParams is a callHierarchy/incomingCalls request.
+type CallHierarchyIncomingCallsParams struct {
+	Item CallHierarchyItem `json:"item"`
+}
+
+// CallHierarchyOutgoingCallsParams is a callHierarchy/outgoingCalls request.
+type CallHierarchyOutgoingCallsParams struct {
+	Item CallHierarchyItem `json:"item"`
+}
+
+// CallHierarchyIncomingCall is one caller of the prepared item, with the call
+// sites (within the caller) that reach it.
+type CallHierarchyIncomingCall struct {
+	From       CallHierarchyItem `json:"from"`
+	FromRanges []Range           `json:"fromRanges"`
+}
+
+// CallHierarchyOutgoingCall is one callee of the prepared item, with the call
+// sites (within the item's body) that reach it.
+type CallHierarchyOutgoingCall struct {
+	To         CallHierarchyItem `json:"to"`
+	FromRanges []Range           `json:"fromRanges"`
+}
+
 // ReferenceContext carries the references request's options.
 type ReferenceContext struct {
 	// IncludeDeclaration asks the server to include the symbol's declaration
@@ -130,6 +173,7 @@ type ServerCapabilities struct {
 	ReferencesProvider      bool `json:"referencesProvider"`
 	DocumentSymbolProvider  bool `json:"documentSymbolProvider"`
 	WorkspaceSymbolProvider bool `json:"workspaceSymbolProvider"`
+	CallHierarchyProvider   bool `json:"callHierarchyProvider"`
 }
 
 // Dynamic capability registration (server -> client). After `initialized` the
