@@ -163,8 +163,28 @@ require("tcl-lsp").setup({
   root_markers = { ".git", "pkgIndex.tcl" }, -- project root (order = priority; .git first)
   cmd          = nil,                     -- override the server binary; nil = bundled
   auto_build   = true,                    -- build the bundled server when missing/stale
+
+  -- Optional keymaps, set buffer-local when the server attaches (so they exist
+  -- only in tcl/rvt buffers and never clobber your other keymaps). Default: none.
+  keymaps = {
+    -- a named LSP action -> the key that triggers it (the plugin owns the fn)
+    definition      = "gd",
+    references      = "grr",
+    document_symbol = "gO",
+    incoming_calls  = "<leader>ci",
+    outgoing_calls  = "<leader>co",
+    -- also: declaration, type_definition, workspace_symbol, hover
+    -- (set any action to false to leave it unbound)
+  },
+  keys = {
+    -- lazy.nvim-style escape hatch for arbitrary maps / your own functions:
+    -- { "<leader>cx", function() ... end, desc = "...", mode = "n" },
+  },
 })
 ```
+
+Each `keymaps` entry gets a `desc`, so which-key (if installed) lists them
+automatically — no which-key configuration required.
 
 ## Installation (Vim)
 
@@ -205,28 +225,23 @@ automatically once installed — they consume the same document-symbol data.
 
 ### Call hierarchy
 
-With the cursor on a proc or method, `vim.lsp.buf.incoming_calls()` lists who
-calls it and `vim.lsp.buf.outgoing_calls()` lists what it calls. These aren't
-bound by default (not even in LazyVim) — map them yourself, scoped to buffers
-where an LSP is attached:
+With the cursor on a proc or method, incoming calls list who calls it and
+outgoing calls list what it calls. They aren't bound by default — the simplest
+way to map them is the plugin's [`keymaps`](#configuration) option:
 
 ```lua
-vim.api.nvim_create_autocmd("LspAttach", {
-  callback = function(args)
-    vim.keymap.set("n", "<leader>ci", vim.lsp.buf.incoming_calls,
-      { buffer = args.buf, desc = "Incoming calls" })
-    vim.keymap.set("n", "<leader>co", vim.lsp.buf.outgoing_calls,
-      { buffer = args.buf, desc = "Outgoing calls" })
-  end,
+require("tcl-lsp").setup({
+  keymaps = { incoming_calls = "<leader>ci", outgoing_calls = "<leader>co" },
 })
 ```
 
-The `desc` makes which-key list them automatically. The built-in functions
-populate the **quickfix list** (flat, one level). For an expandable drill-down
-tree — the way call hierarchy is most useful — use
-[`lspsaga.nvim`](https://github.com/nvimdev/lspsaga.nvim)
-(`:Lspsaga incoming_calls` / `:Lspsaga outgoing_calls`). In Vim with vim-lsp:
-`:LspCallHierarchyIncoming` / `:LspCallHierarchyOutgoing`.
+(Or map `vim.lsp.buf.incoming_calls` / `vim.lsp.buf.outgoing_calls` yourself in an
+`LspAttach` autocmd.) The built-in functions populate the **quickfix list** (flat,
+one level). For an expandable drill-down tree — the way call hierarchy is most
+useful — use [`lspsaga.nvim`](https://github.com/nvimdev/lspsaga.nvim)
+(`:Lspsaga incoming_calls` / `:Lspsaga outgoing_calls`), bound via the `keys`
+escape hatch. In Vim with vim-lsp: `:LspCallHierarchyIncoming` /
+`:LspCallHierarchyOutgoing`.
 
 Works across files and `.rvt` pages; method-to-method edges resolve through the
 Itcl class chain (for bare and qualified calls — explicit `$obj method` /

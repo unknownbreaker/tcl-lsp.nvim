@@ -53,6 +53,20 @@ return {
       -- cmd          = nil,   -- path to a server binary to use instead of the
       --                       -- bundled one (string or list); nil = bundled
       -- auto_build   = true,  -- build the bundled Go server on first use if missing
+
+      -- Keymaps, set buffer-local when the server attaches (only in tcl/rvt
+      -- buffers; never clobbers your other maps). Default: none.
+      -- keymaps = {
+      --   definition      = "gd",
+      --   references      = "grr",
+      --   document_symbol = "gO",
+      --   incoming_calls  = "<leader>ci",
+      --   outgoing_calls  = "<leader>co",
+      --   -- also: declaration, type_definition, workspace_symbol, hover
+      -- },
+      -- keys = {  -- lazy.nvim-style escape hatch for arbitrary maps
+      --   -- { "<leader>cx", function() ... end, desc = "...", mode = "n" },
+      -- },
     },
   },
 
