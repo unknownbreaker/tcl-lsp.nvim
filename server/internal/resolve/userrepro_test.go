@@ -55,6 +55,54 @@ func runUserCase(t *testing.T, rvt string) (defWorks, refFound bool, refs []inde
 	return defWorks, refFound, refs
 }
 
+// A call buried in a SCRIPT body that is nested inside a [command substitution]
+// inside an if-condition expr: `if {![catch {set v "[lindex [myproc …] 0]"} err]}`.
+// walkAll descends script bodies and substRefs descends [substitutions], but the
+// call lives in catch's body (a script) reached only THROUGH the [catch …] subst —
+// so before the fix neither traversal saw it, and goto-def found nothing.
+const substBodyTCL = `proc myproc {a b c d} {
+    return $a
+}`
+
+const substBodyCaller = `proc caller {} {
+    if {![catch {set v_description "[lindex [myproc $thing1 0 0 $thing2] 0]"} err]} {
+        puts $v_description
+    }
+}`
+
+func TestUserCase_CallInScriptBodyInSubstitution(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("def.tcl", substBodyTCL)
+	ix.IndexFile("caller.tcl", substBodyCaller)
+	r := New(ix)
+
+	// goto-def from the nested call.
+	callOff := strings.Index(substBodyCaller, "myproc")
+	defs := r.Definition("caller.tcl", substBodyCaller, callOff)
+	var defWorks bool
+	for _, d := range defs {
+		if d.File == "def.tcl" {
+			defWorks = true
+		}
+	}
+	if !defWorks {
+		t.Fatalf("goto-def failed for call nested in catch-body-in-substitution; got %#v", defs)
+	}
+
+	// find-references the other direction includes the nested call site.
+	defOff := strings.Index(substBodyTCL, "myproc")
+	refs := r.References("def.tcl", substBodyTCL, defOff)
+	var refFound bool
+	for _, l := range refs {
+		if l.File == "caller.tcl" {
+			refFound = true
+		}
+	}
+	if !refFound {
+		t.Fatalf("find-refs missed the nested call site; got %#v", refs)
+	}
+}
+
 func TestUserCaseMultiline(t *testing.T) {
 	defWorks, refFound, refs := runUserCase(t, userRVTMultiline)
 	t.Logf("multiline: defWorks=%v refFound=%v refs=%#v", defWorks, refFound, refs)
