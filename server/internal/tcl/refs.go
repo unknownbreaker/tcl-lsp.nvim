@@ -143,6 +143,20 @@ func substRefs(inner string, innerBase int) []Reference {
 			r.End += innerBase
 			refs = append(refs, r)
 		}
+		// CommandRefs scans a command's words and the [substitutions] within them,
+		// but does NOT enter a command's braced SCRIPT body (catch/foreach/if/eval/…
+		// bodies) -- those are descended by walkAll via childBodies. When such a body
+		// sits inside a [substitution], though, walkAll never reaches it (it only
+		// descends top-level command bodies), so calls and vars inside e.g.
+		// `[catch {… myproc …} err]` would be invisible. Descend them here, mirroring
+		// walkAll. childBodies and CommandRefs partition a command's words (script
+		// bodies vs. expr/substituted words), so there is no double-counting. The
+		// neutral namespace frame only locates the body spans; the resulting
+		// context-free References are tagged by the enclosing command at the walkAll
+		// call site, as every other substitution ref already is.
+		for _, b := range childBodies(c, innerBase, "::", FrameNamespace, 0, "") {
+			refs = append(refs, substRefs(b.Inner, b.Base)...)
+		}
 	}
 	return refs
 }
