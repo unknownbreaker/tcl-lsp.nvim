@@ -45,6 +45,13 @@ local defaults = {
   --     a lazy.nvim-style escape hatch to bind arbitrary keys to any function.
   keymaps = {},
   keys = {},
+  -- When true, the plugin enables LSP code folding (textDocument/foldingRange)
+  -- for tcl/rvt buffers: it sets foldmethod=expr and foldexpr=vim.lsp.foldexpr()
+  -- *window-local* on attach (and on every window that displays such a buffer,
+  -- so new splits keep the folds). Other filetypes are untouched, so your global
+  -- foldexpr (e.g. Treesitter) stays the default everywhere else. Default off;
+  -- you still choose foldlevel/foldcolumn/etc. yourself.
+  folding = false,
 }
 
 -- action_fns maps a `keymaps` action name to the vim.lsp.buf function it triggers.
@@ -83,6 +90,25 @@ function M._keymap_specs(keymaps, keys)
     end
   end
   return specs, unknown
+end
+
+-- _fold_opts returns the window-local option values that route folding through
+-- this server (vs. a global Treesitter/other foldexpr). Pure; exposed on M for
+-- testing so the exact expr string is pinned against typos.
+function M._fold_opts()
+  return { foldmethod = "expr", foldexpr = "v:lua.vim.lsp.foldexpr()" }
+end
+
+-- apply_folding sets the LSP fold options window-local on every window currently
+-- displaying buf. Per-window (not per-buffer) because foldexpr/foldmethod are
+-- window options that do NOT follow a buffer into a new split -- so we (re)apply
+-- to all of buf's windows whenever it attaches or is displayed.
+local function apply_folding(buf)
+  local o = M._fold_opts()
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    vim.wo[win].foldmethod = o.foldmethod
+    vim.wo[win].foldexpr = o.foldexpr
+  end
 end
 
 function M.setup(opts)
@@ -125,6 +151,36 @@ function M.setup(opts)
         end
         for _, s in ipairs(specs) do
           vim.keymap.set(s.mode, s.lhs, s.rhs, { buffer = args.buf, desc = s.desc })
+        end
+      end,
+    })
+  end
+
+  -- Opt-in LSP folding for tcl/rvt buffers, window-local so it never disturbs
+  -- other filetypes' folding. Two triggers cover the two ways a buffer reaches a
+  -- window: LspAttach (first open, once our server connects) and BufWinEnter (any
+  -- later display, e.g. a new split -- which doesn't inherit window-local opts).
+  if opts.folding then
+    local group = vim.api.nvim_create_augroup("TclLspFolding", { clear = true })
+    vim.api.nvim_create_autocmd("LspAttach", {
+      group = group,
+      callback = function(args)
+        local client = vim.lsp.get_client_by_id(args.data.client_id)
+        if client and client.name == "tcl_lsp" then
+          apply_folding(args.buf)
+        end
+      end,
+    })
+    vim.api.nvim_create_autocmd("BufWinEnter", {
+      group = group,
+      callback = function(args)
+        if not vim.tbl_contains(opts.filetypes, vim.bo[args.buf].filetype) then
+          return -- cheap early-out before the client lookup
+        end
+        -- Only once our server is attached; otherwise leave the user's global
+        -- foldexpr in place and let LspAttach apply when it connects.
+        if next(vim.lsp.get_clients({ bufnr = args.buf, name = "tcl_lsp" })) then
+          apply_folding(args.buf)
         end
       end,
     })

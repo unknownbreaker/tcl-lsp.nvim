@@ -67,6 +67,9 @@ return {
       -- keys = {  -- lazy.nvim-style escape hatch for arbitrary maps
       --   -- { "<leader>cx", function() ... end, desc = "...", mode = "n" },
       -- },
+
+      -- folding = true,  -- enable LSP code folding for tcl/rvt (window-local,
+      --                  -- new splits included; other filetypes untouched)
     },
   },
 

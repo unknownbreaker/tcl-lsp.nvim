@@ -82,6 +82,8 @@ require("tcl-lsp").setup({
     -- lazy.nvim-style escape hatch for arbitrary maps / your own functions:
     -- { "<leader>cx", function() ... end, desc = "...", mode = "n" },
   },
+
+  folding = false, -- true: enable LSP code folding for tcl/rvt (see Usage)
 })
 ```
 
@@ -106,17 +108,13 @@ connect. Use the keymaps you configured above, or your editor's defaults:
   calls; explicit `$obj method` edges aren't traced yet.
 - **Code folding** — fold ranges for proc/method/namespace/class and control-flow
   bodies, plus the TCL inside `.rvt` `<? ?>` blocks (folds where tree-sitter
-  struggles with the mixed HTML/TCL). Not automatic — opt a buffer in with
-  Neovim 0.11+'s LSP foldexpr:
-  ```lua
-  vim.api.nvim_create_autocmd("LspAttach", {
-    callback = function(a)
-      if vim.lsp.get_client_by_id(a.data.client_id).name == "tcl_lsp" then
-        vim.wo.foldmethod, vim.wo.foldexpr = "expr", "v:lua.vim.lsp.foldexpr()"
-      end
-    end,
-  })
-  ```
+  struggles with the mixed HTML/TCL). Curated: it folds script bodies only, not
+  arg lists, expressions, or data braces. Not on by default — set `folding = true`
+  in `setup()` and the plugin wires `foldmethod`/`foldexpr` window-local for
+  tcl/rvt buffers (new splits included), leaving every other filetype's folding
+  alone. You keep control of `foldlevel`/`foldcolumn`/etc. Prefer to wire it
+  yourself? Point Neovim 0.11+'s LSP foldexpr at our server in your own
+  `LspAttach`: `vim.wo.foldexpr = "v:lua.vim.lsp.foldexpr()"`.
 
 **Indexing feedback.** On first connect the server indexes the whole project (a few
 seconds on a big repo), reported via LSP work-done progress: an `Indexing TCL
