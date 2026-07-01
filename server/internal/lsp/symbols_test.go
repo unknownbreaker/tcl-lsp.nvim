@@ -1,11 +1,48 @@
 package lsp
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/source"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
+
+// childNames returns the names of syms in order.
+func childNames(syms []DocumentSymbol) []string {
+	out := make([]string, 0, len(syms))
+	for _, s := range syms {
+		out = append(out, s.Name)
+	}
+	return out
+}
+
+// A class declared between two procs appears between them (source order), not
+// hoisted above them -- so an outline reflects the file top-to-bottom.
+func TestBuildDocumentSymbolsSourceOrderRoot(t *testing.T) {
+	src := "proc alpha {} {}\nitcl::class ::Widget {}\nproc omega {} {}"
+	syms := buildDocumentSymbols(tcl.FileDefs(src), src, false)
+	got := childNames(syms)
+	want := []string{"alpha", "::Widget", "omega"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("root order = %v, want %v (source order)", got, want)
+	}
+}
+
+// Same, one level down: members of a namespace node keep file order.
+func TestBuildDocumentSymbolsSourceOrderInNamespace(t *testing.T) {
+	src := "namespace eval ::app {\n  proc a {} {}\n  itcl::class C {}\n  proc b {} {}\n}"
+	syms := buildDocumentSymbols(tcl.FileDefs(src), src, false)
+	app := findSym(syms, "::app")
+	if app == nil {
+		t.Fatalf("::app namespace node missing: %#v", syms)
+	}
+	got := childNames(app.Children)
+	want := []string{"a", "C", "b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("::app child order = %v, want %v (source order)", got, want)
+	}
+}
 
 // posLE reports whether position a is less than or equal to position b.
 func posLE(a, b Position) bool {
