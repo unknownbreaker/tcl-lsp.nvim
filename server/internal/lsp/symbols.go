@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
@@ -203,6 +204,10 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		root = append(root, *node)
 	}
 
+	// Interleave root-level global symbols and top-level namespace nodes by source
+	// position, matching the per-namespace ordering above.
+	sortBySourcePosition(root)
+
 	// --- Step 5: hoist ::request children (for .rvt pages) ---
 	//
 	// When hoistRequest is true, a root-level ::request namespace node (produced
@@ -279,8 +284,10 @@ func posLess(a, b Position) bool {
 	return a.Line < b.Line || (a.Line == b.Line && a.Character < b.Character)
 }
 
-// rebuildNSChildren builds the full Children slice for a namespace node:
-// first its direct symbol children, then its child namespace nodes.
+// rebuildNSChildren builds the full Children slice for a namespace node: its
+// direct symbol children and its child namespace nodes, interleaved by source
+// position so the outline reads top-to-bottom (a nested `namespace eval` between
+// two procs sorts between them, not after both).
 //
 // allNSOrder must contain every namespace node that was created (including
 // synthesized intermediates with no direct symbols), so that chains like
@@ -304,7 +311,19 @@ func rebuildNSChildren(fq string, nsNode map[string]*DocumentSymbol, nsChildren 
 			children = append(children, *childNode)
 		}
 	}
+	// Interleave members and sub-namespaces by position. A namespace node's Range
+	// starts at its earliest descendant (spanChildren), which is inside its braces
+	// and so orders correctly against sibling members. Stable, so equal-position
+	// members keep their existing source order.
+	sortBySourcePosition(children)
 	return children
+}
+
+// sortBySourcePosition orders symbols by their Range start, stably.
+func sortBySourcePosition(syms []DocumentSymbol) {
+	sort.SliceStable(syms, func(i, j int) bool {
+		return posLess(syms[i].Range.Start, syms[j].Range.Start)
+	})
 }
 
 // offsetToPosition converts a byte offset in src to an LSP Position.

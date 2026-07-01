@@ -29,6 +29,60 @@ func TestBuildDocumentSymbolsSourceOrderRoot(t *testing.T) {
 	}
 }
 
+// A nested namespace declared between two procs sorts BETWEEN them at root, not
+// after both (sub-namespaces interleave with members by position).
+func TestBuildDocumentSymbolsNamespaceInterleavedAtRoot(t *testing.T) {
+	src := "proc a {} {}\nnamespace eval ::sub {\n  proc x {} {}\n}\nproc b {} {}"
+	syms := buildDocumentSymbols(tcl.FileDefs(src), src, false)
+	got := childNames(syms)
+	want := []string{"a", "::sub", "b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("root order = %v, want %v (namespace interleaved by position)", got, want)
+	}
+}
+
+// Same, one level deeper: a child namespace interleaves with members inside a
+// namespace node.
+func TestBuildDocumentSymbolsNamespaceInterleavedNested(t *testing.T) {
+	src := "namespace eval ::app {\n  proc a {} {}\n  namespace eval ::app::inner {\n    proc x {} {}\n  }\n  proc b {} {}\n}"
+	syms := buildDocumentSymbols(tcl.FileDefs(src), src, false)
+	app := findSym(syms, "::app")
+	if app == nil {
+		t.Fatalf("::app missing: %#v", syms)
+	}
+	got := childNames(app.Children)
+	want := []string{"a", "::app::inner", "b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("::app child order = %v, want %v (child namespace interleaved)", got, want)
+	}
+}
+
+// A namespace reopened in two blocks collapses to ONE node holding both members
+// (no duplicate node, no dropped members). Its position follows its first block,
+// so a top-level symbol textually between the blocks may sort after the whole
+// node -- an accepted limit of one-node-per-namespace. This pins the invariants
+// that matter (single node, both members, nothing dropped).
+func TestBuildDocumentSymbolsReopenedNamespace(t *testing.T) {
+	src := "namespace eval ::app { proc a {} {} }\nproc mid {} {}\nnamespace eval ::app { proc b {} {} }"
+	syms := buildDocumentSymbols(tcl.FileDefs(src), src, false)
+	count := 0
+	for _, s := range syms {
+		if s.Name == "::app" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("::app should appear exactly once, got %d: %#v", count, syms)
+	}
+	app := findSym(syms, "::app")
+	if findChild(app, "a") == nil || findChild(app, "b") == nil {
+		t.Fatalf("::app must hold both a and b: %#v", app.Children)
+	}
+	if findSym(syms, "mid") == nil {
+		t.Fatalf("top-level 'mid' dropped: %#v", syms)
+	}
+}
+
 // Same, one level down: members of a namespace node keep file order.
 func TestBuildDocumentSymbolsSourceOrderInNamespace(t *testing.T) {
 	src := "namespace eval ::app {\n  proc a {} {}\n  itcl::class C {}\n  proc b {} {}\n}"
