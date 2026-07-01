@@ -68,10 +68,10 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 
 	// --- Step 1: build class nodes (with method/ivar children) ---
 
-	// classSyms maps FQ class name -> DocumentSymbol (kind Class) with children.
+	// classSyms maps FQ class name -> DocumentSymbol (kind Class) with children,
+	// built up-front so Step 2 can splice each class into the source-ordered
+	// member stream by name.
 	classSyms := map[string]*DocumentSymbol{}
-	// classNames preserves insertion order for stable output.
-	var classNames []string
 
 	for _, d := range defs {
 		if d.Kind != tcl.DefClass {
@@ -79,7 +79,6 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		}
 		sym := leafSymbol(d, src)
 		classSyms[d.Name] = &sym
-		classNames = append(classNames, d.Name)
 	}
 
 	// Attach method and ivar children to their class nodes.
@@ -95,7 +94,12 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		parent.Children = append(parent.Children, child)
 	}
 
-	// --- Step 2: group top-level symbols by namespace ---
+	// --- Step 2: group top-level symbols by namespace, IN SOURCE ORDER ---
+	//
+	// defs is in ascending source position (the shared walk visits commands in
+	// order), so one ordered pass makes each namespace's members appear in the
+	// order they occur in the file -- classes, procs, and vars interleaved by
+	// position, instead of all classes hoisted ahead of the procs.
 
 	// nsChildren maps namespace FQ -> slice of DocumentSymbol children.
 	nsChildren := map[string][]DocumentSymbol{}
@@ -108,38 +112,34 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		nsChildren[ns] = append(nsChildren[ns], sym)
 	}
 
-	// Add class nodes (use the class's Namespace, not Name).
-	for _, name := range classNames {
-		sym := *classSyms[name]
-		// Find the namespace this class lives in.
-		d := findClassDef(defs, name)
-		ns := d.Namespace
-		if ns != "::" {
-			sym.Name = shortName(sym.Name)
-		}
-		addToNS(ns, sym)
-	}
-
-	// Add procs and namespace vars (that are NOT inside a class body).
+	emittedClass := map[string]bool{} // a class redefined in-file must appear once
 	for _, d := range defs {
-		if d.Kind != tcl.DefProc && d.Kind != tcl.DefNamespaceVar {
-			continue
+		switch d.Kind {
+		case tcl.DefClass:
+			if emittedClass[d.Name] {
+				continue
+			}
+			emittedClass[d.Name] = true
+			sym := *classSyms[d.Name]
+			if d.Namespace != "::" {
+				sym.Name = shortName(sym.Name) // the namespace node supplies qualification
+			}
+			addToNS(d.Namespace, sym)
+		case tcl.DefProc, tcl.DefNamespaceVar:
+			if d.Class != "" {
+				continue // inside a class body (itcl inner proc); not a top-level symbol
+			}
+			kind, ok := symbolKind(d.Kind)
+			if !ok {
+				continue
+			}
+			sym := leafSymbol(d, src)
+			sym.Kind = kind
+			// Members display their simple name; the containing namespace node (or
+			// the document root) supplies the qualification.
+			sym.Name = shortName(sym.Name)
+			addToNS(d.Namespace, sym)
 		}
-		if d.Class != "" {
-			// This proc is inside a class body (itcl inner proc); skip at top level.
-			continue
-		}
-		kind, ok := symbolKind(d.Kind)
-		if !ok {
-			continue
-		}
-		sym := leafSymbol(d, src)
-		sym.Kind = kind
-		// Members (procs, namespace vars) display their simple name; the
-		// containing namespace node (or the document root) supplies the
-		// qualification. Classes (handled above) keep their declared form.
-		sym.Name = shortName(sym.Name)
-		addToNS(d.Namespace, sym)
 	}
 
 	// --- Step 3: build namespace tree (nested by path) ---
@@ -223,16 +223,6 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 	}
 
 	return root
-}
-
-// findClassDef returns the first DefClass definition matching the given FQ name.
-func findClassDef(defs []tcl.Definition, name string) tcl.Definition {
-	for _, d := range defs {
-		if d.Kind == tcl.DefClass && d.Name == name {
-			return d
-		}
-	}
-	return tcl.Definition{}
 }
 
 // shortName returns the simple (display) name from a fully-qualified name:
